@@ -50,7 +50,7 @@ BOOL CALLBACK DirectSoundDeviceFinder::EnumerateCallback(LPGUID guid, LPCSTR des
   State *state = reinterpret_cast<State*>(state_voidptr);
 
   Device dev;
-  dev.description = QString::fromLatin1(description);
+  dev.description = QString::fromLocal8Bit(description);
   if (guid) dev.value = QUuid(*guid).toString();
   dev.iconname = GuessIconName(dev.description);
   state->devices.append(dev);
