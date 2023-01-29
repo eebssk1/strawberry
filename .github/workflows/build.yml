@@ -600,29 +600,6 @@ jobs:
           path: build/strawberry-*.dmg
 
 
-  upload-macos:
-    name: Upload macOS DMG
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master' || github.ref == 'refs/heads/macos'
-    needs:
-      - build-macos
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
-        with:
-          path: uploads
-      - name: Install SSH keys
-        uses: shimataro/ssh-key-action@v2
-        with:
-          known_hosts: ${{ secrets.KNOWN_HOSTS2 }}
-          key: ${{ secrets.SSH_KEY }}
-      - name: rsync
-        run: |
-          set -x
-          for i in $(find uploads -type f -name 'strawberry-*.dmg'); do
-            rsync -e "ssh -p 50220 -o StrictHostKeyChecking=no" -va $i travis@echoes.jkvinge.net:/home/travis/builds/macos/
-          done
-
 
   build-windows-mingw:
     name: Build Windows MinGW
@@ -1030,25 +1007,3 @@ jobs:
           path: build/StrawberrySetup*.exe
 
 
-  upload-windows-msvc:
-    name: Upload Windows MSVC Setup
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/master'
-    needs:
-      - build-windows-msvc
-    steps:
-      - uses: actions/checkout@v3
-      - uses: actions/download-artifact@v3
-        with:
-          path: uploads
-      - name: Install SSH keys
-        uses: shimataro/ssh-key-action@v2
-        with:
-          known_hosts: ${{ secrets.KNOWN_HOSTS2 }}
-          key: ${{ secrets.SSH_KEY }}
-      - name: rsync
-        run: |
-          set -x
-          for i in $(find uploads -type f -name 'StrawberrySetup*.exe'); do
-            rsync -e "ssh -p 50220 -o StrictHostKeyChecking=no" -va $i travis@echoes.jkvinge.net:/home/travis/builds/windows/
-          done
