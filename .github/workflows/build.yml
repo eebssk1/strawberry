@@ -640,12 +640,12 @@ jobs:
         run: >
           cmake ..
           -DCMAKE_TOOLCHAIN_FILE="../cmake/Toolchain-${{matrix.arch}}-w64-mingw32-shared.cmake"
-          -DCMAKE_BUILD_TYPE="${{env.build_type}}"
+          -DCMAKE_BUILD_TYPE="${{matrix.build_type}}"
           -DCMAKE_PREFIX_PATH="/strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6"
           -DBUILD_WITH_QT6=ON
           -DBUILD_WERROR=OFF
           -DARCH="${{matrix.arch}}"
-          -DENABLE_WIN32_CONSOLE=${{env.build_type}}
+          -DENABLE_WIN32_CONSOLE=${{matrix.build_type}}
           -DENABLE_DBUS=OFF
           -DENABLE_LIBGPOD=OFF
           -DENABLE_LIBMTP=OFF
