@@ -208,7 +208,7 @@ jobs:
           -DBUILD_WITH_QT6=ON
           -DBUILD_WERROR=OFF
           -DARCH="${{matrix.arch}}"
-          -DENABLE_WIN32_CONSOLE=${{matrix.build_type}}
+          -DENABLE_WIN32_CONSOLE=${{env.win32_console}}
           -DENABLE_DBUS=OFF
           -DENABLE_LIBGPOD=OFF
           -DENABLE_LIBMTP=OFF
@@ -289,7 +289,7 @@ jobs:
         
       - uses: actions/upload-artifact@v3
         with:
-          name: upload-windows-mingw
+          name: upload-windows-mingw-${{matrix.build_type}}
           path: build/StrawberrySetup*.exe
 
 
