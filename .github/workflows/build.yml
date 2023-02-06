@@ -286,6 +286,11 @@ jobs:
       - name: Build Windows installer
         working-directory: build
         run: makensis strawberry.nsi
+        
+      - uses: actions/upload-artifact@v3
+        with:
+          name: upload-windows-mingw
+          path: build/StrawberrySetup*.exe
 
 
   build-windows-msvc:
