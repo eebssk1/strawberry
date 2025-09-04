@@ -132,6 +132,9 @@ jobs:
       - name: Link MXE directory
         run: ln -s /strawberry-mxe ~/mxe-shared
 
+      - name: download Toolchain
+        run: cd /opt && curl -L "https://github.com/eebssk1/aio_tc_build/releases/latest/download/x86_64-w64-mingw32-cross.tb2" | tar --bz -x
+
       - name: Run CMake
         env:
           PKG_CONFIG_PATH: /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/lib/pkgconfig
@@ -268,4 +271,4 @@ jobs:
         with:
           name: win-${{matrix.arch}}-${{matrix.buildtype}}
           path: |
-            build/strawberry.exe
+            build/StrawberrySetup*.exe
