@@ -24,13 +24,13 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QWidget>
 #include <QString>
 #include <QIcon>
 #include <QPixmap>
+
+#include "includes/scoped_ptr.h"
 
 class QMenu;
 class QAction;
@@ -45,22 +45,20 @@ class PlaylistSequence : public QWidget {
   explicit PlaylistSequence(QWidget *parent = nullptr, SettingsProvider *settings = nullptr);
   ~PlaylistSequence() override;
 
-  enum RepeatMode {
-    Repeat_Off = 0,
-    Repeat_Track = 1,
-    Repeat_Album = 2,
-    Repeat_Playlist = 3,
-    Repeat_OneByOne = 4,
-    Repeat_Intro = 5,
+  enum class RepeatMode {
+    Off = 0,
+    Track = 1,
+    Album = 2,
+    Playlist = 3,
+    OneByOne = 4,
+    Intro = 5
   };
-  enum ShuffleMode {
-    Shuffle_Off = 0,
-    Shuffle_All = 1,
-    Shuffle_InsideAlbum = 2,
-    Shuffle_Albums = 3,
+  enum class ShuffleMode {
+    Off = 0,
+    All = 1,
+    InsideAlbum = 2,
+    Albums = 3
   };
-
-  static const char *kSettingsGroup;
 
   RepeatMode repeat_mode() const;
   ShuffleMode shuffle_mode() const;
@@ -68,19 +66,17 @@ class PlaylistSequence : public QWidget {
   QMenu *repeat_menu() const { return repeat_menu_; }
   QMenu *shuffle_menu() const { return shuffle_menu_; }
 
-  void set_dynamic(const bool dynamic) { dynamic_ = dynamic; }
-
- public slots:
+ public Q_SLOTS:
   void SetRepeatMode(const PlaylistSequence::RepeatMode mode);
   void SetShuffleMode(const PlaylistSequence::ShuffleMode mode);
   void CycleShuffleMode();
   void CycleRepeatMode();
 
- signals:
-  void RepeatModeChanged(PlaylistSequence::RepeatMode mode);
-  void ShuffleModeChanged(PlaylistSequence::ShuffleMode mode);
+ Q_SIGNALS:
+  void RepeatModeChanged(const PlaylistSequence::RepeatMode mode);
+  void ShuffleModeChanged(const PlaylistSequence::ShuffleMode mode);
 
- private slots:
+ private Q_SLOTS:
   void RepeatActionTriggered(QAction *action);
   void ShuffleActionTriggered(QAction *action);
 
@@ -92,7 +88,7 @@ class PlaylistSequence : public QWidget {
 
  private:
   Ui_PlaylistSequence *ui_;
-  std::unique_ptr<SettingsProvider> settings_;
+  ScopedPtr<SettingsProvider> settings_;
 
   QMenu *repeat_menu_;
   QMenu *shuffle_menu_;
@@ -100,7 +96,6 @@ class PlaylistSequence : public QWidget {
   bool loading_;
   RepeatMode repeat_mode_;
   ShuffleMode shuffle_mode_;
-  bool dynamic_;
 };
 
 #endif  // PLAYLISTSEQUENCE_H

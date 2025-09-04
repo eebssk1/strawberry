@@ -24,52 +24,54 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QString>
 #include <QImage>
-#include <QTemporaryFile>
 
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
+#include "core/temporaryfile.h"
 #include "core/song.h"
 #include "albumcoverloaderoptions.h"
 #include "albumcoverloaderresult.h"
 
-class Application;
+class AlbumCoverLoader;
 
 class CurrentAlbumCoverLoader : public QObject {
   Q_OBJECT
 
  public:
-  explicit CurrentAlbumCoverLoader(Application *app, QObject *parent = nullptr);
+  explicit CurrentAlbumCoverLoader(const SharedPtr<AlbumCoverLoader> albumcover_loader, QObject *parent = nullptr);
   ~CurrentAlbumCoverLoader() override;
 
   const AlbumCoverLoaderOptions &options() const { return options_; }
   const Song &last_song() const { return last_song_; }
 
- public slots:
+  void ReloadSettingsAsync();
+
+ public Q_SLOTS:
+  void ReloadSettings();
   void LoadAlbumCover(const Song &song);
 
- signals:
-  void AlbumCoverLoaded(Song song, AlbumCoverLoaderResult result);
-  void ThumbnailLoaded(Song song, QUrl thumbnail_uri, QImage image);
+ Q_SIGNALS:
+  void AlbumCoverLoaded(const Song &song, const AlbumCoverLoaderResult &result);
+  void ThumbnailLoaded(const Song &song, const QUrl &thumbnail_uri, const QImage &image);
 
- private slots:
-  void TempAlbumCoverLoaded(const quint64 id, AlbumCoverLoaderResult result);
+ private Q_SLOTS:
+  void AlbumCoverReady(const quint64 id, AlbumCoverLoaderResult result);
 
  private:
-  Application *app_;
+  const SharedPtr<AlbumCoverLoader> albumcover_loader_;
   AlbumCoverLoaderOptions options_;
 
-  QString temp_file_pattern_;
+  const QString temp_file_pattern_;
 
-  std::unique_ptr<QTemporaryFile> temp_cover_;
-  std::unique_ptr<QTemporaryFile> temp_cover_thumbnail_;
+  ScopedPtr<TemporaryFile> temp_cover_;
+  ScopedPtr<TemporaryFile> temp_cover_thumbnail_;
   quint64 id_;
 
   Song last_song_;
-
 };
 
 #endif  // CURRENTALBUMCOVERLOADER_H

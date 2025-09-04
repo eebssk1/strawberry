@@ -32,13 +32,15 @@
 #include <QString>
 #include <QSettings>
 
-#include "osd/osdbase.h"
 #include "core/logging.h"
+#include "core/settings.h"
+#include "constants/notificationssettings.h"
 
 class QCheckBox;
 class QComboBox;
 class QRadioButton;
 class QSpinBox;
+class QDoubleSpinBox;
 class QSlider;
 class QLineEdit;
 class QShowEvent;
@@ -67,16 +69,19 @@ class SettingsPage : public QWidget {
 
   void set_changed() { changed_ = true; }
 
-  static void ComboBoxLoadFromSettings(const QSettings &s, QComboBox *combobox, const QString &setting, const QString &default_value);
-  static void ComboBoxLoadFromSettings(const QSettings &s, QComboBox *combobox, const QString &setting, const int default_value);
-  static void ComboBoxLoadFromSettingsByIndex(const QSettings &s, QComboBox *combobox, const QString &setting, const int default_value);
+  static void ComboBoxLoadFromSettings(const Settings &s, QComboBox *combobox, const QString &setting, const QString &default_value);
+  static void ComboBoxLoadFromSettings(const Settings &s, QComboBox *combobox, const QString &setting, const int default_value);
+  static void ComboBoxLoadFromSettingsByIndex(const Settings &s, QComboBox *combobox, const QString &setting, const int default_value);
 
  private:
   virtual void Save() = 0;
   virtual void Cancel() {}
 
- signals:
-  void NotificationPreview(OSDBase::Behaviour, QString, QString);
+ protected:
+  bool eventFilter(QObject *obj, QEvent *e) override;
+
+ Q_SIGNALS:
+  void NotificationPreview(const OSDSettings::Type, const QString&, const QString&);
 
  private:
   SettingsDialog *dialog_;
@@ -86,6 +91,7 @@ class SettingsPage : public QWidget {
   QList<QPair<QRadioButton*, bool>> radiobuttons_;
   QList<QPair<QComboBox*, QString>> comboboxes_;
   QList<QPair<QSpinBox*, int>> spinboxes_;
+  QList<QPair<QDoubleSpinBox*, double>> double_spinboxes_;
   QList<QPair<QSlider*, int>> sliders_;
   QList<QPair<QLineEdit*, QString>> lineedits_;
 };

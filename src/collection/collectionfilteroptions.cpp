@@ -24,17 +24,17 @@
 
 #include "collectionfilteroptions.h"
 
-CollectionFilterOptions::CollectionFilterOptions() : filter_mode_(FilterMode_All), max_age_(-1) {}
+CollectionFilterOptions::CollectionFilterOptions() : filter_mode_(FilterMode::All), max_age_(-1) {}
 
 bool CollectionFilterOptions::Matches(const Song &song) const {
 
   if (max_age_ != -1) {
-    const qint64 cutoff = QDateTime::currentDateTime().toSecsSinceEpoch() - max_age_;
+    const qint64 cutoff = QDateTime::currentSecsSinceEpoch() - max_age_;
     if (song.ctime() <= cutoff) return false;
   }
 
   if (!filter_text_.isNull()) {
-    return song.artist().contains(filter_text_, Qt::CaseInsensitive) || song.album().contains(filter_text_, Qt::CaseInsensitive) || song.title().contains(filter_text_, Qt::CaseInsensitive);
+    return song.albumartist().contains(filter_text_, Qt::CaseInsensitive) || song.artist().contains(filter_text_, Qt::CaseInsensitive) || song.album().contains(filter_text_, Qt::CaseInsensitive) || song.title().contains(filter_text_, Qt::CaseInsensitive);
   }
 
   return true;

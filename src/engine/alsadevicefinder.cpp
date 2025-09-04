@@ -22,21 +22,22 @@
 #include <cstdio>
 #include <cerrno>
 #include <alsa/asoundlib.h>
-#include <boost/scope_exit.hpp>
 
-#include <QList>
 #include <QString>
+#include <QScopeGuard>
 
 #include <core/logging.h>
 
-#include "devicefinder.h"
 #include "alsadevicefinder.h"
+#include "enginedevice.h"
 
-AlsaDeviceFinder::AlsaDeviceFinder() : DeviceFinder("alsa", { "alsa", "alsasink" }) {}
+using namespace Qt::Literals::StringLiterals;
 
-QList<DeviceFinder::Device> AlsaDeviceFinder::ListDevices() {
+AlsaDeviceFinder::AlsaDeviceFinder() : DeviceFinder(u"alsa"_s, { u"alsa"_s, u"alsasink"_s }) {}
 
-  QList<Device> ret;
+EngineDeviceList AlsaDeviceFinder::ListDevices() {
+
+  EngineDeviceList devices;
 
   snd_pcm_stream_name(SND_PCM_STREAM_PLAYBACK);
 
@@ -61,8 +62,7 @@ QList<DeviceFinder::Device> AlsaDeviceFinder::ListDevices() {
       qLog(Error) << "Unable to open soundcard" << card << ":" << snd_strerror(result);
       continue;
     }
-    BOOST_SCOPE_EXIT(&handle) { snd_ctl_close(handle); }  // clazy:exclude=rule-of-three NOLINT(google-explicit-constructor)
-    BOOST_SCOPE_EXIT_END
+    const QScopeGuard snd_ctl_handle_close = qScopeGuard([&handle]() { snd_ctl_close(handle); });
 
     result = snd_ctl_card_info(handle, cardinfo);
     if (result < 0) {
@@ -92,21 +92,21 @@ QList<DeviceFinder::Device> AlsaDeviceFinder::ListDevices() {
         continue;
       }
 
-      Device device;
-      device.description = QString("%1 %2").arg(snd_ctl_card_info_get_name(cardinfo), snd_pcm_info_get_name(pcminfo));
-      device.iconname = GuessIconName(device.description);
+      EngineDevice device;
+      device.description = QStringLiteral("%1 %2").arg(QString::fromUtf8(snd_ctl_card_info_get_name(cardinfo)), QString::fromUtf8(snd_pcm_info_get_name(pcminfo)));
+      device.iconname = device.GuessIconName();
       device.card = card;
       device.device = dev;
 
-      device.value = QString("hw:%1,%2").arg(card).arg(dev);
-      ret.append(device);
-      device.value = QString("plughw:%1,%2").arg(card).arg(dev);
-      ret.append(device);
+      device.value = QStringLiteral("hw:%1,%2").arg(QString::fromUtf8(snd_ctl_card_info_get_id(cardinfo))).arg(dev);
+      devices.append(device);
+      device.value = QStringLiteral("plughw:%1,%2").arg(QString::fromUtf8(snd_ctl_card_info_get_id(cardinfo))).arg(dev);
+      devices.append(device);
 
     }
   }
 
   snd_config_update_free_global();
 
-  return ret;
+  return devices;
 }

@@ -24,14 +24,14 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QStyleOption>
 #include <QStyleOptionViewItem>
 #include <QAbstractItemModel>
 #include <QString>
 
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "collection/collectionitemdelegate.h"
 #include "widgets/autoexpandingtreeview.h"
@@ -44,8 +44,11 @@ class QAction;
 class QMouseEvent;
 class QContextMenuEvent;
 
-class Application;
+class TaskManager;
+class TagReaderClient;
+class DeviceManager;
 class DeviceProperties;
+class CollectionDirectoryModel;
 class MergedProxyModel;
 class OrganizeDialog;
 
@@ -68,7 +71,10 @@ class DeviceView : public AutoExpandingTreeView {
   explicit DeviceView(QWidget *parent = nullptr);
   ~DeviceView() override;
 
-  void SetApplication(Application *app);
+  void Init(const SharedPtr<TaskManager> task_manager,
+            const SharedPtr<TagReaderClient> tagreader_client,
+            const SharedPtr<DeviceManager> device_manager,
+            CollectionDirectoryModel *collection_directory_model);
 
   // AutoExpandingTreeView
   bool CanRecursivelyExpand(const QModelIndex &idx) const override;
@@ -77,7 +83,7 @@ class DeviceView : public AutoExpandingTreeView {
   void contextMenuEvent(QContextMenuEvent*) override;
   void mouseDoubleClickEvent(QMouseEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   // Device menu actions
   void Connect();
   void Unmount();
@@ -103,12 +109,14 @@ class DeviceView : public AutoExpandingTreeView {
   SongList GetSelectedSongs() const;
 
  private:
-  Application *app_;
+  SharedPtr<TaskManager> task_manager_;
+  SharedPtr<TagReaderClient> tagreader_client_;
+  SharedPtr<DeviceManager> device_manager_;
   MergedProxyModel *merged_model_;
   QSortFilterProxyModel *sort_model_;
 
-  std::unique_ptr<DeviceProperties> properties_dialog_;
-  std::unique_ptr<OrganizeDialog> organize_dialog_;
+  ScopedPtr<DeviceProperties> properties_dialog_;
+  ScopedPtr<OrganizeDialog> organize_dialog_;
 
   QMenu *device_menu_;
   QAction *eject_action_;

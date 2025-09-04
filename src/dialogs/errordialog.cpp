@@ -20,6 +20,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QWidget>
 #include <QString>
 #include <QIcon>
@@ -28,14 +30,16 @@
 #include <QStyle>
 #include <QLabel>
 #include <QTextEdit>
+#include <QCloseEvent>
 
 #include "errordialog.h"
 #include "ui_errordialog.h"
 
-class QHideEvent;
+using namespace Qt::Literals::StringLiterals;
 
 ErrorDialog::ErrorDialog(QWidget *parent)
     : QDialog(parent),
+      parent_(parent),
       ui_(new Ui_ErrorDialog) {
 
   ui_->setupUi(this);
@@ -63,22 +67,29 @@ void ErrorDialog::ShowMessage(const QString &message) {
   UpdateContent();
 
   show();
-  raise();
-  activateWindow();
+
+  if (parent_ && parent_->isMaximized()) {
+    raise();
+    activateWindow();
+  }
 
 }
 
-void ErrorDialog::hideEvent(QHideEvent *) {
+void ErrorDialog::closeEvent(QCloseEvent *e) {
+
   current_messages_.clear();
   UpdateContent();
+
+  QDialog::closeEvent(e);
+
 }
 
 void ErrorDialog::UpdateContent() {
 
   QString html;
-  for (const QString &message : current_messages_) {
+  for (const QString &message : std::as_const(current_messages_)) {
     if (!html.isEmpty()) {
-      html += "<hr/>";
+      html += "<hr/>"_L1;
     }
     html += message.toHtmlEscaped();
   }

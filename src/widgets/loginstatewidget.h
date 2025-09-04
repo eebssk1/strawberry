@@ -38,7 +38,11 @@ class LoginStateWidget : public QWidget {
   explicit LoginStateWidget(QWidget *parent = nullptr);
   ~LoginStateWidget() override;
 
-  enum State { LoggedIn, LoginInProgress, LoggedOut };
+  enum class State {
+    LoggedIn,
+    LoginInProgress,
+    LoggedOut
+  };
 
   // Installs an event handler on the field so that pressing enter will emit
   // LoginClicked() instead of doing the default action (closing the dialog).
@@ -50,7 +54,7 @@ class LoginStateWidget : public QWidget {
   // QObject
   bool eventFilter(QObject *object, QEvent *event) override;
 
- public slots:
+ public Q_SLOTS:
   // Changes the "You are logged in/out" label, shows/hides any QGroupBoxes added with AddCredentialGroup.
   void SetLoggedIn(const LoginStateWidget::State state, const QString &account_name = QString());
 
@@ -62,11 +66,11 @@ class LoginStateWidget : public QWidget {
 
   void SetExpires(const QDate expires);
 
- signals:
+ Q_SIGNALS:
   void LogoutClicked();
   void LoginClicked();
 
- private slots:
+ private Q_SLOTS:
   void Logout();
   void FocusLastCredentialField();
 

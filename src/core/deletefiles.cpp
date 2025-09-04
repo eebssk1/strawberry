@@ -23,19 +23,22 @@
 
 #include <QtGlobal>
 #include <QThread>
-#include <QTimer>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
+#include <QMetaObject>
 
+#include "includes/shared_ptr.h"
 #include "taskmanager.h"
 #include "song.h"
 #include "deletefiles.h"
 #include "musicstorage.h"
 
-const int DeleteFiles::kBatchSize = 50;
+namespace {
+constexpr int kBatchSize = 50;
+}
 
-DeleteFiles::DeleteFiles(TaskManager *task_manager, std::shared_ptr<MusicStorage> storage, const bool use_trash, QObject *parent)
+DeleteFiles::DeleteFiles(SharedPtr<TaskManager> task_manager, SharedPtr<MusicStorage> storage, const bool use_trash, QObject *parent)
     : QObject(parent),
       thread_(nullptr),
       task_manager_(task_manager),
@@ -89,13 +92,14 @@ void DeleteFiles::ProcessSomeFiles() {
 
   // None left?
   if (progress_ >= songs_.count()) {
-    task_manager_->SetTaskProgress(task_id_, progress_, songs_.count());
+    task_manager_->SetTaskProgress(task_id_, static_cast<quint64>(progress_), static_cast<quint64>(songs_.count()));
 
-    storage_->FinishCopy(songs_with_errors_.isEmpty());
+    QString error_text;
+    storage_->FinishCopy(songs_with_errors_.isEmpty(), error_text);
 
     task_manager_->SetTaskFinished(task_id_);
 
-    emit Finished(songs_with_errors_);
+    Q_EMIT Finished(songs_with_errors_);
 
     // Move back to the original thread so deleteLater() can get called in the main thread's event loop
     moveToThread(original_thread_);
@@ -110,9 +114,9 @@ void DeleteFiles::ProcessSomeFiles() {
 
   const qint64 n = qMin(static_cast<qint64>(songs_.count()), static_cast<qint64>(progress_ + kBatchSize));
   for (; progress_ < n; ++progress_) {
-    task_manager_->SetTaskProgress(task_id_, progress_, songs_.count());
+    task_manager_->SetTaskProgress(task_id_, static_cast<quint64>(progress_), static_cast<quint64>(songs_.count()));
 
-    const Song &song = songs_[progress_];
+    const Song song = songs_.value(progress_);
 
     MusicStorage::DeleteJob job;
     job.metadata_ = song;
@@ -123,6 +127,6 @@ void DeleteFiles::ProcessSomeFiles() {
     }
   }
 
-  QTimer::singleShot(0, this, &DeleteFiles::ProcessSomeFiles);
+  QMetaObject::invokeMethod(this, &DeleteFiles::ProcessSomeFiles);
 
 }

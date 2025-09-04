@@ -27,16 +27,19 @@
 #include <QRegularExpression>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "collection/collectionbackend.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 
-ParserBase::ParserBase(CollectionBackendInterface *collection, QObject *parent)
-    : QObject(parent), collection_(collection) {}
+using namespace Qt::Literals::StringLiterals;
 
-void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning, const QDir &dir, Song *song, const bool collection_search) const {
+ParserBase::ParserBase(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : QObject(parent), tagreader_client_(tagreader_client), collection_backend_(collection_backend) {}
+
+void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning, const int track, const QDir &dir, Song *song, const bool collection_lookup) const {
 
   if (filename_or_url.isEmpty()) {
     return;
@@ -44,43 +47,57 @@ void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning
 
   QString filename = filename_or_url;
 
-  if (filename_or_url.contains(QRegularExpression("^[a-z]{2,}:", QRegularExpression::CaseInsensitiveOption))) {
+  static const QRegularExpression regex_url_schema(QStringLiteral("^[a-z]{2,}:"), QRegularExpression::CaseInsensitiveOption);
+  if (filename_or_url.contains(regex_url_schema)) {
     QUrl url(filename_or_url);
     song->set_source(Song::SourceFromURL(url));
-    if (song->source() == Song::Source_LocalFile) {
+    if (song->source() == Song::Source::LocalFile) {
       filename = url.toLocalFile();
     }
     else if (song->is_stream()) {
       song->set_url(QUrl::fromUserInput(filename_or_url));
-      song->set_filetype(Song::FileType_Stream);
+      song->set_filetype(Song::FileType::Stream);
       song->set_valid(true);
       return;
     }
     else {
       qLog(Error) << "Don't know how to handle" << url;
+      Q_EMIT Error(tr("Don't know how to handle %1").arg(filename_or_url));
       return;
     }
   }
 
-  // Strawberry always wants / separators internally.
-  // Using QDir::fromNativeSeparators() only works on the same platform the playlist was created on/for, using replace() lets playlists work on any platform.
-  filename = filename.replace('\\', '/');
+  filename = QDir::cleanPath(filename);
 
   // Make the path absolute
   if (!QDir::isAbsolutePath(filename)) {
     filename = dir.absoluteFilePath(filename);
   }
 
-  // Use the canonical path
-  if (QFile::exists(filename)) {
-    filename = QFileInfo(filename).canonicalFilePath();
-  }
-
   const QUrl url = QUrl::fromLocalFile(filename);
 
-  // Search in the collection
-  if (collection_ && collection_search) {
-    Song collection_song = collection_->GetSongByUrl(url, beginning);
+  // Search the collection
+  if (collection_backend_ && collection_lookup) {
+    Song collection_song;
+    if (track > 0) {
+      collection_song = collection_backend_->GetSongByUrlAndTrack(url, track);
+    }
+    if (!collection_song.is_valid()) {
+      collection_song = collection_backend_->GetSongByUrl(url, beginning);
+    }
+    // Try canonical path
+    if (!collection_song.is_valid()) {
+      const QString canonical_filepath = QFileInfo(filename).canonicalFilePath();
+      if (canonical_filepath != filename) {
+        const QUrl canonical_filepath_url = QUrl::fromLocalFile(canonical_filepath);
+        if (track > 0) {
+          collection_song = collection_backend_->GetSongByUrlAndTrack(canonical_filepath_url, track);
+        }
+        if (!collection_song.is_valid()) {
+          collection_song = collection_backend_->GetSongByUrl(canonical_filepath_url, beginning);
+        }
+      }
+    }
     // If it was found in the collection then use it, otherwise load metadata from disk.
     if (collection_song.is_valid()) {
       *song = collection_song;
@@ -88,29 +105,34 @@ void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning
     }
   }
 
-  TagReaderClient::Instance()->ReadFileBlocking(filename, song);
+  if (tagreader_client_) {
+    const TagReaderResult result = tagreader_client_->ReadFileBlocking(filename, song);
+    if (!result.success()) {
+      qLog(Error) << "Could not read file" << filename << result.error_string();
+    }
+  }
 
 }
 
-Song ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning, const QDir &dir, const bool collection_search) const {
+Song ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning, const int track, const QDir &dir, const bool collection_lookup) const {
 
-  Song song(Song::Source_LocalFile);
-  LoadSong(filename_or_url, beginning, dir, &song, collection_search);
+  Song song(Song::Source::LocalFile);
+  LoadSong(filename_or_url, beginning, track, dir, &song, collection_lookup);
 
   return song;
 
 }
 
-QString ParserBase::URLOrFilename(const QUrl &url, const QDir &dir, const PlaylistSettingsPage::PathType path_type) {
+QString ParserBase::URLOrFilename(const QUrl &url, const QDir &dir, const PlaylistSettings::PathType path_type) {
 
   if (!url.isLocalFile()) return url.toString();
 
   const QString filename = url.toLocalFile();
 
-  if (path_type != PlaylistSettingsPage::PathType_Absolute && QDir::isAbsolutePath(filename)) {
+  if (path_type != PlaylistSettings::PathType::Absolute && QDir::isAbsolutePath(filename)) {
     const QString relative = dir.relativeFilePath(filename);
 
-    if (!relative.startsWith("../") || path_type == PlaylistSettingsPage::PathType_Relative) {
+    if (!relative.startsWith("../"_L1) || path_type == PlaylistSettings::PathType::Relative) {
       return relative;
     }
   }

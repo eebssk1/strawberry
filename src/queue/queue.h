@@ -41,8 +41,6 @@ class Queue : public QAbstractProxyModel {
  public:
   explicit Queue(Playlist *playlist, QObject *parent = nullptr);
 
-  static const char *kRowsMimetype;
-
   // Query the queue
   bool is_empty() const;
   int PositionOf(const QModelIndex &source_index) const;
@@ -76,18 +74,18 @@ class Queue : public QAbstractProxyModel {
   QStringList mimeTypes() const override;
   Qt::DropActions supportedDropActions() const override;
   QMimeData *mimeData(const QModelIndexList &indexes) const override;
-  bool dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int column, const QModelIndex &parent) override;
+  bool dropMimeData(const QMimeData *data, Qt::DropAction action, const int row, const int column, const QModelIndex &parent_index) override;
   Qt::ItemFlags flags(const QModelIndex &idx) const override;
 
- public slots:
+ public Q_SLOTS:
   void UpdateSummaryText();
 
- signals:
-  void TotalLengthChanged(quint64 length);
-  void ItemCountChanged(int count);
-  void SummaryTextChanged(QString message);
+ Q_SIGNALS:
+  void TotalLengthChanged(const quint64 length);
+  void ItemCountChanged(const int count);
+  void SummaryTextChanged(const QString &message);
 
- private slots:
+ private Q_SLOTS:
   void SourceDataChanged(const QModelIndex &top_left, const QModelIndex &bottom_right);
   void SourceLayoutChanged();
   void UpdateTotalLength();
@@ -97,7 +95,6 @@ class Queue : public QAbstractProxyModel {
   const Playlist *playlist_;
   quint64 total_length_ns_;
   QMetaObject::Connection signal_item_count_changed_;
-
 };
 
 #endif  // QUEUE_H

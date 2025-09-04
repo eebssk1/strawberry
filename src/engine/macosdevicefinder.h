@@ -23,16 +23,15 @@
 
 #include "config.h"
 
-#include <QList>
-
 #include "devicefinder.h"
+#include "enginedevice.h"
 
 class MacOsDeviceFinder : public DeviceFinder {
  public:
   explicit MacOsDeviceFinder();
 
   virtual bool Initialize() { return true; }
-  virtual QList<Device> ListDevices();
+  virtual EngineDeviceList ListDevices();
 };
 
 #endif  // MACOSDEVICEFINDER_H

@@ -2,6 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,18 +30,24 @@
 #include <QSizePolicy>
 #include <QPaintEvent>
 
+#include "includes/shared_ptr.h"
 #include "core/taskmanager.h"
 #include "multiloadingindicator.h"
 #include "widgets/busyindicator.h"
 
-const int MultiLoadingIndicator::kVerticalPadding = 4;
-const int MultiLoadingIndicator::kHorizontalPadding = 6;
-const int MultiLoadingIndicator::kSpacing = 6;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kVerticalPadding = 4;
+constexpr int kHorizontalPadding = 6;
+constexpr int kSpacing = 6;
+}
 
 MultiLoadingIndicator::MultiLoadingIndicator(QWidget *parent)
     : QWidget(parent),
       task_manager_(nullptr),
-      spinner_(new BusyIndicator(this)) {
+      spinner_(new BusyIndicator(this)),
+      task_count_(-1) {
 
   spinner_->move(kHorizontalPadding, kVerticalPadding);
   setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
@@ -49,55 +56,57 @@ MultiLoadingIndicator::MultiLoadingIndicator(QWidget *parent)
 
 QSize MultiLoadingIndicator::sizeHint() const {
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
   const int width = kHorizontalPadding * 2 + spinner_->sizeHint().width() + kSpacing + fontMetrics().horizontalAdvance(text_);
-#else
-  const int width = kHorizontalPadding * 2 + spinner_->sizeHint().width() + kSpacing + fontMetrics().width(text_);
-#endif
   const int height = kVerticalPadding * 2 + qMax(spinner_->sizeHint().height(), fontMetrics().height());
 
   return QSize(width, height);
 
 }
 
-void MultiLoadingIndicator::SetTaskManager(TaskManager *task_manager) {
+void MultiLoadingIndicator::SetTaskManager(SharedPtr<TaskManager> task_manager) {
 
   task_manager_ = task_manager;
-  QObject::connect(task_manager_, &TaskManager::TasksChanged, this, &MultiLoadingIndicator::UpdateText);
+  QObject::connect(&*task_manager_, &TaskManager::TasksChanged, this, &MultiLoadingIndicator::UpdateText);
 
 }
 
 void MultiLoadingIndicator::UpdateText() {
 
-  QList<TaskManager::Task> tasks = task_manager_->GetTasks();
+  const QList<TaskManager::Task> tasks = task_manager_->GetTasks();
 
   QStringList strings;
   strings.reserve(tasks.count());
   for (const TaskManager::Task &task : tasks) {
-    QString task_text(task.name);
+    QString task_text = task.name;
     task_text[0] = task_text[0].toLower();
 
     if (task.progress_max > 0) {
       int percentage = static_cast<int>(static_cast<float>(task.progress) / static_cast<float>(task.progress_max) * 100.0F);
-      task_text += QString(" %1%").arg(percentage);
+      task_text += QStringLiteral(" %1%").arg(percentage);
     }
 
     strings << task_text;
   }
 
-  text_ = strings.join(", ");
+  text_ = strings.join(", "_L1);
   if (!text_.isEmpty()) {
     text_[0] = text_[0].toUpper();
-    text_ += "...";
+    text_ += "..."_L1;
   }
 
-  emit TaskCountChange(static_cast<int>(tasks.count()));
+  if (task_count_ != tasks.count()) {
+    task_count_ = tasks.count();
+    Q_EMIT TaskCountChange(static_cast<int>(tasks.count()));
+  }
+
   update();
   updateGeometry();
 
 }
 
-void MultiLoadingIndicator::paintEvent(QPaintEvent*) {
+void MultiLoadingIndicator::paintEvent(QPaintEvent *e) {
+
+  Q_UNUSED(e)
 
   QPainter p(this);
 

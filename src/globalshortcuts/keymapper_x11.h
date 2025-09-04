@@ -29,19 +29,11 @@
 #define XK_XKB_KEYS
 #define XK_LATIN1
 
-#ifdef HAVE_KEYSYMDEF_H
-#  include <X11/keysymdef.h>
-#else
-#  warning "Missing X11/keysymdef.h"
-#endif
-#ifdef HAVE_XF86KEYSYM_H
-#  include <X11/XF86keysym.h>
-#endif
+#include <X11/keysymdef.h>
+#include <X11/XF86keysym.h>
 
 namespace KeyMapperX11 {
 static const QMap<Qt::Key, quint32> keymapper_x11_ = {  // clazy:exclude=non-pod-global-static
-
-#ifdef HAVE_KEYSYMDEF_H
 
     { Qt::Key_0,                  XK_0 },
     { Qt::Key_1,                  XK_1 },
@@ -153,7 +145,11 @@ static const QMap<Qt::Key, quint32> keymapper_x11_ = {  // clazy:exclude=non-pod
     { Qt::Key_twosuperior,        XK_twosuperior },
     { Qt::Key_threesuperior,      XK_threesuperior },
     { Qt::Key_acute,              XK_acute },
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    { Qt::Key_micro,              XK_mu },
+#else
     { Qt::Key_mu,                 XK_mu },
+#endif
     { Qt::Key_paragraph,          XK_paragraph },
     { Qt::Key_periodcentered,     XK_periodcentered },
     { Qt::Key_cedilla,            XK_cedilla },
@@ -204,9 +200,7 @@ static const QMap<Qt::Key, quint32> keymapper_x11_ = {  // clazy:exclude=non-pod
     { Qt::Key_MultipleCandidate,  XK_MultipleCandidate },
     { Qt::Key_PreviousCandidate,  XK_PreviousCandidate },
     { Qt::Key_Mode_switch,        XK_Mode_switch },
-#endif
 
-#ifdef HAVE_XF86KEYSYM_H
     { Qt::Key_Back,               XF86XK_Back },
     { Qt::Key_Forward,            XF86XK_Forward },
     { Qt::Key_Stop,               XF86XK_Stop },
@@ -219,7 +213,7 @@ static const QMap<Qt::Key, quint32> keymapper_x11_ = {  // clazy:exclude=non-pod
     { Qt::Key_MediaPrevious,      XF86XK_AudioPrev },
     { Qt::Key_MediaNext,          XF86XK_AudioNext },
     { Qt::Key_MediaRecord,        XF86XK_AudioRecord },
-    { Qt::Key_MediaPause,	  XF86XK_AudioPause },
+    { Qt::Key_MediaPause,         XF86XK_AudioPause },
     { Qt::Key_HomePage,           XF86XK_HomePage },
     { Qt::Key_Favorites,          XF86XK_Favorites },
     { Qt::Key_Search,             XF86XK_Search },
@@ -245,7 +239,6 @@ static const QMap<Qt::Key, quint32> keymapper_x11_ = {  // clazy:exclude=non-pod
     { Qt::Key_LaunchF,            XF86XK_LaunchD },
     { Qt::Key_LaunchG,            XF86XK_LaunchE },
     { Qt::Key_LaunchH,            XF86XK_LaunchF },
-#endif
 
     {Qt::Key(0),                  0}
 

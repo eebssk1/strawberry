@@ -21,19 +21,20 @@
 
 #include <alsa/asoundlib.h>
 
-#include <QList>
 #include <QString>
 
 #include <core/logging.h>
 
-#include "devicefinder.h"
 #include "alsapcmdevicefinder.h"
+#include "enginedevice.h"
 
-AlsaPCMDeviceFinder::AlsaPCMDeviceFinder() : DeviceFinder("alsa", { "alsa", "alsasink" }) {}
+using namespace Qt::Literals::StringLiterals;
 
-QList<DeviceFinder::Device> AlsaPCMDeviceFinder::ListDevices() {
+AlsaPCMDeviceFinder::AlsaPCMDeviceFinder() : DeviceFinder(u"alsa"_s, { u"alsa"_s, u"alsasink"_s }) {}
 
-  QList<Device> ret;
+EngineDeviceList AlsaPCMDeviceFinder::ListDevices() {
+
+  EngineDeviceList ret;
 
   void **hints = nullptr;
   if (snd_device_name_hint(-1, "pcm", &hints) < 0) {
@@ -46,28 +47,28 @@ QList<DeviceFinder::Device> AlsaPCMDeviceFinder::ListDevices() {
     char *hint_desc = snd_device_name_get_hint(*n, "DESC");
     if (hint_io && hint_name && hint_desc && strcmp(hint_io, "Output") == 0) {
 
-      QString name(hint_name);
+      const QString name = QString::fromUtf8(hint_name);
 
       char *desc_last = hint_desc;
       QString description;
       for (char *desc_i = hint_desc; desc_i && *desc_i != '\0'; ++desc_i) {
         if (*desc_i == '\n') {
           *desc_i = '\0';
-          if (!description.isEmpty()) description.append(' ');
-          description.append(desc_last);
+          if (!description.isEmpty()) description.append(u' ');
+          description.append(QString::fromUtf8(desc_last));
           desc_last = desc_i + 1;
         }
       }
 
       if (desc_last) {
-        if (!description.isEmpty()) description.append(' ');
-        description.append(desc_last);
+        if (!description.isEmpty()) description.append(u' ');
+        description.append(QString::fromUtf8(desc_last));
       }
 
-      Device device;
+      EngineDevice device;
       device.value = name;
       device.description = description;
-      device.iconname = GuessIconName(device.description);
+      device.iconname = device.GuessIconName();
       ret << device;  // clazy:exclude=reserve-candidates
     }
     if (hint_io) free(hint_io);

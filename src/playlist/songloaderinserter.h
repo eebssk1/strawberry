@@ -29,11 +29,14 @@
 #include <QString>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 
-class Player;
-class SongLoader;
 class TaskManager;
+class UrlHandlers;
+class Player;
+class TagReaderClient;
+class SongLoader;
 class CollectionBackendInterface;
 class Playlist;
 
@@ -41,28 +44,37 @@ class SongLoaderInserter : public QObject {
   Q_OBJECT
 
  public:
-  explicit SongLoaderInserter(TaskManager *task_manager, CollectionBackendInterface *collection, const Player *player, QObject *parent = nullptr);
+  explicit SongLoaderInserter(const SharedPtr<TaskManager> task_manager,
+                              const SharedPtr<TagReaderClient> tagreader_client,
+                              const SharedPtr<UrlHandlers> url_handlers,
+                              const SharedPtr<CollectionBackendInterface> collection_backend,
+                              QObject *parent = nullptr);
+
   ~SongLoaderInserter() override;
 
-  void Load(Playlist *destination, int row, bool play_now, bool enqueue, bool enqueue_next, const QList<QUrl> &urls);
-  void LoadAudioCD(Playlist *destination, int row, bool play_now, bool enqueue, bool enqueue_next);
+  void Load(Playlist *destination, const int row, const bool play_now, const bool enqueue, const bool enqueue_next, const QList<QUrl> &urls);
+  void LoadAudioCD(Playlist *destination, const int row, const bool play_now, const bool enqueue, const bool enqueue_next);
 
- signals:
-  void Error(QString message);
+ Q_SIGNALS:
+  void Error(const QString &message);
   void PreloadFinished();
-  void EffectiveLoadFinished(SongList songs);
+  void EffectiveLoadFinished(const SongList &songs);
 
- private slots:
+ private Q_SLOTS:
   void DestinationDestroyed();
-  void AudioCDTracksLoadFinished(SongLoader *loader);
-  void AudioCDTagsLoaded(const bool success);
+  void AudioCDTracksLoadedSlot();
+  void AudioCDTracksUpdatedSlot();
+  void AudioCDLoadingFinishedSlot(const bool success);
   void InsertSongs();
 
  private:
   void AsyncLoad();
 
  private:
-  TaskManager *task_manager_;
+  const SharedPtr<TaskManager> task_manager_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<UrlHandlers> url_handlers_;
+  const SharedPtr<CollectionBackendInterface> collection_backend_;
 
   Playlist *destination_;
   int row_;
@@ -71,11 +83,9 @@ class SongLoaderInserter : public QObject {
   bool enqueue_next_;
 
   SongList songs_;
+  QString playlist_name_;
 
   QList<SongLoader*> pending_;
-  CollectionBackendInterface *collection_;
-  const Player *player_;
-
 };
 
 #endif  // SONGLOADERINSERTER_H

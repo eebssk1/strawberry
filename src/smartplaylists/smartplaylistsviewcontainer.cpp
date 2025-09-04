@@ -24,26 +24,37 @@
 #include <QSettings>
 #include <QShowEvent>
 
-#include "core/application.h"
 #include "core/iconloader.h"
 #include "core/mimedata.h"
-#include "collection/collectionbackend.h"
-#include "settings/appearancesettingspage.h"
+#include "core/settings.h"
+#include "constants/appearancesettings.h"
 
 #include "smartplaylistsviewcontainer.h"
 #include "smartplaylistsmodel.h"
 #include "smartplaylistsview.h"
-#include "smartplaylistsearchterm.h"
 #include "smartplaylistwizard.h"
-#include "playlistquerygenerator.h"
-#include "playlistgenerator_fwd.h"
 
 #include "ui_smartplaylistsviewcontainer.h"
 
-SmartPlaylistsViewContainer::SmartPlaylistsViewContainer(Application *app, QWidget *parent)
+using namespace Qt::Literals::StringLiterals;
+
+SmartPlaylistsViewContainer::SmartPlaylistsViewContainer(const SharedPtr<Player> player,
+                                                         const SharedPtr<PlaylistManager> playlist_manager,
+                                                         const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                                                         const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                                                         const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                                                         QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_SmartPlaylistsViewContainer),
-      app_(app),
+      player_(player),
+      playlist_manager_(playlist_manager),
+      collection_backend_(collection_backend),
+#ifdef HAVE_MOODBAR
+      moodbar_loader_(moodbar_loader),
+#endif
+      current_albumcover_loader_(current_albumcover_loader),
       context_menu_(new QMenu(this)),
       context_menu_selected_(new QMenu(this)),
       action_new_smart_playlist_(nullptr),
@@ -57,32 +68,32 @@ SmartPlaylistsViewContainer::SmartPlaylistsViewContainer(Application *app, QWidg
 
   ui_->setupUi(this);
 
-  model_ = new SmartPlaylistsModel(app_->collection_backend(), this);
+  model_ = new SmartPlaylistsModel(collection_backend, this);
   ui_->view->setModel(model_);
 
   model_->Init();
 
-  action_new_smart_playlist_ = context_menu_->addAction(IconLoader::Load("document-new"), tr("New smart playlist..."), this, &SmartPlaylistsViewContainer::NewSmartPlaylist);
+  action_new_smart_playlist_ = context_menu_->addAction(IconLoader::Load(u"document-new"_s), tr("New smart playlist..."), this, &SmartPlaylistsViewContainer::NewSmartPlaylist);
 
-  action_append_to_playlist_ = context_menu_selected_->addAction(IconLoader::Load("media-playback-start"), tr("Append to current playlist"), this, &SmartPlaylistsViewContainer::AppendToPlaylist);
-  action_replace_current_playlist_ = context_menu_selected_->addAction(IconLoader::Load("media-playback-start"), tr("Replace current playlist"), this, &SmartPlaylistsViewContainer::ReplaceCurrentPlaylist);
-  action_open_in_new_playlist_ = context_menu_selected_->addAction(IconLoader::Load("document-new"), tr("Open in new playlist"), this, &SmartPlaylistsViewContainer::OpenInNewPlaylist);
+  action_append_to_playlist_ = context_menu_selected_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Append to current playlist"), this, &SmartPlaylistsViewContainer::AppendToPlaylist);
+  action_replace_current_playlist_ = context_menu_selected_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Replace current playlist"), this, &SmartPlaylistsViewContainer::ReplaceCurrentPlaylist);
+  action_open_in_new_playlist_ = context_menu_selected_->addAction(IconLoader::Load(u"document-new"_s), tr("Open in new playlist"), this, &SmartPlaylistsViewContainer::OpenInNewPlaylist);
 
   context_menu_selected_->addSeparator();
-  action_add_to_playlist_enqueue_ = context_menu_selected_->addAction(IconLoader::Load("go-next"), tr("Queue track"), this, &SmartPlaylistsViewContainer::AddToPlaylistEnqueue);
-  action_add_to_playlist_enqueue_next_ = context_menu_selected_->addAction(IconLoader::Load("go-next"), tr("Play next"), this, &SmartPlaylistsViewContainer::AddToPlaylistEnqueueNext);
+  action_add_to_playlist_enqueue_ = context_menu_selected_->addAction(IconLoader::Load(u"go-next"_s), tr("Queue track"), this, &SmartPlaylistsViewContainer::AddToPlaylistEnqueue);
+  action_add_to_playlist_enqueue_next_ = context_menu_selected_->addAction(IconLoader::Load(u"go-next"_s), tr("Play next"), this, &SmartPlaylistsViewContainer::AddToPlaylistEnqueueNext);
   context_menu_selected_->addSeparator();
 
   context_menu_selected_->addSeparator();
   context_menu_selected_->addActions(QList<QAction*>() << action_new_smart_playlist_);
-  action_edit_smart_playlist_ = context_menu_selected_->addAction(IconLoader::Load("edit-rename"), tr("Edit smart playlist..."), this, &SmartPlaylistsViewContainer::EditSmartPlaylistFromContext);
-  action_delete_smart_playlist_ = context_menu_selected_->addAction(IconLoader::Load("edit-delete"), tr("Delete smart playlist"), this, &SmartPlaylistsViewContainer::DeleteSmartPlaylistFromContext);
+  action_edit_smart_playlist_ = context_menu_selected_->addAction(IconLoader::Load(u"edit-rename"_s), tr("Edit smart playlist..."), this, &SmartPlaylistsViewContainer::EditSmartPlaylistFromContext);
+  action_delete_smart_playlist_ = context_menu_selected_->addAction(IconLoader::Load(u"edit-delete"_s), tr("Delete smart playlist"), this, &SmartPlaylistsViewContainer::DeleteSmartPlaylistFromContext);
 
   context_menu_selected_->addSeparator();
 
   ui_->new_->setDefaultAction(action_new_smart_playlist_);
-  ui_->edit_->setIcon(IconLoader::Load("edit-rename"));
-  ui_->delete_->setIcon(IconLoader::Load("edit-delete"));
+  ui_->edit_->setIcon(IconLoader::Load(u"edit-rename"_s));
+  ui_->delete_->setIcon(IconLoader::Load(u"edit-delete"_s));
 
   QObject::connect(ui_->edit_, &QToolButton::clicked, this, &SmartPlaylistsViewContainer::EditSmartPlaylistFromButton);
   QObject::connect(ui_->delete_, &QToolButton::clicked, this, &SmartPlaylistsViewContainer::DeleteSmartPlaylistFromButton);
@@ -111,9 +122,9 @@ void SmartPlaylistsViewContainer::showEvent(QShowEvent *e) {
 
 void SmartPlaylistsViewContainer::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizeLeftPanelButtons, 22).toInt();
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizeLeftPanelButtons, 22).toInt();
   s.endGroup();
 
   ui_->new_->setIconSize(QSize(iconsize, iconsize));
@@ -147,13 +158,13 @@ void SmartPlaylistsViewContainer::ReplaceCurrentPlaylist() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->clear_first_ = true;
   }
-  emit AddToPlaylist(q_mimedata);
+  Q_EMIT AddToPlaylist(q_mimedata);
 
 }
 
 void SmartPlaylistsViewContainer::AppendToPlaylist() {
 
-  emit AddToPlaylist(ui_->view->model()->mimeData(ui_->view->selectionModel()->selectedIndexes()));
+  Q_EMIT AddToPlaylist(ui_->view->model()->mimeData(ui_->view->selectionModel()->selectedIndexes()));
 
 }
 
@@ -163,7 +174,7 @@ void SmartPlaylistsViewContainer::OpenInNewPlaylist() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->open_in_new_playlist_ = true;
   }
-  emit AddToPlaylist(q_mimedata);
+  Q_EMIT AddToPlaylist(q_mimedata);
 
 }
 
@@ -173,7 +184,7 @@ void SmartPlaylistsViewContainer::AddToPlaylistEnqueue() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->enqueue_now_ = true;
   }
-  emit AddToPlaylist(q_mimedata);
+  Q_EMIT AddToPlaylist(q_mimedata);
 
 }
 
@@ -183,13 +194,20 @@ void SmartPlaylistsViewContainer::AddToPlaylistEnqueueNext() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->enqueue_next_now_ = true;
   }
-  emit AddToPlaylist(q_mimedata);
+  Q_EMIT AddToPlaylist(q_mimedata);
 
 }
 
 void SmartPlaylistsViewContainer::NewSmartPlaylist() {
 
-  SmartPlaylistWizard *wizard = new SmartPlaylistWizard(app_, app_->collection_backend(), this);
+  SmartPlaylistWizard *wizard = new SmartPlaylistWizard(player_,
+                                                        playlist_manager_,
+                                                        collection_backend_,
+#ifdef HAVE_MOODBAR
+                                                        moodbar_loader_,
+#endif
+                                                        current_albumcover_loader_,
+                                                        this);
   wizard->setAttribute(Qt::WA_DeleteOnClose);
   QObject::connect(wizard, &SmartPlaylistWizard::accepted, this, &SmartPlaylistsViewContainer::NewSmartPlaylistFinished);
 
@@ -201,7 +219,14 @@ void SmartPlaylistsViewContainer::EditSmartPlaylist(const QModelIndex &idx) {
 
   if (!idx.isValid()) return;
 
-  SmartPlaylistWizard *wizard = new SmartPlaylistWizard(app_, app_->collection_backend(), this);
+  SmartPlaylistWizard *wizard = new SmartPlaylistWizard(player_,
+                                                        playlist_manager_,
+                                                        collection_backend_,
+#ifdef HAVE_MOODBAR
+                                                        moodbar_loader_,
+#endif
+                                                        current_albumcover_loader_,
+                                                        this);
   wizard->setAttribute(Qt::WA_DeleteOnClose);
   QObject::connect(wizard, &SmartPlaylistWizard::accepted, this, &SmartPlaylistsViewContainer::EditSmartPlaylistFinished);
 
@@ -276,6 +301,6 @@ void SmartPlaylistsViewContainer::ItemDoubleClicked(const QModelIndex &idx) {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->from_doubleclick_ = true;
   }
-  emit AddToPlaylist(q_mimedata);
+  Q_EMIT AddToPlaylist(q_mimedata);
 
 }

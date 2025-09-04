@@ -29,29 +29,31 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
 #include "parserbase.h"
 
 class QIODevice;
+class TagReaderClient;
 class CollectionBackendInterface;
 
 class PLSParser : public ParserBase {
   Q_OBJECT
 
  public:
-  explicit PLSParser(CollectionBackendInterface *collection, QObject *parent = nullptr);
+  explicit PLSParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
 
-  QString name() const override { return "PLS"; }
-  QStringList file_extensions() const override { return QStringList() << "pls"; }
-  QString mime_type() const override { return "audio/x-scpls"; }
+  QString name() const override { return QStringLiteral("PLS"); }
+  QStringList file_extensions() const override { return QStringList() << QStringLiteral("pls"); }
+  QString mime_type() const override { return QStringLiteral("audio/x-scpls"); }
   bool load_supported() const override { return true; }
   bool save_supported() const override { return true; }
 
   bool TryMagic(const QByteArray &data) const override;
 
-  SongList Load(QIODevice *device, const QString &playlist_path = "", const QDir &dir = QDir(), const bool collection_search = true) const override;
-  void Save(const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettingsPage::PathType path_type = PlaylistSettingsPage::PathType_Automatic) const override;
+  LoadResult Load(QIODevice *device, const QString &playlist_path = QLatin1String(""), const QDir &dir = QDir(), const bool collection_lookup = true) const override;
+  void Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettings::PathType path_type = PlaylistSettings::PathType::Automatic) const override;
 };
 
 #endif  // PLSPARSER_H

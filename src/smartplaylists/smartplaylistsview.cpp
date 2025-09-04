@@ -39,13 +39,15 @@ SmartPlaylistsView::SmartPlaylistsView(QWidget *_parent) : QListView(_parent) {
 
 SmartPlaylistsView::~SmartPlaylistsView() = default;
 
-void SmartPlaylistsView::selectionChanged(const QItemSelection&, const QItemSelection&) {
-  emit ItemsSelectedChanged();
+void SmartPlaylistsView::selectionChanged(const QItemSelection &selected, const QItemSelection &deselected) {
+  Q_UNUSED(selected)
+  Q_UNUSED(deselected)
+  Q_EMIT ItemsSelectedChanged();
 }
 
 void SmartPlaylistsView::contextMenuEvent(QContextMenuEvent *e) {
 
-  emit RightClicked(e->globalPos(), indexAt(e->pos()));
+  Q_EMIT RightClicked(e->globalPos(), indexAt(e->pos()));
   e->accept();
 
 }

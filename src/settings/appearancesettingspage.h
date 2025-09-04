@@ -29,6 +29,7 @@
 #include <QColor>
 
 #include "settingspage.h"
+#include "constants/appearancesettings.h"
 
 class QWidget;
 
@@ -42,61 +43,10 @@ class AppearanceSettingsPage : public SettingsPage {
   explicit AppearanceSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
   ~AppearanceSettingsPage() override;
 
-  static const char *kSettingsGroup;
-
-  static const char *kStyle;
-
-  static const char *kBackgroundImageType;
-  static const char *kBackgroundImageFilename;
-  static const char *kBackgroundImagePosition;
-  static const char *kBackgroundImageStretch;
-  static const char *kBackgroundImageDoNotCut;
-  static const char *kBackgroundImageKeepAspectRatio;
-  static const char *kBackgroundImageMaxSize;
-
-  static const char *kBlurRadius;
-  static const char *kOpacityLevel;
-
-  static const int kDefaultBlurRadius;
-  static const int kDefaultOpacityLevel;
-
-  static const char *kSystemThemeIcons;
-
-  static const char *kTabBarSystemColor;
-  static const char *kTabBarGradient;
-  static const char *kTabBarColor;
-
-  static const char *kIconSizeTabbarSmallMode;
-  static const char *kIconSizeTabbarLargeMode;
-  static const char *kIconSizePlayControlButtons;
-  static const char *kIconSizePlaylistButtons;
-  static const char *kIconSizeLeftPanelButtons;
-  static const char *kIconSizeConfigureButtons;
-
-  static const char *kPlaylistPlayingSongColor;
-
-  enum BackgroundImageType {
-    BackgroundImageType_Default,
-    BackgroundImageType_None,
-    BackgroundImageType_Custom,
-    BackgroundImageType_Album,
-    BackgroundImageType_Strawbs
-  };
-
-  enum BackgroundImagePosition {
-    BackgroundImagePosition_UpperLeft = 1,
-    BackgroundImagePosition_UpperRight = 2,
-    BackgroundImagePosition_Middle = 3,
-    BackgroundImagePosition_BottomLeft = 4,
-    BackgroundImagePosition_BottomRight = 5
-  };
-
   void Load() override;
   void Save() override;
 
-  static QColor DefaultTabbarBgColor();
-
- private slots:
+ private Q_SLOTS:
   void SelectBackgroundImage();
   void BlurLevelChanged(int);
   void OpacityLevelChanged(int);
@@ -112,10 +62,9 @@ class AppearanceSettingsPage : public SettingsPage {
   Ui_AppearanceSettingsPage *ui_;
 
   QColor current_tabbar_bg_color_;
-  BackgroundImageType background_image_type_;
+  AppearanceSettings::BackgroundImageType background_image_type_;
   QString background_image_filename_;
   QColor current_playlist_playing_song_color_;
-
 };
 
 #endif  // APPEARANCESETTINGSPAGE_H

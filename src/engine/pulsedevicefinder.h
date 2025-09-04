@@ -27,9 +27,8 @@
 #include <pulse/introspect.h>
 #include <pulse/mainloop.h>
 
-#include <QList>
-
 #include "devicefinder.h"
+#include "enginedevice.h"
 
 class PulseDeviceFinder : public DeviceFinder {
  public:
@@ -37,14 +36,14 @@ class PulseDeviceFinder : public DeviceFinder {
   ~PulseDeviceFinder() override;
 
   bool Initialize() override;
-  QList<Device> ListDevices() override;
+  EngineDeviceList ListDevices() override;
 
  private:
   struct ListDevicesState {
     ListDevicesState() : finished(false) {}
 
     bool finished;
-    QList<Device> devices;
+    EngineDeviceList devices;
   };
 
   bool Reconnect();

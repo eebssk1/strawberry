@@ -21,7 +21,7 @@
 
 #include "config.h"
 
-#include <memory>
+#include <utility>
 
 #include <QApplication>
 #include <QWidget>
@@ -34,6 +34,7 @@
 #include <QVariant>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QRegularExpression>
 #include <QInputDialog>
 #include <QList>
@@ -41,66 +42,56 @@
 #include <QMenu>
 #include <QSettings>
 #include <QToolButton>
-#include <QtEvents>
+#include <QKeyEvent>
 
 #include "core/iconloader.h"
-#include "core/song.h"
 #include "core/logging.h"
+#include "core/settings.h"
 #include "collectionfilteroptions.h"
 #include "collectionmodel.h"
-#include "collectionquery.h"
+#include "collectionfilter.h"
+#include "filterparser/filterparser.h"
 #include "savedgroupingmanager.h"
 #include "collectionfilterwidget.h"
 #include "groupbydialog.h"
 #include "ui_collectionfilterwidget.h"
-#include "widgets/qsearchfield.h"
-#include "settings/appearancesettingspage.h"
+#include "widgets/searchfield.h"
+#include "constants/collectionsettings.h"
+#include "constants/appearancesettings.h"
+
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kFilterDelay = 500;  // msec
+}
 
 CollectionFilterWidget::CollectionFilterWidget(QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_CollectionFilterWidget),
       model_(nullptr),
+      filter_(nullptr),
       group_by_dialog_(new GroupByDialog(this)),
       groupings_manager_(nullptr),
       filter_age_menu_(nullptr),
       group_by_menu_(nullptr),
       collection_menu_(nullptr),
       group_by_group_(nullptr),
-      filter_delay_(new QTimer(this)),
+      timer_filter_delay_(new QTimer(this)),
       filter_applies_to_model_(true),
-      delay_behaviour_(DelayedOnLargeLibraries) {
+      delay_behaviour_(DelayBehaviour::DelayedOnLargeLibraries) {
 
   ui_->setupUi(this);
 
-  QString available_fields = Song::kFtsColumns.join(", ").replace(QRegularExpression("\\bfts"), "");
+  ui_->search_field->setToolTip(FilterParser::ToolTip());
 
-  ui_->search_field->setToolTip(
-    QString("<html><head/><body><p>") +
-    tr("Prefix a word with a field name to limit the search to that field, e.g.:") +
-    QString(" ") +
-    QString("<span style=\"font-weight:600;\">") +
-    tr("artist") +
-    QString(":") +
-    QString("</span><span style=\"font-style:italic;\">Strawbs</span>") +
-    QString(" ") +
-    tr("searches the collection for all artists that contain the word") +
-    QString(" Strawbs.") +
-    QString("</p><p><span style=\"font-weight:600;\">") +
-    tr("Available fields") +
-    QString(": ") +
-    "</span><span style=\"font-style:italic;\">" +
-    available_fields +
-    QString("</span>.") +
-    QString("</p></body></html>"));
+  QObject::connect(ui_->search_field, &SearchField::returnPressed, this, &CollectionFilterWidget::ReturnPressed);
+  QObject::connect(timer_filter_delay_, &QTimer::timeout, this, &CollectionFilterWidget::FilterDelayTimeout);
 
-  QObject::connect(ui_->search_field, &QSearchField::returnPressed, this, &CollectionFilterWidget::ReturnPressed);
-  QObject::connect(filter_delay_, &QTimer::timeout, this, &CollectionFilterWidget::FilterDelayTimeout);
-
-  filter_delay_->setInterval(kFilterDelay);
-  filter_delay_->setSingleShot(true);
+  timer_filter_delay_->setInterval(kFilterDelay);
+  timer_filter_delay_->setSingleShot(true);
 
   // Icons
-  ui_->options->setIcon(IconLoader::Load("configure"));
+  ui_->options->setIcon(IconLoader::Load(u"configure"_s));
 
   // Filter by age
   QActionGroup *filter_age_group = new QActionGroup(this);
@@ -114,12 +105,12 @@ CollectionFilterWidget::CollectionFilterWidget(QWidget *parent)
   filter_age_menu_ = new QMenu(tr("Show"), this);
   filter_age_menu_->addActions(filter_age_group->actions());
 
-  filter_ages_[ui_->filter_age_all] = -1;
-  filter_ages_[ui_->filter_age_today] = 60 * 60 * 24;
-  filter_ages_[ui_->filter_age_week] = 60 * 60 * 24 * 7;
-  filter_ages_[ui_->filter_age_month] = 60 * 60 * 24 * 30;
-  filter_ages_[ui_->filter_age_three_months] = 60 * 60 * 24 * 30 * 3;
-  filter_ages_[ui_->filter_age_year] = 60 * 60 * 24 * 365;
+  filter_max_ages_[ui_->filter_age_all] = -1;
+  filter_max_ages_[ui_->filter_age_today] = 60 * 60 * 24;
+  filter_max_ages_[ui_->filter_age_week] = 60 * 60 * 24 * 7;
+  filter_max_ages_[ui_->filter_age_month] = 60 * 60 * 24 * 30;
+  filter_max_ages_[ui_->filter_age_three_months] = 60 * 60 * 24 * 30 * 3;
+  filter_max_ages_[ui_->filter_age_year] = 60 * 60 * 24 * 365;
 
   group_by_menu_ = new QMenu(tr("Group by"), this);
 
@@ -136,7 +127,7 @@ CollectionFilterWidget::CollectionFilterWidget(QWidget *parent)
   collection_menu_->addSeparator();
   ui_->options->setMenu(collection_menu_);
 
-  QObject::connect(ui_->search_field, &QSearchField::textChanged, this, &CollectionFilterWidget::FilterTextChanged);
+  QObject::connect(ui_->search_field, &SearchField::textChanged, this, &CollectionFilterWidget::FilterTextChanged);
   QObject::connect(ui_->options, &QToolButton::clicked, ui_->options, &QToolButton::showMenu);
 
   ReloadSettings();
@@ -145,45 +136,47 @@ CollectionFilterWidget::CollectionFilterWidget(QWidget *parent)
 
 CollectionFilterWidget::~CollectionFilterWidget() { delete ui_; }
 
-void CollectionFilterWidget::Init(CollectionModel *model) {
+void CollectionFilterWidget::Init(CollectionModel *model, CollectionFilter *filter) {
 
   if (model_) {
     QObject::disconnect(model_, nullptr, this, nullptr);
     QObject::disconnect(model_, nullptr, group_by_dialog_, nullptr);
     QObject::disconnect(group_by_dialog_, nullptr, model_, nullptr);
-    QList<QAction*> filter_ages = filter_ages_.keys();
-    for (QAction *action : filter_ages) {
+    const QList<QAction*> actions = filter_max_ages_.keys();
+    for (QAction *action : actions) {
       QObject::disconnect(action, &QAction::triggered, model_, nullptr);
     }
   }
 
   model_ = model;
+  filter_ = filter;
 
   // Connect signals
   QObject::connect(model_, &CollectionModel::GroupingChanged, group_by_dialog_, &GroupByDialog::CollectionGroupingChanged);
   QObject::connect(model_, &CollectionModel::GroupingChanged, this, &CollectionFilterWidget::GroupingChanged);
   QObject::connect(group_by_dialog_, &GroupByDialog::Accepted, model_, &CollectionModel::SetGroupBy);
 
-  QList<QAction*> filter_ages = filter_ages_.keys();
-  for (QAction *action : filter_ages) {
-    int age = filter_ages_[action];
-    QObject::connect(action, &QAction::triggered, this, [this, age]() { model_->SetFilterAge(age); } );
+  const QList<QAction*> actions = filter_max_ages_.keys();
+  for (QAction *action : actions) {
+    const int filter_max_age = filter_max_ages_.value(action);
+    QObject::connect(action, &QAction::triggered, this, [this, filter_max_age]() { model_->SetFilterMaxAge(filter_max_age); } );
   }
 
   // Load settings
   if (!settings_group_.isEmpty()) {
-    QSettings s;
+    Settings s;
     s.beginGroup(settings_group_);
     int version = 0;
     if (s.contains(group_by_version())) version = s.value(group_by_version(), 0).toInt();
     if (version == 1) {
       model_->SetGroupBy(CollectionModel::Grouping(
-        CollectionModel::GroupBy(s.value(group_by_key(1), static_cast<int>(CollectionModel::GroupBy_AlbumArtist)).toInt()),
-        CollectionModel::GroupBy(s.value(group_by_key(2), static_cast<int>(CollectionModel::GroupBy_AlbumDisc)).toInt()),
-        CollectionModel::GroupBy(s.value(group_by_key(3), static_cast<int>(CollectionModel::GroupBy_None)).toInt())), s.value(separate_albums_by_grouping_key(), false).toBool());
+        static_cast<CollectionModel::GroupBy>(s.value(group_by_key(1), static_cast<int>(CollectionModel::GroupBy::AlbumArtist)).toInt()),
+        static_cast<CollectionModel::GroupBy>(s.value(group_by_key(2), static_cast<int>(CollectionModel::GroupBy::AlbumDisc)).toInt()),
+        static_cast<CollectionModel::GroupBy>(s.value(group_by_key(3), static_cast<int>(CollectionModel::GroupBy::None)).toInt())),
+        s.value(separate_albums_by_grouping_key(), false).toBool());
     }
     else {
-      model_->SetGroupBy(CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_AlbumDisc, CollectionModel::GroupBy_None), false);
+      model_->SetGroupBy(CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::AlbumDisc, CollectionModel::GroupBy::None), false);
     }
     s.endGroup();
   }
@@ -205,11 +198,15 @@ void CollectionFilterWidget::SetSettingsPrefix(const QString &prefix) {
 
 }
 
+void CollectionFilterWidget::setFilter(CollectionFilter *filter) {
+  filter_ = filter;
+}
+
 void CollectionFilterWidget::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizeConfigureButtons, 20).toInt();
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizeConfigureButtons, 20).toInt();
   s.endGroup();
   ui_->options->setIconSize(QSize(iconsize, iconsize));
   ui_->search_field->setIconSize(iconsize);
@@ -219,22 +216,20 @@ void CollectionFilterWidget::ReloadSettings() {
 QString CollectionFilterWidget::group_by_version() const {
 
   if (settings_prefix_.isEmpty()) {
-    return "group_by_version";
+    return u"group_by_version"_s;
   }
-  else {
-    return QString("%1_group_by_version").arg(settings_prefix_);
-  }
+
+  return QStringLiteral("%1_group_by_version").arg(settings_prefix_);
 
 }
 
 QString CollectionFilterWidget::group_by_key() const {
 
   if (settings_prefix_.isEmpty()) {
-    return "group_by";
+    return u"group_by"_s;
   }
-  else {
-    return QString("%1_group_by").arg(settings_prefix_);
-  }
+
+  return QStringLiteral("%1_group_by").arg(settings_prefix_);
 
 }
 
@@ -243,11 +238,10 @@ QString CollectionFilterWidget::group_by_key(const int number) const { return gr
 QString CollectionFilterWidget::separate_albums_by_grouping_key() const {
 
   if (settings_prefix_.isEmpty()) {
-    return "separate_albums_by_grouping";
+    return u"separate_albums_by_grouping"_s;
   }
-  else {
-    return QString("%1_separate_albums_by_grouping").arg(settings_prefix_);
-  }
+
+  return QStringLiteral("%1_separate_albums_by_grouping").arg(settings_prefix_);
 
 }
 
@@ -272,49 +266,51 @@ QActionGroup *CollectionFilterWidget::CreateGroupByActions(const QString &saved_
 
   QActionGroup *ret = new QActionGroup(parent);
 
-  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_Album)));
-  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_AlbumDisc)));
-  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Year - Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_YearAlbum)));
-  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Year - Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_YearAlbumDisc)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::AlbumDisc)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Year - Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::YearAlbum)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album artist/Year - Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::YearAlbumDisc)));
 
-  ret->addAction(CreateGroupByAction(tr("Group by Artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Artist, CollectionModel::GroupBy_Album)));
-  ret->addAction(CreateGroupByAction(tr("Group by Artist/Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Artist, CollectionModel::GroupBy_AlbumDisc)));
-  ret->addAction(CreateGroupByAction(tr("Group by Artist/Year - Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Artist, CollectionModel::GroupBy_YearAlbum)));
-  ret->addAction(CreateGroupByAction(tr("Group by Artist/Year - Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Artist, CollectionModel::GroupBy_YearAlbumDisc)));
+  ret->addAction(CreateGroupByAction(tr("Group by Artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Artist, CollectionModel::GroupBy::Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Artist/Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Artist, CollectionModel::GroupBy::AlbumDisc)));
+  ret->addAction(CreateGroupByAction(tr("Group by Artist/Year - Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Artist, CollectionModel::GroupBy::YearAlbum)));
+  ret->addAction(CreateGroupByAction(tr("Group by Artist/Year - Album - Disc"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Artist, CollectionModel::GroupBy::YearAlbumDisc)));
 
-  ret->addAction(CreateGroupByAction(tr("Group by Genre/Album artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Genre, CollectionModel::GroupBy_AlbumArtist, CollectionModel::GroupBy_Album)));
-  ret->addAction(CreateGroupByAction(tr("Group by Genre/Artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Genre, CollectionModel::GroupBy_Artist, CollectionModel::GroupBy_Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Genre/Album artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Genre, CollectionModel::GroupBy::AlbumArtist, CollectionModel::GroupBy::Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Genre/Artist/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Genre, CollectionModel::GroupBy::Artist, CollectionModel::GroupBy::Album)));
 
-  ret->addAction(CreateGroupByAction(tr("Group by Album Artist"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_AlbumArtist)));
-  ret->addAction(CreateGroupByAction(tr("Group by Artist"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Artist)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album Artist"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::AlbumArtist)));
+  ret->addAction(CreateGroupByAction(tr("Group by Artist"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Artist)));
 
-  ret->addAction(CreateGroupByAction(tr("Group by Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Album)));
-  ret->addAction(CreateGroupByAction(tr("Group by Genre/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy_Genre, CollectionModel::GroupBy_Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Album)));
+  ret->addAction(CreateGroupByAction(tr("Group by Genre/Album"), parent, CollectionModel::Grouping(CollectionModel::GroupBy::Genre, CollectionModel::GroupBy::Album)));
 
   QAction *sep1 = new QAction(parent);
   sep1->setSeparator(true);
   ret->addAction(sep1);
 
   // Read saved groupings
-  QSettings s;
+  Settings s;
   s.beginGroup(saved_groupings_settings_group);
   int version = s.value("version").toInt();
   if (version == 1) {
     QStringList saved = s.childKeys();
     for (int i = 0; i < saved.size(); ++i) {
-      if (saved.at(i) == "version") continue;
-      QByteArray bytes = s.value(saved.at(i)).toByteArray();
+      const QString &name = saved.at(i);
+      if (name == "version"_L1) continue;
+      QByteArray bytes = s.value(name).toByteArray();
       QDataStream ds(&bytes, QIODevice::ReadOnly);
       CollectionModel::Grouping g;
       ds >> g;
-      ret->addAction(CreateGroupByAction(saved.at(i), parent, g));
+      ret->addAction(CreateGroupByAction(QUrl::fromPercentEncoding(name.toUtf8()), parent, g));
     }
   }
   else {
     QStringList saved = s.childKeys();
     for (int i = 0; i < saved.size(); ++i) {
-      if (saved.at(i) == "version") continue;
-      s.remove(saved.at(i));
+      const QString &name = saved.at(i);
+      if (name == "version"_L1) continue;
+      s.remove(name);
     }
   }
   s.endGroup();
@@ -334,7 +330,7 @@ QAction *CollectionFilterWidget::CreateGroupByAction(const QString &text, QObjec
   QAction *ret = new QAction(text, parent);
   ret->setCheckable(true);
 
-  if (grouping.first != CollectionModel::GroupBy_None) {
+  if (grouping.first != CollectionModel::GroupBy::None) {
     ret->setProperty("group_by", QVariant::fromValue(grouping));
   }
 
@@ -346,23 +342,23 @@ void CollectionFilterWidget::SaveGroupBy() {
 
   if (!model_) return;
 
-  QString name = QInputDialog::getText(this, tr("Grouping Name"), tr("Grouping name:"));
+  const QString name = QInputDialog::getText(this, tr("Grouping Name"), tr("Grouping name:"));
   if (name.isEmpty()) return;
 
   qLog(Debug) << "Saving current grouping to" << name;
 
-  QSettings s;
-  if (settings_group_.isEmpty() || settings_group_ == CollectionSettingsPage::kSettingsGroup) {
+  Settings s;
+  if (settings_group_.isEmpty() || settings_group_ == QLatin1String(CollectionSettings::kSettingsGroup)) {
     s.beginGroup(SavedGroupingManager::kSavedGroupingsSettingsGroup);
   }
   else {
-    s.beginGroup(QString(SavedGroupingManager::kSavedGroupingsSettingsGroup) + "_" + settings_group_);
+    s.beginGroup(QLatin1String(SavedGroupingManager::kSavedGroupingsSettingsGroup) + QLatin1Char('_') + settings_group_);
   }
   QByteArray buffer;
   QDataStream datastream(&buffer, QIODevice::WriteOnly);
   datastream << model_->GetGroupBy();
-  s.setValue("version", "1");
-  s.setValue(name, buffer);
+  s.setValue("version", u"1"_s);
+  s.setValue(QUrl::toPercentEncoding(name), buffer);
   s.endGroup();
 
   UpdateGroupByActions();
@@ -415,7 +411,7 @@ void CollectionFilterWidget::GroupByClicked(QAction *action) {
 void CollectionFilterWidget::GroupingChanged(const CollectionModel::Grouping g, const bool separate_albums_by_grouping) {
 
   if (!settings_group_.isEmpty()) {
-    QSettings s;
+    Settings s;
     s.beginGroup(settings_group_);
     s.setValue(group_by_version(), 1);
     s.setValue(group_by_key(1), static_cast<int>(g[0]));
@@ -436,7 +432,8 @@ void CollectionFilterWidget::CheckCurrentGrouping(const CollectionModel::Groupin
     UpdateGroupByActions();
   }
 
-  for (QAction *action : group_by_group_->actions()) {
+  const QList<QAction*> actions = group_by_group_->actions();
+  for (QAction *action : actions) {
     if (action->property("group_by").isNull()) continue;
 
     if (g == action->property("group_by").value<CollectionModel::Grouping>()) {
@@ -446,7 +443,6 @@ void CollectionFilterWidget::CheckCurrentGrouping(const CollectionModel::Groupin
   }
 
   // Check the advanced action
-  QList<QAction*> actions = group_by_group_->actions();
   QAction *action = actions.last();
   action->setChecked(true);
 
@@ -459,7 +455,7 @@ void CollectionFilterWidget::SetFilterHint(const QString &hint) {
 void CollectionFilterWidget::SetFilterMode(CollectionFilterOptions::FilterMode filter_mode) {
 
   ui_->search_field->clear();
-  ui_->search_field->setEnabled(filter_mode == CollectionFilterOptions::FilterMode_All);
+  ui_->search_field->setEnabled(filter_mode == CollectionFilterOptions::FilterMode::All);
 
   model_->SetFilterMode(filter_mode);
 
@@ -485,18 +481,21 @@ void CollectionFilterWidget::keyReleaseEvent(QKeyEvent *e) {
 
   switch (e->key()) {
     case Qt::Key_Up:
-      emit UpPressed();
+      Q_EMIT UpPressed();
       e->accept();
       break;
 
     case Qt::Key_Down:
-      emit DownPressed();
+      Q_EMIT DownPressed();
       e->accept();
       break;
 
     case Qt::Key_Escape:
       ui_->search_field->clear();
       e->accept();
+      break;
+
+    default:
       break;
   }
 
@@ -506,16 +505,13 @@ void CollectionFilterWidget::keyReleaseEvent(QKeyEvent *e) {
 
 void CollectionFilterWidget::FilterTextChanged(const QString &text) {
 
-  // Searching with one or two characters can be very expensive on the database even with FTS,
-  // so if there are a large number of songs in the database introduce a small delay before actually filtering the model,
-  // so if the user is typing the first few characters of something it will be quicker.
-  const bool delay = (delay_behaviour_ == AlwaysDelayed) || (delay_behaviour_ == DelayedOnLargeLibraries && !text.isEmpty() && text.length() < 3 && model_->total_song_count() >= 100000);
+  const bool delay = (delay_behaviour_ == DelayBehaviour::AlwaysDelayed) || (delay_behaviour_ == DelayBehaviour::DelayedOnLargeLibraries && !text.isEmpty() && text.length() < 3 && model_->total_song_count() >= 100000);
 
   if (delay) {
-    filter_delay_->start();
+    timer_filter_delay_->start();
   }
   else {
-    filter_delay_->stop();
+    timer_filter_delay_->stop();
     FilterDelayTimeout();
   }
 
@@ -523,9 +519,8 @@ void CollectionFilterWidget::FilterTextChanged(const QString &text) {
 
 void CollectionFilterWidget::FilterDelayTimeout() {
 
-  emit Filter(ui_->search_field->text());
   if (filter_applies_to_model_) {
-    model_->SetFilterText(ui_->search_field->text());
+    filter_->SetFilterString(ui_->search_field->text());
   }
 
 }

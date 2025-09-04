@@ -26,6 +26,8 @@
 
 #include "envutils.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 namespace Utilities {
 
 QString GetEnv(const QString &key) {
@@ -36,7 +38,7 @@ QString GetEnv(const QString &key) {
 void SetEnv(const char *key, const QString &value) {
 
 #ifdef Q_OS_WIN32
-  _putenv(QString("%1=%2").arg(key, value).toLocal8Bit().constData());
+  _putenv(QStringLiteral("%1=%2").arg(QLatin1String(key), value).toLocal8Bit().constData());
 #else
   setenv(key, value.toLocal8Bit().constData(), 1);
 #endif
@@ -45,28 +47,28 @@ void SetEnv(const char *key, const QString &value) {
 
 QString DesktopEnvironment() {
 
-  const QString de = GetEnv("XDG_CURRENT_DESKTOP");
+  const QString de = GetEnv(u"XDG_CURRENT_DESKTOP"_s);
   if (!de.isEmpty()) return de;
 
-  if (!qEnvironmentVariableIsEmpty("KDE_FULL_SESSION"))         return "KDE";
-  if (!qEnvironmentVariableIsEmpty("GNOME_DESKTOP_SESSION_ID")) return "Gnome";
+  if (!qEnvironmentVariableIsEmpty("KDE_FULL_SESSION"))         return u"KDE"_s;
+  if (!qEnvironmentVariableIsEmpty("GNOME_DESKTOP_SESSION_ID")) return u"Gnome"_s;
 
-  QString session = GetEnv("DESKTOP_SESSION");
-  qint64 slash = session.lastIndexOf('/');
+  QString session = GetEnv(u"DESKTOP_SESSION"_s);
+  qint64 slash = session.lastIndexOf(u'/');
   if (slash != -1) {
-    QSettings desktop_file(QString(session + ".desktop"), QSettings::IniFormat);
-    desktop_file.beginGroup("Desktop Entry");
-    QString name = desktop_file.value("DesktopNames").toString();
+    QSettings desktop_file(QStringLiteral("%1.desktop").arg(session), QSettings::IniFormat);
+    desktop_file.beginGroup(u"Desktop Entry"_s);
+    QString name = desktop_file.value(u"DesktopNames"_s).toString();
     desktop_file.endGroup();
     if (!name.isEmpty()) return name;
     session = session.mid(slash + 1);
   }
 
-  if (session == "kde")           return "KDE";
-  else if (session == "gnome")    return "Gnome";
-  else if (session == "xfce")     return "XFCE";
+  if (session == "kde"_L1)           return u"KDE"_s;
+  else if (session == "gnome"_L1)    return u"Gnome"_s;
+  else if (session == "xfce"_L1)     return u"XFCE"_s;
 
-  return "Unknown";
+  return u"Unknown"_s;
 
 }
 

@@ -25,48 +25,36 @@
 #include <QLabel>
 #include <QRadioButton>
 #include <QVBoxLayout>
+#include <QStyle>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/iconloader.h"
 
 #include "smartplaylistquerywizardplugin.h"
 #include "smartplaylistwizard.h"
 #include "smartplaylistwizardplugin.h"
+#include "smartplaylistwizardtypepage.h"
+#include "smartplaylistwizardfinishpage.h"
 #include "ui_smartplaylistwizardfinishpage.h"
 
-class SmartPlaylistWizard::TypePage : public QWizardPage {  // clazy:exclude=missing-qobject-macro
- public:
-  explicit TypePage(QWidget *parent) : QWizardPage(parent), next_id_(-1) {}
+using namespace Qt::Literals::StringLiterals;
 
-  int nextId() const override { return next_id_; }
-  int next_id_;
-};
-
-class SmartPlaylistWizard::FinishPage : public QWizardPage {  // clazy:exclude=missing-qobject-macro
- public:
-  explicit FinishPage(QWidget *parent) : QWizardPage(parent), ui_(new Ui_SmartPlaylistWizardFinishPage) {
-    ui_->setupUi(this);
-    QObject::connect(ui_->name, &QLineEdit::textChanged, this, &SmartPlaylistWizard::FinishPage::completeChanged);
-  }
-
-  ~FinishPage() override { delete ui_; }
-
-  int nextId() const override { return -1; }
-  bool isComplete() const override { return !ui_->name->text().isEmpty(); }
-
-  Ui_SmartPlaylistWizardFinishPage *ui_;
-
-};
-
-SmartPlaylistWizard::SmartPlaylistWizard(Application *app, CollectionBackend *collection, QWidget *parent)
+SmartPlaylistWizard::SmartPlaylistWizard(const SharedPtr<Player> player,
+                                         const SharedPtr<PlaylistManager> playlist_manager,
+                                         const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                                         const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                                         const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                                         QWidget *parent)
     : QWizard(parent),
-      app_(app),
-      collection_(collection),
-      type_page_(new TypePage(this)),
-      finish_page_(new FinishPage(this)),
+      collection_backend_(collection_backend),
+      type_page_(new SmartPlaylistWizardTypePage(this)),
+      finish_page_(new SmartPlaylistWizardFinishPage(this)),
       type_index_(-1) {
 
-  setWindowIcon(IconLoader::Load("strawberry"));
+  setWindowIcon(IconLoader::Load(u"strawberry"_s));
   setWindowTitle(tr("Smart playlist"));
 
   resize(788, 628);
@@ -75,11 +63,17 @@ SmartPlaylistWizard::SmartPlaylistWizard(Application *app, CollectionBackend *co
   // MacStyle leaves an ugly empty space on the left side of the dialog.
   setWizardStyle(QWizard::ClassicStyle);
 #endif
+#ifdef Q_OS_WIN32
+  // Workaround QTBUG-123853
+  if (QApplication::style() && QApplication::style()->objectName() != u"windowsvista"_s) {
+    setWizardStyle(QWizard::ClassicStyle);
+  }
+#endif
 
   // Type page
   type_page_->setTitle(tr("Playlist type"));
   type_page_->setSubTitle(tr("A smart playlist is a dynamic list of songs that come from your collection.  There are different types of smart playlist that offer different ways of selecting songs."));
-  type_page_->setStyleSheet("QRadioButton { font-weight: bold; } QLabel { margin-bottom: 1em; margin-left: 24px; }");
+  type_page_->setStyleSheet(u"QRadioButton { font-weight: bold; } QLabel { margin-bottom: 1em; margin-left: 24px; }"_s);
   addPage(type_page_);
 
   // Finish page
@@ -88,7 +82,14 @@ SmartPlaylistWizard::SmartPlaylistWizard(Application *app, CollectionBackend *co
   finish_id_ = addPage(finish_page_);
 
   new QVBoxLayout(type_page_);
-  AddPlugin(new SmartPlaylistQueryWizardPlugin(app_, collection_, this));
+  AddPlugin(new SmartPlaylistQueryWizardPlugin(player,
+                                               playlist_manager,
+                                               collection_backend,
+#ifdef HAVE_MOODBAR
+                                               moodbar_loader,
+#endif
+                                               current_albumcover_loader,
+                                               this));
 
   // Skip the type page - remove this when we have more than one type
   setStartId(2);
@@ -103,7 +104,7 @@ void SmartPlaylistWizard::SetGenerator(PlaylistGeneratorPtr gen) {
 
   // Find the right type and jump to the start page
   for (int i = 0; i < plugins_.count(); ++i) {
-    if (plugins_[i]->type() == gen->type()) {
+    if (plugins_.value(i)->type() == gen->type()) {
       TypeChanged(i);
       // TODO: Put this back in when the setStartId is removed from the ctor next();
       break;
@@ -111,19 +112,20 @@ void SmartPlaylistWizard::SetGenerator(PlaylistGeneratorPtr gen) {
   }
 
   if (type_index_ == -1) {
-    qLog(Error) << "Plugin was not found for generator type" << gen->type();
+    qLog(Error) << "Plugin was not found for generator type" << static_cast<int>(gen->type());
     return;
   }
 
   // Set the name
   if (!gen->name().isEmpty()) {
-    setWindowTitle(windowTitle() + " - " + gen->name());
+    setWindowTitle(windowTitle() + u" - "_s + gen->name());
   }
   finish_page_->ui_->name->setText(gen->name());
   finish_page_->ui_->dynamic->setChecked(gen->is_dynamic());
 
   // Tell the plugin to load
-  plugins_[type_index_]->SetGenerator(gen);
+  SmartPlaylistWizardPlugin *plugin = plugins_.value(type_index_);
+  plugin->SetGenerator(gen);
 
 }
 
@@ -151,7 +153,7 @@ void SmartPlaylistWizard::AddPlugin(SmartPlaylistWizardPlugin *plugin) {
 void SmartPlaylistWizard::TypeChanged(const int index) {
 
   type_index_ = index;
-  type_page_->next_id_ = plugins_[type_index_]->start_page();
+  type_page_->next_id_ = plugins_.value(type_index_)->start_page();
 
 }
 
@@ -172,7 +174,7 @@ PlaylistGeneratorPtr SmartPlaylistWizard::CreateGenerator() const {
 void SmartPlaylistWizard::initializePage(const int id) {
 
   if (id == finish_id_) {
-    finish_page_->ui_->dynamic_container->setEnabled(plugins_[type_index_]->is_dynamic());
+    finish_page_->ui_->dynamic_container->setEnabled(plugins_.value(type_index_)->is_dynamic());
   }
   QWizard::initializePage(id);
 

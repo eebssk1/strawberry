@@ -21,6 +21,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QApplication>
 #include <QWidget>
 #include <QStyleFactory>
@@ -41,64 +43,38 @@
 #include <QSettings>
 
 #include "appearancesettingspage.h"
-#include "utilities/colorutils.h"
+#include "constants/appearancesettings.h"
+#include "constants/filefilterconstants.h"
 #include "core/iconloader.h"
 #include "core/stylehelper.h"
-#include "covermanager/albumcoverchoicecontroller.h"
+#include "core/settings.h"
+#include "widgets/fancytabwidget.h"
 #include "settingspage.h"
 #include "settingsdialog.h"
 #include "ui_appearancesettingspage.h"
 
-const char *AppearanceSettingsPage::kSettingsGroup = "Appearance";
-
-const char *AppearanceSettingsPage::kStyle = "style";
-const char *AppearanceSettingsPage::kSystemThemeIcons = "system_icons";
-
-const char *AppearanceSettingsPage::kBackgroundImageType = "background_image_type";
-const char *AppearanceSettingsPage::kBackgroundImageFilename = "background_image_file";
-const char *AppearanceSettingsPage::kBackgroundImagePosition = "background_image_position";
-const char *AppearanceSettingsPage::kBackgroundImageStretch = "background_image_stretch";
-const char *AppearanceSettingsPage::kBackgroundImageDoNotCut = "background_image_do_not_cut";
-const char *AppearanceSettingsPage::kBackgroundImageKeepAspectRatio = "background_image_keep_aspect_ratio";
-const char *AppearanceSettingsPage::kBackgroundImageMaxSize = "background_image_max_size";
-
-const char *AppearanceSettingsPage::kBlurRadius = "blur_radius";
-const char *AppearanceSettingsPage::kOpacityLevel = "opacity_level";
-
-const int AppearanceSettingsPage::kDefaultBlurRadius = 0;
-const int AppearanceSettingsPage::kDefaultOpacityLevel = 40;
-
-const char *AppearanceSettingsPage::kTabBarSystemColor = "tab_system_color";
-const char *AppearanceSettingsPage::kTabBarGradient = "tab_gradient";
-const char *AppearanceSettingsPage::kTabBarColor = "tab_color";
-
-const char *AppearanceSettingsPage::kIconSizeTabbarSmallMode = "icon_size_tabbar_small_mode";
-const char *AppearanceSettingsPage::kIconSizeTabbarLargeMode = "icon_size_tabbar_large_mode";
-const char *AppearanceSettingsPage::kIconSizePlayControlButtons = "icon_size_play_control_buttons";
-const char *AppearanceSettingsPage::kIconSizePlaylistButtons = "icon_size_playlist_buttons";
-const char *AppearanceSettingsPage::kIconSizeLeftPanelButtons = "icon_size_left_panel_buttons";
-const char *AppearanceSettingsPage::kIconSizeConfigureButtons = "icon_size_configure_buttons";
-
-const char *AppearanceSettingsPage::kPlaylistPlayingSongColor = "playlist_playing_song_color";
+using namespace Qt::Literals::StringLiterals;
+using namespace AppearanceSettings;
 
 AppearanceSettingsPage::AppearanceSettingsPage(SettingsDialog *dialog, QWidget *parent)
     : SettingsPage(dialog, parent),
       ui_(new Ui_AppearanceSettingsPage),
-      background_image_type_(BackgroundImageType_Default) {
+      background_image_type_(BackgroundImageType::Default) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load("view-media-visualization", true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"view-media-visualization"_s, true, 0, 32));
 
-  ui_->combobox_style->addItem("default", "default");
-  for (const QString &style : QStyleFactory::keys()) {
+  ui_->combobox_style->addItem(u"default"_s, u"default"_s);
+  const QStringList styles = QStyleFactory::keys();
+  for (const QString &style : styles) {
     ui_->combobox_style->addItem(style, style);
   }
 
-  ui_->combobox_backgroundimageposition->setItemData(0, BackgroundImagePosition_UpperLeft);
-  ui_->combobox_backgroundimageposition->setItemData(1, BackgroundImagePosition_UpperRight);
-  ui_->combobox_backgroundimageposition->setItemData(2, BackgroundImagePosition_Middle);
-  ui_->combobox_backgroundimageposition->setItemData(3, BackgroundImagePosition_BottomLeft);
-  ui_->combobox_backgroundimageposition->setItemData(4, BackgroundImagePosition_BottomRight);
+  ui_->combobox_backgroundimageposition->setItemData(0, static_cast<int>(BackgroundImagePosition::UpperLeft));
+  ui_->combobox_backgroundimageposition->setItemData(1, static_cast<int>(BackgroundImagePosition::UpperRight));
+  ui_->combobox_backgroundimageposition->setItemData(2, static_cast<int>(BackgroundImagePosition::Middle));
+  ui_->combobox_backgroundimageposition->setItemData(3, static_cast<int>(BackgroundImagePosition::BottomLeft));
+  ui_->combobox_backgroundimageposition->setItemData(4, static_cast<int>(BackgroundImagePosition::BottomRight));
 
   QObject::connect(ui_->blur_slider, &QSlider::valueChanged, this, &AppearanceSettingsPage::BlurLevelChanged);
   QObject::connect(ui_->opacity_slider, &QSlider::valueChanged, this, &AppearanceSettingsPage::OpacityLevelChanged);
@@ -125,7 +101,7 @@ AppearanceSettingsPage::AppearanceSettingsPage(SettingsDialog *dialog, QWidget *
   QObject::connect(ui_->select_playlist_playing_song_color, &QPushButton::pressed, this, &AppearanceSettingsPage::PlaylistPlayingSongSelectColor);
   QObject::connect(ui_->playlist_playing_song_color_system, &QRadioButton::toggled, this, &AppearanceSettingsPage::PlaylistPlayingSongColorSystem);
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN32)
   ui_->checkbox_system_icons->hide();
 #endif
 
@@ -139,12 +115,12 @@ AppearanceSettingsPage::~AppearanceSettingsPage() {
 
 void AppearanceSettingsPage::Load() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
 
-  ComboBoxLoadFromSettings(s, ui_->combobox_style, kStyle, "default");
+  ComboBoxLoadFromSettings(s, ui_->combobox_style, QLatin1String(kStyle), u"default"_s);
 
-#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN32)
   ui_->checkbox_system_icons->setChecked(s.value(kSystemThemeIcons, false).toBool());
 #endif
 
@@ -154,35 +130,35 @@ void AppearanceSettingsPage::Load() {
   ui_->tabbar_system_color->setChecked(tabbar_system_color);
   ui_->tabbar_custom_color->setChecked(!tabbar_system_color);
 
-  current_tabbar_bg_color_ = s.value(kTabBarColor, DefaultTabbarBgColor()).value<QColor>();
+  current_tabbar_bg_color_ = s.value(kTabBarColor, FancyTabWidget::DefaultTabbarBgColor()).value<QColor>();
 
   UpdateColorSelectorColor(ui_->select_tabbar_color, current_tabbar_bg_color_);
   TabBarSystemColor(ui_->tabbar_system_color->isChecked());
 
   // Playlist settings
-  background_image_type_ = static_cast<BackgroundImageType>(s.value(kBackgroundImageType).toInt());
+  background_image_type_ = static_cast<BackgroundImageType>(s.value(kBackgroundImageType, static_cast<int>(BackgroundImageType::Default)).toInt());
   background_image_filename_ = s.value(kBackgroundImageFilename).toString();
 
   switch (background_image_type_) {
-    case BackgroundImageType_Default:
+    case BackgroundImageType::Default:
       ui_->use_default_background->setChecked(true);
       break;
-    case BackgroundImageType_None:
+    case BackgroundImageType::None:
       ui_->use_no_background->setChecked(true);
       break;
-    case BackgroundImageType_Album:
+    case BackgroundImageType::Album:
       ui_->use_album_cover_background->setChecked(true);
       break;
-    case BackgroundImageType_Strawbs:
+    case BackgroundImageType::Strawbs:
       ui_->use_strawbs_background->setChecked(true);
       break;
-    case BackgroundImageType_Custom:
+    case BackgroundImageType::Custom:
       ui_->use_custom_background_image->setChecked(true);
       break;
   }
   ui_->background_image_filename->setText(background_image_filename_);
 
-  ui_->combobox_backgroundimageposition->setCurrentIndex(ui_->combobox_backgroundimageposition->findData(s.value(kBackgroundImagePosition, BackgroundImagePosition_BottomRight).toInt()));
+  ui_->combobox_backgroundimageposition->setCurrentIndex(ui_->combobox_backgroundimageposition->findData(s.value(kBackgroundImagePosition, static_cast<int>(BackgroundImagePosition::BottomRight)).toInt()));
   ui_->spinbox_background_image_maxsize->setValue(s.value(kBackgroundImageMaxSize, 0).toInt());
   ui_->checkbox_background_image_stretch->setChecked(s.value(kBackgroundImageStretch, false).toBool());
   ui_->checkbox_background_image_do_not_cut->setChecked(s.value(kBackgroundImageDoNotCut, true).toBool());
@@ -215,18 +191,18 @@ void AppearanceSettingsPage::Load() {
 
   Init(ui_->layout_appearancesettingspage->parentWidget());
 
-  if (!QSettings().childGroups().contains(kSettingsGroup)) set_changed();
+  if (!Settings().childGroups().contains(QLatin1String(kSettingsGroup))) set_changed();
 
 }
 
 void AppearanceSettingsPage::Save() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
 
   s.setValue("style", ui_->combobox_style->currentText());
 
-#if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
+#if defined(Q_OS_MACOS) || defined(Q_OS_WIN32)
   s.setValue(kSystemThemeIcons, false);
 #else
   s.setValue(kSystemThemeIcons, ui_->checkbox_system_icons->isChecked());
@@ -234,32 +210,31 @@ void AppearanceSettingsPage::Save() {
 
   background_image_filename_ = ui_->background_image_filename->text();
   if (ui_->use_default_background->isChecked()) {
-    background_image_type_ = BackgroundImageType_Default;
+    background_image_type_ = BackgroundImageType::Default;
   }
   else if (ui_->use_no_background->isChecked()) {
-    background_image_type_ = BackgroundImageType_None;
+    background_image_type_ = BackgroundImageType::None;
   }
   else if (ui_->use_album_cover_background->isChecked()) {
-    background_image_type_ = BackgroundImageType_Album;
+    background_image_type_ = BackgroundImageType::Album;
   }
   else if (ui_->use_strawbs_background->isChecked()) {
-    background_image_type_ = BackgroundImageType_Strawbs;
+    background_image_type_ = BackgroundImageType::Strawbs;
   }
   else if (ui_->use_custom_background_image->isChecked()) {
-    background_image_type_ = BackgroundImageType_Custom;
+    background_image_type_ = BackgroundImageType::Custom;
   }
-  s.setValue(kBackgroundImageType, background_image_type_);
+  s.setValue(kBackgroundImageType, static_cast<int>(background_image_type_));
 
-  if (background_image_type_ == BackgroundImageType_Custom) {
+  if (background_image_type_ == BackgroundImageType::Custom) {
     s.setValue(kBackgroundImageFilename, background_image_filename_);
   }
   else {
     s.remove(kBackgroundImageFilename);
   }
 
-  BackgroundImagePosition backgroundimageposition = static_cast<BackgroundImagePosition>(ui_->combobox_backgroundimageposition->itemData(ui_->combobox_backgroundimageposition->currentIndex()).toInt());
   s.setValue(kBackgroundImageMaxSize, ui_->spinbox_background_image_maxsize->value());
-  s.setValue(kBackgroundImagePosition, backgroundimageposition);
+  s.setValue(kBackgroundImagePosition, ui_->combobox_backgroundimageposition->currentData().toInt());
   s.setValue(kBackgroundImageStretch, ui_->checkbox_background_image_stretch->isChecked());
   s.setValue(kBackgroundImageDoNotCut, ui_->checkbox_background_image_do_not_cut->isChecked());
   s.setValue(kBackgroundImageKeepAspectRatio, ui_->checkbox_background_image_keep_aspect_ratio->isChecked());
@@ -291,14 +266,14 @@ void AppearanceSettingsPage::Save() {
 
 void AppearanceSettingsPage::UpdateColorSelectorColor(QWidget *color_selector, const QColor &color) {
 
-  QString css = QString("background-color: rgb(%1, %2, %3); color: rgb(255, 255, 255); border: 1px dotted black;").arg(color.red()).arg(color.green()).arg(color.blue());
+  QString css = QStringLiteral("background-color: rgb(%1, %2, %3); color: rgb(255, 255, 255); border: 1px dotted black;").arg(color.red()).arg(color.green()).arg(color.blue());
   color_selector->setStyleSheet(css);
 
 }
 
 void AppearanceSettingsPage::SelectBackgroundImage() {
 
-  QString selected_filename = QFileDialog::getOpenFileName(this, tr("Select background image"), background_image_filename_, tr(AlbumCoverChoiceController::kLoadImageFileFilter) + ";;" + tr(AlbumCoverChoiceController::kAllFilesFilter));
+  QString selected_filename = QFileDialog::getOpenFileName(this, tr("Select background image"), background_image_filename_, tr(kLoadImageFileFilter) + u";;"_s + tr(kAllFilesFilterSpec));
   if (selected_filename.isEmpty()) return;
   background_image_filename_ = selected_filename;
   ui_->background_image_filename->setText(background_image_filename_);
@@ -306,17 +281,17 @@ void AppearanceSettingsPage::SelectBackgroundImage() {
 }
 
 void AppearanceSettingsPage::BlurLevelChanged(int value) {
-  ui_->background_blur_radius_label->setText(QString("%1px").arg(value));
+  ui_->background_blur_radius_label->setText(QStringLiteral("%1px").arg(value));
 }
 
 void AppearanceSettingsPage::OpacityLevelChanged(int percent) {
-  ui_->background_opacity_label->setText(QString("%1%").arg(percent));
+  ui_->background_opacity_label->setText(QStringLiteral("%1%").arg(percent));
 }
 
 void AppearanceSettingsPage::TabBarSystemColor(bool checked) {
 
   if (checked) {
-    current_tabbar_bg_color_ = DefaultTabbarBgColor();
+    current_tabbar_bg_color_ = FancyTabWidget::DefaultTabbarBgColor();
     UpdateColorSelectorColor(ui_->select_tabbar_color, current_tabbar_bg_color_);
   }
   ui_->layout_tabbar_color->setEnabled(!checked);
@@ -365,12 +340,3 @@ void AppearanceSettingsPage::PlaylistPlayingSongSelectColor() {
 
 }
 
-QColor AppearanceSettingsPage::DefaultTabbarBgColor() {
-
-  QColor color = StyleHelper::highlightColor();
-  if (Utilities::IsColorDark(color)) {
-    color = color.lighter(130);
-  }
-  return color;
-
-}

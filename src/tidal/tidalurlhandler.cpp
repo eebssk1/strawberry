@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,19 +19,18 @@
 
 #include "config.h"
 
-#include <QObject>
 #include <QString>
 #include <QUrl>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/taskmanager.h"
 #include "core/song.h"
 #include "tidal/tidalservice.h"
 #include "tidalurlhandler.h"
 
-TidalUrlHandler::TidalUrlHandler(Application *app, TidalService *service)
+TidalUrlHandler::TidalUrlHandler(const SharedPtr<TaskManager> task_manager, TidalService *service)
     : UrlHandler(service),
-      app_(app),
+      task_manager_(task_manager),
       service_(service) {
 
   QObject::connect(service, &TidalService::StreamURLFailure, this, &TidalUrlHandler::GetStreamURLFailure);
@@ -39,46 +38,52 @@ TidalUrlHandler::TidalUrlHandler(Application *app, TidalService *service)
 
 }
 
+QString TidalUrlHandler::scheme() const {
+
+  return service_->url_scheme();
+
+}
+
 UrlHandler::LoadResult TidalUrlHandler::StartLoading(const QUrl &url) {
 
-  Request req;
-  req.task_id = app_->task_manager()->StartTask(QString("Loading %1 stream...").arg(url.scheme()));
+  Request request;
+  request.task_id = task_manager_->StartTask(QStringLiteral("Loading %1 stream...").arg(url.scheme()));
   QString error;
-  req.id = service_->GetStreamURL(url, error);
-  if (req.id == 0) {
-    CancelTask(req.task_id);
-    return LoadResult(url, LoadResult::Error, error);
+  request.id = service_->GetStreamURL(url, error);
+  if (request.id == 0) {
+    CancelTask(request.task_id);
+    return LoadResult(url, LoadResult::Type::Error, error);
   }
 
-  requests_.insert(req.id, req);
+  requests_.insert(request.id, request);
 
   LoadResult ret(url);
-  ret.type_ = LoadResult::WillLoadAsynchronously;
+  ret.type_ = LoadResult::Type::WillLoadAsynchronously;
 
   return ret;
 
 }
 
-void TidalUrlHandler::GetStreamURLFailure(const uint id, const QUrl &original_url, const QString &error) {
+void TidalUrlHandler::GetStreamURLFailure(const uint id, const QUrl &media_url, const QString &error) {
 
   if (!requests_.contains(id)) return;
   Request req = requests_.take(id);
   CancelTask(req.task_id);
 
-  emit AsyncLoadComplete(LoadResult(original_url, LoadResult::Error, error));
+  Q_EMIT AsyncLoadComplete(LoadResult(media_url, LoadResult::Type::Error, error));
 
 }
 
-void TidalUrlHandler::GetStreamURLSuccess(const uint id, const QUrl &original_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration) {
+void TidalUrlHandler::GetStreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration) {
 
   if (!requests_.contains(id)) return;
   Request req = requests_.take(id);
   CancelTask(req.task_id);
 
-  emit AsyncLoadComplete(LoadResult(original_url, LoadResult::TrackAvailable, stream_url, filetype, samplerate, bit_depth, duration));
+  Q_EMIT AsyncLoadComplete(LoadResult(media_url, LoadResult::Type::TrackAvailable, stream_url, filetype, samplerate, bit_depth, duration));
 
 }
 
 void TidalUrlHandler::CancelTask(const int task_id) {
-  app_->task_manager()->SetTaskFinished(task_id);
+  task_manager_->SetTaskFinished(task_id);
 }

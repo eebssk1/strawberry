@@ -26,6 +26,7 @@
 #include <QWidget>
 #include <QPushButton>
 
+#include "includes/shared_ptr.h"
 #include "smartplaylistsearchterm.h"
 
 class QPropertyAnimation;
@@ -36,6 +37,7 @@ class QResizeEvent;
 
 class CollectionBackend;
 class Ui_SmartPlaylistSearchTermWidget;
+class SmartPlaylistSearchTermWidgetOverlay;
 
 class SmartPlaylistSearchTermWidget : public QWidget {
   Q_OBJECT
@@ -43,7 +45,7 @@ class SmartPlaylistSearchTermWidget : public QWidget {
   Q_PROPERTY(float overlay_opacity READ overlay_opacity WRITE set_overlay_opacity)
 
  public:
-  explicit SmartPlaylistSearchTermWidget(CollectionBackend *collection, QWidget *parent);
+  explicit SmartPlaylistSearchTermWidget(SharedPtr<CollectionBackend> collection_backend, QWidget *parent);
   ~SmartPlaylistSearchTermWidget() override;
 
   void SetActive(const bool active);
@@ -54,36 +56,29 @@ class SmartPlaylistSearchTermWidget : public QWidget {
   void SetTerm(const SmartPlaylistSearchTerm &term);
   SmartPlaylistSearchTerm Term() const;
 
- signals:
+ Q_SIGNALS:
   void Clicked();
   void RemoveClicked();
 
   void Changed();
 
  protected:
-  void showEvent(QShowEvent*) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-  void enterEvent(QEnterEvent*) override;
-#else
-  void enterEvent(QEvent*) override;
-#endif
-  void leaveEvent(QEvent*) override;
-  void resizeEvent(QResizeEvent*) override;
+  void showEvent(QShowEvent *e) override;
+  void enterEvent(QEnterEvent *e) override;
+  void leaveEvent(QEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void FieldChanged(const int index);
   void OpChanged(const int idx);
   void RelativeValueChanged();
   void Grab();
 
  private:
-  class Overlay;
-  friend class Overlay;
-
   Ui_SmartPlaylistSearchTermWidget *ui_;
-  CollectionBackend *collection_;
+  SharedPtr<CollectionBackend> collection_backend_;
 
-  Overlay *overlay_;
+  SmartPlaylistSearchTermWidgetOverlay *overlay_;
   QPropertyAnimation *animation_;
   bool active_;
   bool initialized_;

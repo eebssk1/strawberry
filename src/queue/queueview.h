@@ -28,6 +28,8 @@
 #include <QWidget>
 #include <QString>
 
+#include "includes/shared_ptr.h"
+
 class Playlist;
 class PlaylistManager;
 class Ui_QueueView;
@@ -39,10 +41,10 @@ class QueueView : public QWidget {
   explicit QueueView(QWidget *parent = nullptr);
   ~QueueView() override;
 
-  void SetPlaylistManager(PlaylistManager *manager);
+  void SetPlaylistManager(SharedPtr<PlaylistManager> playlist_manager);
   void ReloadSettings();
 
- private slots:
+ private Q_SLOTS:
   void CurrentPlaylistChanged(Playlist *playlist);
   void PlaylistDestroyed();
   void UpdateButtonState();
@@ -55,7 +57,7 @@ class QueueView : public QWidget {
  private:
   Ui_QueueView *ui_;
 
-  PlaylistManager *playlists_;
+  SharedPtr<PlaylistManager> playlist_manager_;
   Playlist *current_playlist_;
 };
 

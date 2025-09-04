@@ -19,75 +19,19 @@
 
 #include "config.h"
 
-#include <QObject>
 #include <QString>
-#include <QRegularExpression>
 
-#include "utilities/strutils.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "lyricsprovider.h"
 
-LyricsProvider::LyricsProvider(const QString &name, const bool enabled, const bool authentication_required, NetworkAccessManager *network, QObject *parent)
-    : QObject(parent), network_(network), name_(name), enabled_(enabled), order_(0), authentication_required_(authentication_required) {}
+LyricsProvider::LyricsProvider(const QString &name, const bool enabled, const bool authentication_required, const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : HttpBaseRequest(network, parent), network_(network), name_(name), enabled_(enabled), order_(0), authentication_required_(authentication_required) {}
 
-QString LyricsProvider::ParseLyricsFromHTML(const QString &content, const QRegularExpression &start_tag, const QRegularExpression &end_tag, const QRegularExpression &lyrics_start, const bool multiple) {
+bool LyricsProvider::StartSearchAsync(const int id, const LyricsSearchRequest &request) {
 
-  QString lyrics;
-  qint64 start_idx = 0;
+  QMetaObject::invokeMethod(this, "StartSearch", Qt::QueuedConnection, Q_ARG(int, id), Q_ARG(LyricsSearchRequest, request));
 
-  do {
-
-    QRegularExpressionMatch rematch = lyrics_start.match(content, start_idx);
-    if (!rematch.hasMatch()) break;
-
-    const qint64 start_lyrics_idx = rematch.capturedEnd();
-    qint64 end_lyrics_idx = -1;
-
-    // Find the index of the end tag.
-    qint64 idx = start_lyrics_idx;
-    QRegularExpressionMatch rematch_start_tag;
-    QRegularExpressionMatch rematch_end_tag;
-    int tags = 1;
-    do {
-      rematch_start_tag = QRegularExpression(start_tag).match(content, idx);
-      const qint64 start_tag_idx = rematch_start_tag.hasMatch() ? rematch_start_tag.capturedStart() : -1;
-      rematch_end_tag = QRegularExpression(end_tag).match(content, idx);
-      const qint64 end_tag_idx = rematch_end_tag.hasMatch() ? rematch_end_tag.capturedStart() : -1;
-      if (rematch_start_tag.hasMatch() && start_tag_idx <= end_tag_idx) {
-        ++tags;
-        idx = start_tag_idx + rematch_start_tag.capturedLength();
-      }
-      else if (rematch_end_tag.hasMatch()) {
-        --tags;
-        idx = end_tag_idx + rematch_end_tag.capturedLength();
-        if (tags == 0) {
-          end_lyrics_idx = rematch_end_tag.capturedStart();
-          start_idx = rematch_end_tag.capturedEnd();
-        }
-      }
-    }
-    while (tags > 0 && (rematch_start_tag.hasMatch() || rematch_end_tag.hasMatch()));
-
-    if (end_lyrics_idx != -1 && start_lyrics_idx < end_lyrics_idx) {
-      if (!lyrics.isEmpty()) {
-        lyrics.append("\n");
-      }
-      lyrics.append(content.mid(start_lyrics_idx, end_lyrics_idx - start_lyrics_idx)
-                           .replace(QRegularExpression("<br[^>]*>"), "\n")
-                           .remove(QRegularExpression("<[^>]*>"))
-                           .trimmed());
-    }
-    else {
-      start_idx = -1;
-    }
-
-  }
-  while (start_idx > 0 && multiple);
-
-  if (lyrics.length() > 6000 || lyrics.contains("there are no lyrics to", Qt::CaseInsensitive)) {
-    return QString();
-  }
-
-  return Utilities::DecodeHtmlEntities(lyrics);
+  return true;
 
 }

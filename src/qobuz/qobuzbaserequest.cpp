@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,8 +20,8 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
-#include <QObject>
 #include <QByteArray>
 #include <QPair>
 #include <QList>
@@ -36,39 +36,73 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/networkaccessmanager.h"
 #include "qobuzservice.h"
 #include "qobuzbaserequest.h"
 
-QobuzBaseRequest::QobuzBaseRequest(QobuzService *service, NetworkAccessManager *network, QObject *parent)
-    : QObject(parent),
+using namespace Qt::Literals::StringLiterals;
+
+QobuzBaseRequest::QobuzBaseRequest(QobuzService *service, const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : JsonBaseRequest(network, parent),
       service_(service),
       network_(network) {}
 
-QobuzBaseRequest::~QobuzBaseRequest() = default;
+QString QobuzBaseRequest::service_name() const {
+
+  return service_->name();
+
+}
+
+bool QobuzBaseRequest::authentication_required() const {
+
+  return true;
+
+}
+
+bool QobuzBaseRequest::authenticated() const {
+
+  return service_->authenticated();
+
+}
+
+bool QobuzBaseRequest::use_authorization_header() const {
+
+  return false;
+
+}
+
+QByteArray QobuzBaseRequest::authorization_header() const {
+
+  return QByteArray();
+
+}
 
 QNetworkReply *QobuzBaseRequest::CreateRequest(const QString &ressource_name, const ParamList &params_provided) {
 
   ParamList params = ParamList() << params_provided
-                                 << Param("app_id", app_id());
+                                 << Param(u"app_id"_s, service_->app_id());
 
   std::sort(params.begin(), params.end());
 
   QUrlQuery url_query;
-  for (const Param &param : params) {
-    url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
+  for (const Param &param : std::as_const(params)) {
+    url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(param.first)), QString::fromLatin1(QUrl::toPercentEncoding(param.second)));
   }
 
-  QUrl url(QString(QobuzService::kApiUrl) + QString("/") + ressource_name);
+  QUrl url(QString::fromLatin1(QobuzService::kApiUrl) + u'/' + ressource_name);
   url.setQuery(url_query);
-  QNetworkRequest req(url);
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-  req.setRawHeader("X-App-Id", app_id().toUtf8());
-  if (authenticated()) req.setRawHeader("X-User-Auth-Token", user_auth_token().toUtf8());
+  QNetworkRequest network_request(url);
+  network_request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+  network_request.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
+  network_request.setRawHeader("X-App-Id", service_->app_id().toUtf8());
+  if (authenticated()) {
+    network_request.setRawHeader("X-User-Auth-Token", service_->user_auth_token().toUtf8());
+  }
 
-  QNetworkReply *reply = network_->get(req);
+  QNetworkReply *reply = network_->get(network_request);
+  replies_ << reply;
   QObject::connect(reply, &QNetworkReply::sslErrors, this, &QobuzBaseRequest::HandleSSLErrors);
 
   qLog(Debug) << "Qobuz: Sending request" << url;
@@ -77,112 +111,56 @@ QNetworkReply *QobuzBaseRequest::CreateRequest(const QString &ressource_name, co
 
 }
 
-void QobuzBaseRequest::HandleSSLErrors(const QList<QSslError> &ssl_errors) {
+JsonBaseRequest::JsonObjectResult QobuzBaseRequest::ParseJsonObject(QNetworkReply *reply) {
 
-  for (const QSslError &ssl_error : ssl_errors) {
-    Error(ssl_error.errorString());
+  if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
+    return ReplyDataResult(ErrorCode::NetworkError, QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
   }
 
-}
-
-QByteArray QobuzBaseRequest::GetReplyData(QNetworkReply *reply) {
-
-  QByteArray data;
-
-  if (reply->error() == QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200) {
-    data = reply->readAll();
+  JsonObjectResult result(ErrorCode::Success);
+  result.network_error = reply->error();
+  if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+    result.http_status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
   }
-  else {
-    if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
-      // This is a network error, there is nothing more to do.
-      Error(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+
+  const QByteArray data = reply->readAll();
+  if (!data.isEmpty()) {
+    QJsonParseError json_parse_error;
+    const QJsonDocument json_document = QJsonDocument::fromJson(data, &json_parse_error);
+    if (json_parse_error.error == QJsonParseError::NoError) {
+      const QJsonObject json_object = json_document.object();
+      if (json_object.contains("code"_L1) && json_object.contains("status"_L1) && json_object.contains("message"_L1)) {
+        const int code = json_object["code"_L1].toInt();
+        const QString message = json_object["message"_L1].toString();
+        result.error_code = ErrorCode::APIError;
+        result.error_message = QStringLiteral("%1 (%2)").arg(message).arg(code);
+      }
+      else {
+        result.json_object = json_document.object();
+      }
     }
     else {
-      // See if there is Json data containing "status", "code" and "message" - then use that instead.
-      data = reply->readAll();
-      QString error;
-      QJsonParseError parse_error;
-      QJsonDocument json_doc = QJsonDocument::fromJson(data, &parse_error);
-      if (parse_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
-        QJsonObject json_obj = json_doc.object();
-        if (!json_obj.isEmpty() && json_obj.contains("status") && json_obj.contains("code") && json_obj.contains("message")) {
-          int code = json_obj["code"].toInt();
-          QString message = json_obj["message"].toString();
-          error = QString("%1 (%2)").arg(message).arg(code);
-        }
-      }
-      if (error.isEmpty()) {
-        if (reply->error() != QNetworkReply::NoError) {
-          error = QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-        }
-        else {
-          error = QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
-        }
-      }
-      Error(error);
+      result.error_code = ErrorCode::ParseError;
+      result.error_message = json_parse_error.errorString();
     }
-    return QByteArray();
   }
 
-  return data;
-
-}
-
-QJsonObject QobuzBaseRequest::ExtractJsonObj(QByteArray &data) {
-
-  QJsonParseError json_error;
-  QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-
-  if (json_error.error != QJsonParseError::NoError) {
-    Error("Reply from server missing Json data.", data);
-    return QJsonObject();
+  if (result.error_code != ErrorCode::APIError) {
+    if (reply->error() != QNetworkReply::NoError) {
+      result.error_code = ErrorCode::NetworkError;
+      result.error_message = QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
+    }
+    else if (result.http_status_code != 200) {
+      result.error_code = ErrorCode::HttpError;
+      result.error_message = QStringLiteral("Received HTTP code %1").arg(result.http_status_code);
+    }
   }
 
-  if (json_doc.isEmpty()) {
-    Error("Received empty Json document.", data);
-    return QJsonObject();
+  if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
+    service_->ClearSession();
+
   }
 
-  if (!json_doc.isObject()) {
-    Error("Json document is not an object.", json_doc);
-    return QJsonObject();
-  }
-
-  QJsonObject json_obj = json_doc.object();
-  if (json_obj.isEmpty()) {
-    Error("Received empty Json object.", json_doc);
-    return QJsonObject();
-  }
-
-  return json_obj;
-
-}
-
-QJsonValue QobuzBaseRequest::ExtractItems(QByteArray &data) {
-
-  QJsonObject json_obj = ExtractJsonObj(data);
-  if (json_obj.isEmpty()) return QJsonValue();
-  return ExtractItems(json_obj);
-
-}
-
-QJsonValue QobuzBaseRequest::ExtractItems(QJsonObject &json_obj) {
-
-  if (!json_obj.contains("items")) {
-    Error("Json reply is missing items.", json_obj);
-    return QJsonArray();
-  }
-  QJsonValue json_items = json_obj["items"];
-  return json_items;
-
-}
-
-QString QobuzBaseRequest::ErrorsToHTML(const QStringList &errors) {
-
-  QString error_html;
-  for (const QString &error : errors) {
-    error_html += error + "<br />";
-  }
-  return error_html;
+  return result;
 
 }

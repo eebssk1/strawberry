@@ -36,6 +36,8 @@
 
 #include "globalshortcutsbackend.h"
 
+#include "core/settings.h"
+
 class QShortcut;
 class QAction;
 
@@ -55,27 +57,25 @@ class GlobalShortcutsManager : public QWidget {
   QMap<QString, Shortcut> shortcuts() const { return shortcuts_; }
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
-  static bool IsKdeAvailable();
-  static bool IsGnomeAvailable();
-  static bool IsMateAvailable();
-#endif  // defined(Q_OS_UNIX) && !defined(Q_OS_MACOS) && defined(HAVE_DBUS)
+  static bool IsKGlobalAccelAvailable();
+#endif
 
 #ifdef HAVE_X11_GLOBALSHORTCUTS
   static bool IsX11Available();
-#endif  // HAVE_X11_GLOBALSHORTCUTS
+#endif
 
 #ifdef Q_OS_MACOS
   static bool IsMacAccessibilityEnabled();
-#endif  // Q_OS_MACOS
+#endif
 
   bool Register();
   void Unregister();
 
- public slots:
+ public Q_SLOTS:
   void ReloadSettings();
   void ShowMacAccessibilityDialog();
 
- signals:
+ Q_SIGNALS:
   void Play();
   void Pause();
   void PlayPause();
@@ -83,6 +83,7 @@ class GlobalShortcutsManager : public QWidget {
   void StopAfter();
   void Next();
   void Previous();
+  void RestartOrPrevious();
   void IncVolume();
   void DecVolume();
   void Mute();
@@ -103,7 +104,7 @@ class GlobalShortcutsManager : public QWidget {
 
  private:
   QList<GlobalShortcutsBackend*> backends_;
-  QSettings settings_;
+  Settings settings_;
   QList<GlobalShortcutsBackend::Type> backends_enabled_;
   QMap<QString, Shortcut> shortcuts_;
 };

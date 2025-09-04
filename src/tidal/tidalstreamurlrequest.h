@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,63 +22,53 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
 #include <QVariant>
 #include <QString>
-#include <QStringList>
 #include <QUrl>
+#include <QSharedPointer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "tidalservice.h"
 #include "tidalbaserequest.h"
-#include "settings/tidalsettingspage.h"
 
 class QNetworkReply;
 class NetworkAccessManager;
+class TidalService;
 
 class TidalStreamURLRequest : public TidalBaseRequest {
   Q_OBJECT
 
  public:
-  explicit TidalStreamURLRequest(TidalService *service, NetworkAccessManager *network, const QUrl &original_url, const uint id, QObject *parent = nullptr);
+  explicit TidalStreamURLRequest(TidalService *service, const SharedPtr<NetworkAccessManager> network, const QUrl &media_url, const uint id, QObject *parent = nullptr);
   ~TidalStreamURLRequest() override;
 
   void GetStreamURL();
   void Process();
   void Cancel();
 
-  bool oauth() { return service_->oauth(); }
-  TidalSettingsPage::StreamUrlMethod stream_url_method() { return service_->stream_url_method(); }
-  QUrl original_url() { return original_url_; }
-  int song_id() { return song_id_; }
+  bool oauth() const;
+  TidalSettings::StreamUrlMethod stream_url_method() const;
+  QUrl media_url() const;
+  int song_id() const;
 
-  void set_need_login() override { need_login_ = true; }
-  bool need_login() { return need_login_; }
+ Q_SIGNALS:
+  void StreamURLFailure(const uint id, const QUrl &media_url, const QString &error);
+  void StreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate = -1, const int bit_depth = -1, const qint64 duration = -1);
 
- signals:
-  void TryLogin();
-  void StreamURLFailure(uint id, QUrl original_url, QString error);
-  void StreamURLSuccess(uint id, QUrl original_url, QUrl stream_url, Song::FileType filetype, int samplerate = -1, int bit_depth = -1, qint64 duration = -1);
-
- private slots:
+ private Q_SLOTS:
   void StreamURLReceived();
 
- public slots:
-  void LoginComplete(const bool success, const QString &error = QString());
+private:
+  static QList<QUrl> ParseUrls(const QJsonObject &json_object);
 
  private:
-  void Error(const QString &error, const QVariant &debug = QVariant()) override;
-
   TidalService *service_;
   QNetworkReply *reply_;
-  QUrl original_url_;
+  QUrl media_url_;
   uint id_;
   int song_id_;
-  int tries_;
-  bool need_login_;
-  QStringList errors_;
-
 };
+
+using TidalStreamURLRequestPtr = QSharedPointer<TidalStreamURLRequest>;
 
 #endif  // TIDALSTREAMURLREQUEST_H

@@ -32,20 +32,23 @@
 
 #include "core/iconloader.h"
 #include "core/networkproxyfactory.h"
+#include "core/settings.h"
 #include "networkproxysettingspage.h"
 #include "settings/settingspage.h"
+#include "constants/networkproxysettings.h"
 #include "ui_networkproxysettingspage.h"
 
-class SettingsDialog;
+using namespace Qt::Literals::StringLiterals;
+using namespace NetworkProxySettings;
 
-const char *NetworkProxySettingsPage::kSettingsGroup = "NetworkProxy";
+class SettingsDialog;
 
 NetworkProxySettingsPage::NetworkProxySettingsPage(SettingsDialog *dialog, QWidget *parent)
     : SettingsPage(dialog, parent),
       ui_(new Ui_NetworkProxySettingsPage) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load("applications-internet", true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"applications-internet"_s, true, 0, 32));
 
 }
 
@@ -53,58 +56,57 @@ NetworkProxySettingsPage::~NetworkProxySettingsPage() { delete ui_; }
 
 void NetworkProxySettingsPage::Load() {
 
-  QSettings s;
+  Settings s;
 
   s.beginGroup(NetworkProxyFactory::kSettingsGroup);
-  NetworkProxyFactory::Mode mode = NetworkProxyFactory::Mode(s.value("mode", NetworkProxyFactory::Mode_System).toInt());
+  const NetworkProxyFactory::Mode mode = static_cast<NetworkProxyFactory::Mode>(s.value("mode", static_cast<int>(NetworkProxyFactory::Mode::System)).toInt());
   switch (mode) {
-    case NetworkProxyFactory::Mode_Manual:
+    case NetworkProxyFactory::Mode::Manual:
       ui_->proxy_manual->setChecked(true);
       break;
 
-    case NetworkProxyFactory::Mode_Direct:
+    case NetworkProxyFactory::Mode::Direct:
       ui_->proxy_direct->setChecked(true);
       break;
 
-    case NetworkProxyFactory::Mode_System:
-    default:
+    case NetworkProxyFactory::Mode::System:
       ui_->proxy_system->setChecked(true);
       break;
   }
 
-  ui_->proxy_type->setCurrentIndex(s.value("type", QNetworkProxy::HttpProxy).toInt() == QNetworkProxy::HttpProxy ? 0 : 1);
-  ui_->proxy_hostname->setText(s.value("hostname").toString());
-  ui_->proxy_port->setValue(s.value("port").toInt());
-  ui_->proxy_auth->setChecked(s.value("use_authentication", false).toBool());
-  ui_->proxy_username->setText(s.value("username").toString());
-  ui_->proxy_password->setText(s.value("password").toString());
-  ui_->proxy_engine->setChecked(s.value("engine", true).toBool());
+  ui_->proxy_type->setCurrentIndex(s.value(kType, QNetworkProxy::HttpProxy).toInt() == QNetworkProxy::HttpProxy ? 0 : 1);
+  ui_->proxy_hostname->setText(s.value(kHostname).toString());
+  ui_->proxy_port->setValue(s.value(kPort).toInt());
+  ui_->proxy_auth->setChecked(s.value(kUseAuthentication, false).toBool());
+  ui_->proxy_username->setText(s.value(kUsername).toString());
+  ui_->proxy_password->setText(s.value(kPassword).toString());
+  ui_->proxy_engine->setChecked(s.value(kEngine, true).toBool());
   s.endGroup();
 
   Init(ui_->layout_networkproxysettingspage->parentWidget());
 
-  if (!QSettings().childGroups().contains(kSettingsGroup)) set_changed();
+  if (!Settings().childGroups().contains(QLatin1String(kSettingsGroup))) set_changed();
 
 }
 
 void NetworkProxySettingsPage::Save() {
 
-  QSettings s;
+  Settings s;
 
-  NetworkProxyFactory::Mode mode = NetworkProxyFactory::Mode_System;
-  if (ui_->proxy_direct->isChecked()) mode = NetworkProxyFactory::Mode_Direct;
-  else if (ui_->proxy_system->isChecked()) mode = NetworkProxyFactory::Mode_System;
-  else if (ui_->proxy_manual->isChecked()) mode = NetworkProxyFactory::Mode_Manual;
+  NetworkProxyFactory::Mode mode = NetworkProxyFactory::Mode::System;
+  if (ui_->proxy_direct->isChecked()) mode = NetworkProxyFactory::Mode::Direct;
+  else if (ui_->proxy_system->isChecked()) mode = NetworkProxyFactory::Mode::System;
+  else if (ui_->proxy_manual->isChecked()) mode = NetworkProxyFactory::Mode::Manual;
 
   s.beginGroup(NetworkProxyFactory::kSettingsGroup);
-  s.setValue("mode", mode);
-  s.setValue("type", ui_->proxy_type->currentIndex() == 0 ? QNetworkProxy::HttpProxy : QNetworkProxy::Socks5Proxy);
-  s.setValue("hostname", ui_->proxy_hostname->text());
-  s.setValue("port", ui_->proxy_port->value());
-  s.setValue("use_authentication", ui_->proxy_auth->isChecked());
-  s.setValue("username", ui_->proxy_username->text());
-  s.setValue("password", ui_->proxy_password->text());
-  s.setValue("engine", ui_->proxy_engine->isChecked());
+  s.setValue("mode", static_cast<int>(mode));
+  s.setValue(kType, ui_->proxy_type->currentIndex() == 0 ? QNetworkProxy::HttpProxy : QNetworkProxy::Socks5Proxy);
+  s.setValue(kHostname, ui_->proxy_hostname->text());
+  s.setValue(kPort, ui_->proxy_port->value());
+  s.setValue(kUseAuthentication, ui_->proxy_auth->isChecked());
+  s.setValue(kUsername, ui_->proxy_username->text());
+  s.setValue(kPassword, ui_->proxy_password->text());
+  s.setValue(kEngine, ui_->proxy_engine->isChecked());
   s.endGroup();
 
   NetworkProxyFactory::Instance()->ReloadSettings();

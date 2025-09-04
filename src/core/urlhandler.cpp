@@ -1,8 +1,6 @@
 /*
  * Strawberry Music Player
- * This file was part of Clementine.
- * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,23 +28,29 @@
 
 UrlHandler::UrlHandler(QObject *parent) : QObject(parent) {}
 
-UrlHandler::LoadResult::LoadResult(const QUrl &original_url, const Type type, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 length_nanosec, const QString &error) :
-  original_url_(original_url),
-  type_(type),
-  stream_url_(stream_url),
-  filetype_(filetype),
-  samplerate_(samplerate),
-  bit_depth_(bit_depth),
-  length_nanosec_(length_nanosec),
-  error_(error)
-  {}
+UrlHandler::LoadResult::LoadResult(const QUrl &media_url,
+                                   const Type type,
+                                   const QUrl &stream_url,
+                                   const Song::FileType filetype,
+                                   const int samplerate,
+                                   const int bit_depth,
+                                   const qint64 length_nanosec,
+                                   const QString &error)
+    : media_url_(media_url),
+      type_(type),
+      stream_url_(stream_url),
+      filetype_(filetype),
+      samplerate_(samplerate),
+      bit_depth_(bit_depth),
+      length_nanosec_(length_nanosec),
+      error_(error) {}
 
-UrlHandler::LoadResult::LoadResult(const QUrl &original_url, const Type type, const QString &error) :
-  original_url_(original_url),
-  type_(type),
-  filetype_(Song::FileType_Stream),
-  samplerate_(-1),
-  bit_depth_(-1),
-  length_nanosec_(-1),
-  error_(error)
-  {}
+UrlHandler::LoadResult::LoadResult(const QUrl &media_url, const Type type, const QString &error)
+    : media_url_(media_url),
+      type_(type),
+      filetype_(Song::FileType::Stream),
+      samplerate_(-1),
+      bit_depth_(-1),
+      length_nanosec_(-1),
+      error_(error) {}
+

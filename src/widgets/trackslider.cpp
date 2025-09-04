@@ -29,8 +29,9 @@
 #include <QSettings>
 #include <QEvent>
 
+#include "core/settings.h"
 #include "utilities/timeutils.h"
-#include "utilities/timeconstants.h"
+#include "constants/timeconstants.h"
 #include "trackslider.h"
 #include "ui_trackslider.h"
 #include "clickablelabel.h"
@@ -40,13 +41,17 @@
 #  include "moodbar/moodbarproxystyle.h"
 #endif
 
-const char *TrackSlider::kSettingsGroup = "MainWindow";
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr char kSettingsGroup[] = "MainWindow";
+}
 
 TrackSlider::TrackSlider(QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_TrackSlider),
 #ifdef HAVE_MOODBAR
-      moodbar_style_(nullptr),
+      moodbar_proxy_style_(nullptr),
 #endif
       setting_value_(false),
       show_remaining_time_(true),
@@ -57,7 +62,7 @@ TrackSlider::TrackSlider(QWidget *parent)
   UpdateLabelWidth();
 
   // Load settings
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   show_remaining_time_ = s.value("show_remaining_time").toBool();
   s.endGroup();
@@ -76,17 +81,15 @@ TrackSlider::~TrackSlider() {
 
   delete ui_;
 #ifdef HAVE_MOODBAR
-  if (moodbar_style_) moodbar_style_->deleteLater();
+  if (moodbar_proxy_style_) moodbar_proxy_style_->deleteLater();
 #endif
 
 }
 
-void TrackSlider::SetApplication(Application *app) {
+void TrackSlider::Init() {
 
 #ifdef HAVE_MOODBAR
-  if (!moodbar_style_) moodbar_style_ = new MoodbarProxyStyle(app, ui_->slider);
-#else
-  Q_UNUSED(app);
+  if (!moodbar_proxy_style_) moodbar_proxy_style_ = new MoodbarProxyStyle(ui_->slider);
 #endif
 
 }
@@ -94,8 +97,8 @@ void TrackSlider::SetApplication(Application *app) {
 void TrackSlider::UpdateLabelWidth() {
 
   // We set the label's minimum size, so it won't resize itself when the user is dragging the slider.
-  UpdateLabelWidth(ui_->elapsed, "0:00:00");
-  UpdateLabelWidth(ui_->remaining, "-0:00:00");
+  UpdateLabelWidth(ui_->elapsed, u"0:00:00"_s);
+  UpdateLabelWidth(ui_->remaining, u"-0:00:00"_s);
 
 }
 
@@ -142,7 +145,7 @@ void TrackSlider::UpdateTimes(const int elapsed) {
   ui_->elapsed->setText(Utilities::PrettyTime(elapsed));
   // Update normally if showing remaining time
   if (show_remaining_time_) {
-    ui_->remaining->setText("-" + Utilities::PrettyTime(static_cast<int>(ui_->slider->maximum() / kMsecPerSec) - elapsed));
+    ui_->remaining->setText(QLatin1Char('-') + Utilities::PrettyTime(static_cast<int>(ui_->slider->maximum() / kMsecPerSec) - elapsed));
   }
   else {
     // Check if slider maximum value is changed before updating
@@ -158,8 +161,8 @@ void TrackSlider::UpdateTimes(const int elapsed) {
 void TrackSlider::SetStopped() {
 
   setEnabled(false);
-  ui_->elapsed->setText("0:00:00");
-  ui_->remaining->setText("0:00:00");
+  ui_->elapsed->setText(u"0:00:00"_s);
+  ui_->remaining->setText(u"0:00:00"_s);
 
   setting_value_ = true;
   ui_->slider->setValue(0);
@@ -185,7 +188,7 @@ void TrackSlider::ValueMaybeChanged(const int value) {
   if (setting_value_) return;
 
   UpdateTimes(static_cast<int>(value / kMsecPerSec));
-  emit ValueChangedSeconds(static_cast<quint64>(value / kMsecPerSec));
+  Q_EMIT ValueChangedSeconds(static_cast<quint64>(value / kMsecPerSec));
 
 }
 
@@ -214,7 +217,7 @@ void TrackSlider::ToggleTimeDisplay() {
   UpdateTimes(static_cast<int>(ui_->slider->value() / kMsecPerSec));
 
   // Save this setting
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   s.setValue("show_remaining_time", show_remaining_time_);
 

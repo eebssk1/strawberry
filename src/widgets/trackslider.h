@@ -31,7 +31,6 @@
 class QLabel;
 class QEvent;
 
-class Application;
 #ifdef HAVE_MOODBAR
 class MoodbarProxyStyle;
 #endif
@@ -44,7 +43,7 @@ class TrackSlider : public QWidget {
   explicit TrackSlider(QWidget *parent = nullptr);
   ~TrackSlider() override;
 
-  void SetApplication(Application *app);
+  void Init();
 
   // QWidget
   QSize sizeHint() const override;
@@ -53,27 +52,25 @@ class TrackSlider : public QWidget {
   bool event(QEvent*) override;
 
 #ifdef HAVE_MOODBAR
-  MoodbarProxyStyle *moodbar_style() const { return moodbar_style_; }
+  MoodbarProxyStyle *moodbar_proxy_style() const { return moodbar_proxy_style_; }
 #endif
 
-  static const char *kSettingsGroup;
-
- public slots:
+ public Q_SLOTS:
   void SetValue(const int elapsed, const int total);
   void SetStopped();
   void SetCanSeek(const bool can_seek);
   void Seek(const int gap);
 
- signals:
-  void ValueChanged(int value);
-  void ValueChangedSeconds(quint64 value);
+ Q_SIGNALS:
+  void ValueChanged(const int value);
+  void ValueChangedSeconds(const quint64 value);
 
   void SeekForward();
   void SeekBackward();
   void Next();
   void Previous();
 
- private slots:
+ private Q_SLOTS:
   void ValueMaybeChanged(const int value);
   void ToggleTimeDisplay();
 
@@ -86,7 +83,7 @@ class TrackSlider : public QWidget {
   Ui_TrackSlider *ui_;
 
 #ifdef HAVE_MOODBAR
-  MoodbarProxyStyle *moodbar_style_;
+  MoodbarProxyStyle *moodbar_proxy_style_;
 #endif
 
   bool setting_value_;

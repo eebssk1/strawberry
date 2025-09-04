@@ -27,10 +27,7 @@
 #include <memory>
 #include <functional>
 #include <glib.h>
-
-#ifdef HAVE_GSTREAMER
-#  include <gst/gst.h>
-#endif
+#include <gst/gst.h>
 
 #include <QtGlobal>
 #include <QObject>
@@ -41,35 +38,41 @@
 #include <QStringList>
 #include <QUrl>
 
-#include "song.h"
+#include "includes/shared_ptr.h"
+#include "core/song.h"
 
 class QTimer;
-class Player;
+class UrlHandlers;
+class TagReaderClient;
 class CollectionBackendInterface;
 class PlaylistParser;
 class ParserBase;
 class CueParser;
 
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
-class CddaSongLoader;
+#ifdef HAVE_AUDIOCD
+class CDDASongLoader;
 #endif
 
 class SongLoader : public QObject {
   Q_OBJECT
+
  public:
-  explicit SongLoader(CollectionBackendInterface *collection, const Player *player, QObject *parent = nullptr);
+  explicit SongLoader(const SharedPtr<UrlHandlers> url_handlers,
+                      const SharedPtr<CollectionBackendInterface> collection_backend,
+                      const SharedPtr<TagReaderClient> tagreader_client,
+                      QObject *parent = nullptr);
+
   ~SongLoader() override;
 
-  enum Result {
+  enum class Result {
     Success,
     Error,
-    BlockingLoadRequired,
+    BlockingLoadRequired
   };
-
-  static const int kDefaultTimeout;
 
   const QUrl &url() const { return url_; }
   const SongList &songs() const { return songs_; }
+  const QString &playlist_name() const { return playlist_name_; }
 
   int timeout() const { return timeout_; }
   void set_timeout(int msec) { timeout_ = msec; }
@@ -86,22 +89,31 @@ class SongLoader : public QObject {
 
   QStringList errors() { return errors_; }
 
- signals:
-  void AudioCDTracksLoadFinished();
-  void LoadAudioCDFinished(bool success);
+ Q_SIGNALS:
+  void AudioCDTracksLoaded();
+  void AudioCDTracksUpdated();
+  void AudioCDLoadingFinished(const bool success);
   void LoadRemoteFinished();
 
- private slots:
+ private Q_SLOTS:
   void ScheduleTimeout();
   void Timeout();
   void StopTypefind();
-#if defined(HAVE_AUDIOCD) && defined(HAVE_GSTREAMER)
-  void AudioCDTracksLoadFinishedSlot(const SongList &songs, const QString &error);
-  void AudioCDTracksTagsLoaded(const SongList &songs);
-#endif  // HAVE_AUDIOCD && HAVE_GSTREAMER
+
+#ifdef HAVE_AUDIOCD
+  void AudioCDTracksLoadErrorSlot(const QString &error);
+  void AudioCDTracksLoadedSlot(const SongList &songs);
+  void AudioCDTracksUpdatedSlot(const SongList &songs);
+  void AudioCDLoadingFinishedSlot();
+#endif  // HAVE_AUDIOCD
 
  private:
-  enum State { WaitingForType, WaitingForMagic, WaitingForData, Finished };
+  enum class State {
+    WaitingForType,
+    WaitingForMagic,
+    WaitingForData,
+    Finished
+  };
 
   Result LoadLocal(const QString &filename);
   SongLoader::Result LoadLocalAsync(const QString &filename);
@@ -112,21 +124,20 @@ class SongLoader : public QObject {
 
   void AddAsRawStream();
 
-#ifdef HAVE_GSTREAMER
   Result LoadRemote();
 
   // GStreamer callbacks
-  static void TypeFound(GstElement *typefind, uint probability, GstCaps *caps, void *self);
-  static GstPadProbeReturn DataReady(GstPad*, GstPadProbeInfo *info, gpointer self);
-  static GstBusSyncReply BusCallbackSync(GstBus*, GstMessage*, gpointer);
-  static gboolean BusCallback(GstBus*, GstMessage*, gpointer);
+  static void TypeFound(GstElement *typefind, const uint probability, GstCaps *caps, void *self);
+  static GstPadProbeReturn DataReady(GstPad *pad, GstPadProbeInfo *info, gpointer self);
+  static GstBusSyncReply BusCallbackSync(GstBus *bus, GstMessage *msg, gpointer self);
+  static gboolean BusWatchCallback(GstBus *bus, GstMessage *msg, gpointer self);
 
-  void StopTypefindAsync(bool success);
   void ErrorMessageReceived(GstMessage *msg);
   void EndOfStreamReached();
   void MagicReady();
   bool IsPipelinePlaying();
-#endif
+  void StopTypefindAsync(const bool success);
+  void CleanupPipeline();
 
   void ScheduleTimeoutAsync();
 
@@ -135,29 +146,31 @@ class SongLoader : public QObject {
 
   QUrl url_;
   SongList songs_;
+  QString playlist_name_;
 
+  const SharedPtr<UrlHandlers> url_handlers_;
+  const SharedPtr<CollectionBackendInterface> collection_backend_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
   QTimer *timeout_timer_;
   PlaylistParser *playlist_parser_;
   CueParser *cue_parser_;
 
   // For async loads
   std::function<Result()> preload_func_;
-  int timeout_;
-  State state_;
-  bool success_;
-  ParserBase *parser_;
   QString mime_type_;
   QByteArray buffer_;
-  CollectionBackendInterface *collection_;
-  const Player *player_;
+  ParserBase *parser_;
+  State state_;
+  int timeout_;
 
-#ifdef HAVE_GSTREAMER
-  std::shared_ptr<GstElement> pipeline_;
-#endif
+  SharedPtr<GstElement> pipeline_;
+  GstElement *fakesink_;
+  gulong buffer_probe_cb_id_;
 
   QThreadPool thread_pool_;
-
   QStringList errors_;
+
+  bool success_;
 
 };
 

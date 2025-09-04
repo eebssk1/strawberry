@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -31,11 +31,13 @@
 #include <QStringList>
 #include <QDir>
 
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
 #include "parserbase.h"
 
 class QIODevice;
+class TagReaderClient;
 class CollectionBackendInterface;
 
 // This parser will try to detect the real encoding of a .cue file
@@ -44,33 +46,18 @@ class CueParser : public ParserBase {
   Q_OBJECT
 
  public:
-  static const char *kFileLineRegExp;
-  static const char *kIndexRegExp;
+  explicit CueParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
 
-  static const char *kPerformer;
-  static const char *kTitle;
-  static const char *kSongWriter;
-  static const char *kFile;
-  static const char *kTrack;
-  static const char *kIndex;
-  static const char *kAudioTrackType;
-  static const char *kRem;
-  static const char *kGenre;
-  static const char *kDate;
-  static const char *kDisc;
-
-  explicit CueParser(CollectionBackendInterface *collection, QObject *parent = nullptr);
-
-  QString name() const override { return "CUE"; }
-  QStringList file_extensions() const override { return QStringList() << "cue"; }
-  QString mime_type() const override { return "application/x-cue"; }
+  QString name() const override { return QStringLiteral("CUE"); }
+  QStringList file_extensions() const override { return QStringList() << QStringLiteral("cue"); }
+  QString mime_type() const override { return QStringLiteral("application/x-cue"); }
   bool load_supported() const override { return true; }
   bool save_supported() const override { return false; }
 
   bool TryMagic(const QByteArray &data) const override;
 
-  SongList Load(QIODevice *device, const QString &playlist_path = "", const QDir &dir = QDir(), const bool collection_search = true) const override;
-  void Save(const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettingsPage::PathType path_type = PlaylistSettingsPage::PathType_Automatic) const override;
+  LoadResult Load(QIODevice *device, const QString &playlist_path = QLatin1String(""), const QDir &dir = QDir(), const bool collection_lookup = true) const override;
+  void Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettings::PathType path_type = PlaylistSettings::PathType::Automatic) const override;
 
   static QString FindCueFilename(const QString &filename);
 

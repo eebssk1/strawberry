@@ -23,6 +23,8 @@
 
 #include "macaddrutils.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 namespace Utilities {
 
 QString MacAddress() {
@@ -31,21 +33,17 @@ QString MacAddress() {
 
   for (QNetworkInterface &netif : QNetworkInterface::allInterfaces()) {
     if (
-        (netif.hardwareAddress() == "00:00:00:00:00:00") ||
+        (netif.hardwareAddress() == "00:00:00:00:00:00"_L1) ||
         (netif.flags() & QNetworkInterface::IsLoopBack) ||
         !(netif.flags() & QNetworkInterface::IsUp) ||
         !(netif.flags() & QNetworkInterface::IsRunning)
         ) { continue; }
-    if (ret.isEmpty()
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-        || netif.type() == QNetworkInterface::Ethernet || netif.type() == QNetworkInterface::Wifi
-#endif
-    ) {
+    if (ret.isEmpty() || netif.type() == QNetworkInterface::Ethernet || netif.type() == QNetworkInterface::Wifi) {
       ret = netif.hardwareAddress();
     }
   }
 
-  if (ret.isEmpty()) ret = "00:00:00:00:00:00";
+  if (ret.isEmpty()) ret = "00:00:00:00:00:00"_L1;
 
   return ret;
 

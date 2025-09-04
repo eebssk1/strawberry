@@ -37,8 +37,10 @@ extern HICON qt_pixmapToWinHICON(const QPixmap &p);
 #include "core/logging.h"
 #include "windows7thumbbar.h"
 
-const int Windows7ThumbBar::kIconSize = 16;
-const int Windows7ThumbBar::kMaxButtonCount = 7;
+namespace {
+constexpr int kIconSize = 16;
+constexpr int kMaxButtonCount = 7;
+}  // namespace
 
 Windows7ThumbBar::Windows7ThumbBar(QWidget *widget)
     : QObject(widget),
@@ -96,7 +98,7 @@ ITaskbarList3 *Windows7ThumbBar::CreateTaskbarList() {
 void Windows7ThumbBar::SetupButton(const QAction *action, THUMBBUTTON *button) {
 
   if (action) {
-    button->hIcon = qt_pixmapToWinHICON(action->icon().pixmap(Windows7ThumbBar::kIconSize));
+    button->hIcon = qt_pixmapToWinHICON(action->icon().pixmap(kIconSize));
     button->dwFlags = action->isEnabled() ? THBF_ENABLED : THBF_DISABLED;
     // This is unsafe - doesn't obey 260-char restriction
     action->text().toWCharArray(button->szTip);
@@ -138,12 +140,12 @@ void Windows7ThumbBar::HandleWinEvent(MSG *msg) {
     for (int i = 0; i < actions_.count(); ++i) {
       const QAction *action = actions_[i];
       THUMBBUTTON *button = &buttons[i];
-      button->iId = i;
+      button->iId = static_cast<UINT>(i);
       SetupButton(action, button);
     }
 
     qLog(Debug) << "Adding" << actions_.count() << "buttons";
-    HRESULT hr = taskbar_list_->ThumbBarAddButtons(reinterpret_cast<HWND>(widget_->winId()), actions_.count(), buttons);
+    HRESULT hr = taskbar_list_->ThumbBarAddButtons(reinterpret_cast<HWND>(widget_->winId()), static_cast<UINT>(actions_.count()), buttons);
     if (hr != S_OK) {
       qLog(Debug) << "Failed to add buttons" << Qt::hex << DWORD(hr);
     }
@@ -183,11 +185,11 @@ void Windows7ThumbBar::ActionChanged() {
     QAction *action = actions_[i];
     THUMBBUTTON *button = &buttons[i];
 
-    button->iId = i;
+    button->iId = static_cast<UINT>(i);
     SetupButton(action, button);
   }
 
-  HRESULT hr = taskbar_list_->ThumbBarUpdateButtons(reinterpret_cast<HWND>(widget_->winId()), actions_.count(), buttons);
+  HRESULT hr = taskbar_list_->ThumbBarUpdateButtons(reinterpret_cast<HWND>(widget_->winId()), static_cast<UINT>(actions_.count()), buttons);
   if (hr != S_OK) {
     qLog(Debug) << "Failed to update buttons" << Qt::hex << DWORD(hr);
   }

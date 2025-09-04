@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QMutex>
@@ -40,7 +38,10 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
-#include "dbus/metatypes.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
+#include "includes/dbus_metatypes.h"
+
 #include "devicelister.h"
 
 class OrgFreedesktopDBusObjectManagerInterface;
@@ -64,14 +65,14 @@ class Udisks2Lister : public DeviceLister {
   QString MakeFriendlyName(const QString &id) override;
   QList<QUrl> MakeDeviceUrls(const QString &id) override;
 
- public slots:
+ public Q_SLOTS:
   void UnmountDevice(const QString &id) override;
   void UpdateDeviceFreeSpace(const QString &id) override;
 
  protected:
   bool Init() override;
 
- private slots:
+ private Q_SLOTS:
   void DBusInterfaceAdded(const QDBusObjectPath &path, const InterfacesAndProperties &interfaces);
   void DBusInterfaceRemoved(const QDBusObjectPath &path, const QStringList &interfaces);
   void JobCompleted(const bool success, const QString &message);
@@ -85,7 +86,7 @@ class Udisks2Lister : public DeviceLister {
     Udisks2Job();
     bool is_mount;
     QList<QDBusObjectPath> mounted_partitions;
-    std::shared_ptr<OrgFreedesktopUDisks2JobInterface> dbus_interface;
+    SharedPtr<OrgFreedesktopUDisks2JobInterface> dbus_interface;
   };
 
   QMutex jobs_lock_;
@@ -122,9 +123,7 @@ class Udisks2Lister : public DeviceLister {
   QMap<QString, PartitionData> device_data_;
 
  private:
-  std::unique_ptr<OrgFreedesktopDBusObjectManagerInterface> udisks2_interface_;
-
-  static constexpr char udisks2_service_[] = "org.freedesktop.UDisks2";
+  ScopedPtr<OrgFreedesktopDBusObjectManagerInterface> udisks2_interface_;
 };
 
 #endif  // UDISKS2LISTER_H

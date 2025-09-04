@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,11 +20,9 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
-#include <QObject>
 #include <QLocale>
-#include <QList>
-#include <QPair>
 #include <QByteArray>
 #include <QString>
 #include <QUrl>
@@ -36,8 +34,9 @@
 #include <QJsonValue>
 #include <QJsonObject>
 #include <QJsonArray>
+#include <QScopeGuard>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/logging.h"
 
@@ -45,23 +44,16 @@
 #include "albumcoverfetcher.h"
 #include "lastfmcoverprovider.h"
 
-const char *LastFmCoverProvider::kUrl = "https://ws.audioscrobbler.com/2.0/";
-const char *LastFmCoverProvider::kApiKey = "211990b4c96782c05d1536e7219eb56e";
-const char *LastFmCoverProvider::kSecret = "80fd738f49596e9709b1bf9319c444a8";
+using namespace Qt::Literals::StringLiterals;
 
-LastFmCoverProvider::LastFmCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent)
-    : JsonCoverProvider("Last.fm", true, false, 1.0, true, false, app, network, parent) {}
+namespace {
+constexpr char kUrl[] = "https://ws.audioscrobbler.com/2.0/";
+constexpr char kApiKey[] = "211990b4c96782c05d1536e7219eb56e";
+constexpr char kSecret[] = "80fd738f49596e9709b1bf9319c444a8";
+}  // namespace
 
-LastFmCoverProvider::~LastFmCoverProvider() {
-
-  while (!replies_.isEmpty()) {
-    QNetworkReply *reply = replies_.takeFirst();
-    QObject::disconnect(reply, nullptr, this, nullptr);
-    reply->abort();
-    reply->deleteLater();
-  }
-
-}
+LastFmCoverProvider::LastFmCoverProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : JsonCoverProvider(u"Last.fm"_s, true, false, 1.0, true, false, network, parent) {}
 
 bool LastFmCoverProvider::StartSearch(const QString &artist, const QString &album, const QString &title, const int id) {
 
@@ -71,50 +63,94 @@ bool LastFmCoverProvider::StartSearch(const QString &artist, const QString &albu
   QString type;
   QString query = artist;
   if (album.isEmpty() && !title.isEmpty()) {
-    method = "track.search";
-    type = "track";
-    if (!query.isEmpty()) query.append(" ");
+    method = "track.search"_L1;
+    type = "track"_L1;
+    if (!query.isEmpty()) query.append(u' ');
     query.append(title);
   }
   else {
-    method = "album.search";
-    type = "album";
+    method = "album.search"_L1;
+    type = "album"_L1;
     if (!album.isEmpty()) {
-      if (!query.isEmpty()) query.append(" ");
+      if (!query.isEmpty()) query.append(u' ');
       query.append(album);
     }
   }
 
-  ParamList params = ParamList() << Param("api_key", kApiKey)
-                                 << Param("lang", QLocale().name().left(2).toLower())
-                                 << Param("method", method)
+  ParamList params = ParamList() << Param(u"api_key"_s, QLatin1String(kApiKey))
+                                 << Param(u"lang"_s, QLocale().name().left(2).toLower())
+                                 << Param(u"method"_s, method)
                                  << Param(type, query);
 
   std::sort(params.begin(), params.end());
 
   QUrlQuery url_query;
   QString data_to_sign;
-  for (const Param &param : params) {
-    url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
+  for (const Param &param : std::as_const(params)) {
+    url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(param.first)), QString::fromLatin1(QUrl::toPercentEncoding(param.second)));
     data_to_sign += param.first + param.second;
   }
-  data_to_sign += kSecret;
+  data_to_sign += QLatin1String(kSecret);
 
   QByteArray const digest = QCryptographicHash::hash(data_to_sign.toUtf8(), QCryptographicHash::Md5);
-  QString signature = QString::fromLatin1(digest.toHex()).rightJustified(32, '0').toLower();
+  QString signature = QString::fromLatin1(digest.toHex()).rightJustified(32, u'0').toLower();
 
-  url_query.addQueryItem(QUrl::toPercentEncoding("api_sig"), QUrl::toPercentEncoding(signature));
-  url_query.addQueryItem(QUrl::toPercentEncoding("format"), QUrl::toPercentEncoding("json"));
+  url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(u"api_sig"_s)), QString::fromLatin1(QUrl::toPercentEncoding(signature)));
+  url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(u"format"_s)), QString::fromLatin1(QUrl::toPercentEncoding(u"json"_s)));
 
-  QUrl url(kUrl);
-  QNetworkRequest req(url);
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-  QNetworkReply *reply = network_->post(req, url_query.toString(QUrl::FullyEncoded).toUtf8());
-  replies_ << reply;
+  QNetworkReply *reply = CreatePostRequest(QUrl(QLatin1String(kUrl)), url_query);
   QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, id, type]() { QueryFinished(reply, id, type); });
 
   return true;
+
+}
+
+JsonBaseRequest::JsonObjectResult LastFmCoverProvider::ParseJsonObject(QNetworkReply *reply) {
+
+  if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
+    return ReplyDataResult(ErrorCode::NetworkError, QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+  }
+
+  JsonObjectResult result(ErrorCode::Success);
+  result.network_error = reply->error();
+  if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+    result.http_status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  }
+
+  const QByteArray data = reply->readAll();
+  if (!data.isEmpty()) {
+    QJsonParseError json_parse_error;
+    const QJsonDocument json_document = QJsonDocument::fromJson(data, &json_parse_error);
+    if (json_parse_error.error == QJsonParseError::NoError) {
+      const QJsonObject json_object = json_document.object();
+      if (json_object.contains("error"_L1) && json_object.contains("message"_L1)) {
+        const int error = json_object["error"_L1].toInt();
+        const QString message = json_object["message"_L1].toString();
+        result.error_code = ErrorCode::APIError;
+        result.error_message = QStringLiteral("%1 (%2)").arg(message).arg(error);
+      }
+      else {
+        result.json_object = json_document.object();
+      }
+    }
+    else {
+      result.error_code = ErrorCode::ParseError;
+      result.error_message = json_parse_error.errorString();
+    }
+  }
+
+  if (result.error_code != ErrorCode::APIError) {
+    if (reply->error() != QNetworkReply::NoError) {
+      result.error_code = ErrorCode::NetworkError;
+      result.error_message = QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
+    }
+    else if (result.http_status_code != 200) {
+      result.error_code = ErrorCode::HttpError;
+      result.error_message = QStringLiteral("Received HTTP code %1").arg(result.http_status_code);
+    }
+  }
+
+  return result;
 
 }
 
@@ -126,138 +162,126 @@ void LastFmCoverProvider::QueryFinished(QNetworkReply *reply, const int id, cons
   reply->deleteLater();
 
   CoverProviderSearchResults results;
+  const QScopeGuard end_search = qScopeGuard([this, id, &results]() { Q_EMIT SearchFinished(id, results); });
 
-  QByteArray data = GetReplyData(reply);
-  if (data.isEmpty()) {
-    emit SearchFinished(id, results);
+  const JsonObjectResult json_object_result = ParseJsonObject(reply);
+  if (!json_object_result.success()) {
+    Error(json_object_result.error_message);
     return;
   }
 
-  QJsonObject json_obj = ExtractJsonObj(data);
-  if (json_obj.isEmpty()) {
-    emit SearchFinished(id, results);
+  const QJsonObject &json_object = json_object_result.json_object;
+  if (json_object.isEmpty()) {
     return;
   }
 
   QJsonValue value_results;
-  if (json_obj.contains("results")) {
-    value_results = json_obj["results"];
+  if (json_object.contains("results"_L1)) {
+    value_results = json_object["results"_L1];
   }
-  else if (json_obj.contains("error") && json_obj.contains("message")) {
-    int error = json_obj["error"].toInt();
-    QString message = json_obj["message"].toString();
-    Error(QString("Error: %1: %2").arg(QString::number(error), message));
-    emit SearchFinished(id, results);
+  else if (json_object.contains("error"_L1) && json_object.contains("message"_L1)) {
+    const int error = json_object["error"_L1].toInt();
+    const QString message = json_object["message"_L1].toString();
+    Error(QStringLiteral("Error: %1: %2").arg(QString::number(error), message));
     return;
   }
   else {
-    Error(QString("Json reply is missing results."), json_obj);
-    emit SearchFinished(id, results);
+    Error(u"Json reply is missing results."_s, json_object);
     return;
   }
 
   if (!value_results.isObject()) {
-    Error("Json results is not a object.", value_results);
-    emit SearchFinished(id, results);
+    Error(u"Json results is not a object."_s, value_results);
     return;
   }
 
-  QJsonObject obj_results = value_results.toObject();
-  if (obj_results.isEmpty()) {
-    Error("Json results object is empty.", value_results);
-    emit SearchFinished(id, results);
+  const QJsonObject object_results = value_results.toObject();
+  if (object_results.isEmpty()) {
+    Error(u"Json results object is empty."_s, value_results);
     return;
   }
 
   QJsonValue value_matches;
 
-  if (type == "album") {
-    if (obj_results.contains("albummatches")) {
-      value_matches = obj_results["albummatches"];
+  if (type == "album"_L1) {
+    if (object_results.contains("albummatches"_L1)) {
+      value_matches = object_results["albummatches"_L1];
     }
     else {
-      Error("Json results object is missing albummatches.", obj_results);
-      emit SearchFinished(id, results);
+      Error(u"Json results object is missing albummatches."_s, object_results);
       return;
     }
   }
-  else if (type == "track") {
-    if (obj_results.contains("trackmatches")) {
-      value_matches = obj_results["trackmatches"];
+  else if (type == "track"_L1) {
+    if (object_results.contains("trackmatches"_L1)) {
+      value_matches = object_results["trackmatches"_L1];
     }
     else {
-      Error("Json results object is missing trackmatches.", obj_results);
-      emit SearchFinished(id, results);
+      Error(u"Json results object is missing trackmatches."_s, object_results);
       return;
     }
   }
 
   if (!value_matches.isObject()) {
-    Error("Json albummatches or trackmatches is not an object.", value_matches);
-    emit SearchFinished(id, results);
+    Error(u"Json albummatches or trackmatches is not an object."_s, value_matches);
     return;
   }
 
-  QJsonObject obj_matches = value_matches.toObject();
-  if (obj_matches.isEmpty()) {
-    Error("Json albummatches or trackmatches object is empty.", value_matches);
-    emit SearchFinished(id, results);
+  const QJsonObject object_matches = value_matches.toObject();
+  if (object_matches.isEmpty()) {
+    Error(u"Json albummatches or trackmatches object is empty."_s, value_matches);
     return;
   }
 
-  QJsonValue value_type;
-  if (!obj_matches.contains(type)) {
-    Error(QString("Json object is missing %1.").arg(type), obj_matches);
-    emit SearchFinished(id, results);
+  if (!object_matches.contains(type)) {
+    Error(QStringLiteral("Json object is missing %1.").arg(type), object_matches);
     return;
   }
-  value_type = obj_matches[type];
+  const QJsonValue value_type = object_matches[type];
 
   if (!value_type.isArray()) {
-    Error("Json album value in albummatches object is not an array.", value_type);
-    emit SearchFinished(id, results);
+    Error(u"Json album value in albummatches object is not an array."_s, value_type);
     return;
   }
-  QJsonArray array_type = value_type.toArray();
+  const QJsonArray array_type = value_type.toArray();
 
-  for (const QJsonValueRef value : array_type) {
+  for (const QJsonValue &value : array_type) {
 
     if (!value.isObject()) {
-      Error("Invalid Json reply, value in albummatches/trackmatches array is not a object.");
+      Error(u"Invalid Json reply, value in albummatches/trackmatches array is not a object."_s);
       continue;
     }
-    QJsonObject obj = value.toObject();
-    if (!obj.contains("artist") || !obj.contains("image") || !obj.contains("name")) {
-      Error("Invalid Json reply, album is missing artist, image or name.", obj);
+    const QJsonObject object = value.toObject();
+    if (!object.contains("artist"_L1) || !object.contains("image"_L1) || !object.contains("name"_L1)) {
+      Error(u"Invalid Json reply, album is missing artist, image or name."_s, object);
       continue;
     }
-    QString artist = obj["artist"].toString();
+    const QString artist = object["artist"_L1].toString();
     QString album;
-    if (type == "album") {
-      album = obj["name"].toString();
+    if (type == "album"_L1) {
+      album = object["name"_L1].toString();
     }
 
-    QJsonValue json_image = obj["image"];
-    if (!json_image.isArray()) {
-      Error("Invalid Json reply, album image is not a array.", json_image);
+    if (!object.contains("image"_L1) || !object["image"_L1].isArray()) {
+      Error(u"Invalid Json reply, album image is not a array."_s, object);
       continue;
     }
-    QJsonArray array_image = json_image.toArray();
+    const QJsonArray array_image = object["image"_L1].toArray();
     QString image_url_use;
-    LastFmImageSize image_size_use(LastFmImageSize::Unknown);
-    for (const QJsonValueRef value_image : array_image) {
+    LastFmImageSize image_size_use = LastFmImageSize::Unknown;
+    for (const QJsonValue &value_image : array_image) {
       if (!value_image.isObject()) {
-        Error("Invalid Json reply, album image value is not an object.");
+        Error(u"Invalid Json reply, album image value is not an object."_s);
         continue;
       }
-      QJsonObject obj_image = value_image.toObject();
-      if (!obj_image.contains("#text") || !obj_image.contains("size")) {
-        Error("Invalid Json reply, album image value is missing #text or size.", obj_image);
+      const QJsonObject object_image = value_image.toObject();
+      if (!object_image.contains("#text"_L1) || !object_image.contains("size"_L1)) {
+        Error(u"Invalid Json reply, album image value is missing #text or size."_s, object_image);
         continue;
       }
-      QString image_url = obj_image["#text"].toString();
+      const QString image_url = object_image["#text"_L1].toString();
       if (image_url.isEmpty()) continue;
-      LastFmImageSize image_size = ImageSizeFromString(obj_image["size"].toString().toLower());
+      const LastFmImageSize image_size = ImageSizeFromString(object_image["size"_L1].toString().toLower());
       if (image_url_use.isEmpty() || image_size > image_size_use) {
         image_url_use = image_url;
         image_size_use = image_size;
@@ -267,10 +291,10 @@ void LastFmCoverProvider::QueryFinished(QNetworkReply *reply, const int id, cons
     if (image_url_use.isEmpty()) continue;
 
     // Workaround for API limiting to 300x300 images.
-    if (image_url_use.contains("/300x300/")) {
-      image_url_use = image_url_use.replace("/300x300/", "/740x0/");
+    if (image_url_use.contains("/300x300/"_L1)) {
+      image_url_use = image_url_use.replace("/300x300/"_L1, "/740x0/"_L1);
     }
-    QUrl url(image_url_use);
+    const QUrl url(image_url_use);
     if (!url.isValid()) continue;
 
     CoverProviderSearchResult cover_result;
@@ -280,50 +304,6 @@ void LastFmCoverProvider::QueryFinished(QNetworkReply *reply, const int id, cons
     cover_result.image_size = QSize(300, 300);
     results << cover_result;
   }
-  emit SearchFinished(id, results);
-
-}
-
-QByteArray LastFmCoverProvider::GetReplyData(QNetworkReply *reply) {
-
-  QByteArray data;
-
-  if (reply->error() == QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200) {
-    data = reply->readAll();
-  }
-  else {
-    if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
-      // This is a network error, there is nothing more to do.
-      Error(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
-    }
-    else {
-      // See if there is Json data containing "error" and "message" - then use that instead.
-      data = reply->readAll();
-      QString error;
-      QJsonParseError json_error;
-      QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-      if (json_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
-        QJsonObject json_obj = json_doc.object();
-        if (json_obj.contains("error") && json_obj.contains("message")) {
-          int code = json_obj["error"].toInt();
-          QString message = json_obj["message"].toString();
-          error = "Error: " + QString::number(code) + ": " + message;
-        }
-      }
-      if (error.isEmpty()) {
-        if (reply->error() != QNetworkReply::NoError) {
-          error = QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-        }
-        else {
-          error = QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
-        }
-      }
-      Error(error);
-    }
-    return QByteArray();
-  }
-
-  return data;
 
 }
 
@@ -336,10 +316,11 @@ void LastFmCoverProvider::Error(const QString &error, const QVariant &debug) {
 
 LastFmCoverProvider::LastFmImageSize LastFmCoverProvider::ImageSizeFromString(const QString &size) {
 
-  if (size == "small") return LastFmImageSize::Small;
-  else if (size == "medium") return LastFmImageSize::Medium;
-  else if (size == "large") return LastFmImageSize::Large;
-  else if (size == "extralarge") return LastFmImageSize::ExtraLarge;
-  else return LastFmImageSize::Unknown;
+  if (size == "small"_L1) return LastFmImageSize::Small;
+  if (size == "medium"_L1) return LastFmImageSize::Medium;
+  if (size == "large"_L1) return LastFmImageSize::Large;
+  if (size == "extralarge"_L1) return LastFmImageSize::ExtraLarge;
+
+  return LastFmImageSize::Unknown;
 
 }

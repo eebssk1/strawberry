@@ -21,6 +21,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QtConcurrentRun>
 #include <QWidget>
 #include <QDialog>
@@ -46,14 +48,15 @@
 
 #include "core/iconloader.h"
 #include "core/logging.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "widgets/busyindicator.h"
 #include "trackselectiondialog.h"
 #include "ui_trackselectiondialog.h"
 
-TrackSelectionDialog::TrackSelectionDialog(QWidget *parent)
+TrackSelectionDialog::TrackSelectionDialog(const SharedPtr<TagReaderClient> tagreader_client, QWidget *parent)
     : QDialog(parent),
       ui_(new Ui_TrackSelectionDialog),
+      tagreader_client_(tagreader_client),
       save_on_close_(false) {
 
   // Setup dialog window
@@ -66,8 +69,8 @@ TrackSelectionDialog::TrackSelectionDialog(QWidget *parent)
   SetLoading(QString());
 
   // Add the next/previous buttons
-  previous_button_ = new QPushButton(IconLoader::Load("go-previous"), tr("Previous"), this);
-  next_button_ = new QPushButton(IconLoader::Load("go-next"), tr("Next"), this);
+  previous_button_ = new QPushButton(IconLoader::Load(QStringLiteral("go-previous")), tr("Previous"), this);
+  next_button_ = new QPushButton(IconLoader::Load(QStringLiteral("go-next")), tr("Next"), this);
   ui_->button_box->addButton(previous_button_, QDialogButtonBox::ResetRole);
   ui_->button_box->addButton(next_button_, QDialogButtonBox::ResetRole);
 
@@ -172,14 +175,14 @@ void TrackSelectionDialog::UpdateStack() {
   const int row = ui_->song_list->currentRow();
   if (row < 0 || row >= data_.count()) return;
 
-  const Data &tag_data = data_[row];
+  const Data tag_data = data_.value(row);
 
   if (tag_data.pending_) {
     ui_->stack->setCurrentWidget(ui_->loading_page);
-    ui_->progress->set_text(tag_data.progress_string_ + "...");
+    ui_->progress->set_text(tag_data.progress_string_ + QStringLiteral("..."));
     return;
   }
-  else if (tag_data.results_.isEmpty()) {
+  if (tag_data.results_.isEmpty()) {
     ui_->stack->setCurrentWidget(ui_->error_page);
     return;
   }
@@ -259,10 +262,10 @@ void TrackSelectionDialog::SetLoading(const QString &message) {
 
 }
 
-void TrackSelectionDialog::SaveData(const QList<Data> &data) {
+void TrackSelectionDialog::SaveData(const QList<Data> &_data) const {
 
-  for (int i = 0; i < data.count(); ++i) {
-    const Data &ref = data[i];
+  for (int i = 0; i < _data.count(); ++i) {
+    const Data &ref = _data[i];
     if (ref.pending_ || ref.results_.isEmpty() || ref.selected_result_ == -1) {
       continue;
     }
@@ -276,8 +279,9 @@ void TrackSelectionDialog::SaveData(const QList<Data> &data) {
     copy.set_track(new_metadata.track());
     copy.set_year(new_metadata.year());
 
-    if (!TagReaderClient::Instance()->SaveFileBlocking(copy.url().toLocalFile(), copy)) {
-      qLog(Warning) << "Failed to write new auto-tags to" << copy.url().toLocalFile();
+    const TagReaderResult result = tagreader_client_->WriteFileBlocking(copy.url().toLocalFile(), copy, TagReaderClient::SaveOption::Tags, SaveTagCoverData());
+    if (!result.success()) {
+      qLog(Error) << "Failed to write new auto-tags to" << copy.url().toLocalFile() << result.error_string();
     }
   }
 
@@ -286,10 +290,10 @@ void TrackSelectionDialog::SaveData(const QList<Data> &data) {
 void TrackSelectionDialog::accept() {
 
   if (save_on_close_) {
-    SetLoading(tr("Saving tracks") + "...");
+    SetLoading(tr("Saving tracks") + QStringLiteral("..."));
 
     // Save tags in the background
-    QFuture<void> future = QtConcurrent::run(&TrackSelectionDialog::SaveData, data_);
+    QFuture<void> future = QtConcurrent::run(&TrackSelectionDialog::SaveData, this, data_);
     QFutureWatcher<void> *watcher = new QFutureWatcher<void>(this);
     QObject::connect(watcher, &QFutureWatcher<void>::finished, this, &TrackSelectionDialog::AcceptFinished);
     watcher->setFuture(future);
@@ -299,14 +303,14 @@ void TrackSelectionDialog::accept() {
 
   QDialog::accept();
 
-  for (const Data &tag_data : data_) {
+  for (const Data &tag_data : std::as_const(data_)) {
     if (tag_data.pending_ || tag_data.results_.isEmpty() || tag_data.selected_result_ == -1) {
       continue;
     }
 
     const Song &new_metadata = tag_data.results_[tag_data.selected_result_];
 
-    emit SongChosen(tag_data.original_song_, new_metadata);
+    Q_EMIT SongChosen(tag_data.original_song_, new_metadata);
   }
 
 }

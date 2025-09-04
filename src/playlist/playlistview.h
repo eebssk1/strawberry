@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QAbstractItemDelegate>
@@ -42,14 +40,12 @@
 #include <QRect>
 #include <QRegion>
 #include <QStyleOption>
-#include <QProxyStyle>
 #include <QPoint>
 #include <QBasicTimer>
-#include <QCommonStyle>
 
 #include "core/song.h"
 #include "covermanager/albumcoverloaderresult.h"
-#include "settings/appearancesettingspage.h"
+#include "constants/appearancesettings.h"
 #include "playlist.h"
 
 class QWidget;
@@ -70,29 +66,18 @@ class QMouseEvent;
 class QPaintEvent;
 class QTimerEvent;
 
-class Application;
+class Player;
 class CollectionBackend;
+class PlaylistManager;
+class CurrentAlbumCoverLoader;
 class PlaylistHeader;
+class PlaylistProxyStyle;
 class DynamicPlaylistControls;
 class RatingItemDelegate;
 
-// This proxy style works around a bug/feature introduced in Qt 4.7's QGtkStyle
-// that uses Gtk to paint row backgrounds, ignoring any custom brush or palette the caller set in the QStyleOption.
-// That breaks our currently playing track animation, which relies on the background painted by Qt to be transparent.
-// This proxy style uses QCommonStyle to paint the affected elements.
-// This class is used by internet search view as well.
-class PlaylistProxyStyle : public QProxyStyle {
-  Q_OBJECT
-
- public:
-  explicit PlaylistProxyStyle(QObject *parent = nullptr);
-
-  void drawControl(ControlElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override;
-  void drawPrimitive(PrimitiveElement element, const QStyleOption *option, QPainter *painter, const QWidget *widget) const override;
-
- private:
-  std::unique_ptr<QCommonStyle> common_style_;
-};
+#ifdef HAVE_MOODBAR
+class MoodbarLoader;
+#endif
 
 class PlaylistView : public QTreeView {
   Q_OBJECT
@@ -103,7 +88,14 @@ class PlaylistView : public QTreeView {
 
   static ColumnAlignmentMap DefaultColumnAlignment();
 
-  void Init(Application *app);
+  void Init(const SharedPtr<Player> player,
+            const SharedPtr<PlaylistManager> playlist_manager,
+            const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+            const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+            const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader);
+
   void SetItemDelegates();
   void SetPlaylist(Playlist *playlist);
   void RemoveSelected();
@@ -111,7 +103,7 @@ class PlaylistView : public QTreeView {
   void SetReadOnlySettings(const bool read_only) { read_only_settings_ = read_only; }
 
   Playlist *playlist() const { return playlist_; }
-  AppearanceSettingsPage::BackgroundImageType background_image_type() const { return background_image_type_; }
+  AppearanceSettings::BackgroundImageType background_image_type() const { return background_image_type_; }
   Qt::Alignment column_alignment(int section) const;
 
   void ResetHeaderState();
@@ -119,22 +111,21 @@ class PlaylistView : public QTreeView {
   // QTreeView
   void setModel(QAbstractItemModel *model) override;
 
- public slots:
+ public Q_SLOTS:
   void ReloadSettings();
   void SaveSettings();
   void SetColumnAlignment(const int section, const Qt::Alignment alignment);
   void JumpToCurrentlyPlayingTrack();
-  void edit(const QModelIndex &idx) { QAbstractItemView::edit(idx); }
 
- signals:
-  void PlayItem(QModelIndex idx, Playlist::AutoScroll autoscroll);
-  void PlayPause(const quint64 offset_nanosec = 0, Playlist::AutoScroll autoscroll = Playlist::AutoScroll_Never);
-  void RightClicked(QPoint global_pos, QModelIndex idx);
+ Q_SIGNALS:
+  void PlayItem(const QModelIndex idx, const Playlist::AutoScroll autoscroll);
+  void PlayPause(const quint64 offset_nanosec = 0, const Playlist::AutoScroll autoscroll = Playlist::AutoScroll::Never);
+  void RightClicked(const QPoint global_pos, const QModelIndex idx);
   void SeekForward();
   void SeekBackward();
   void FocusOnFilterSignal(QKeyEvent *event);
   void BackgroundPropertyChanged();
-  void ColumnAlignmentChanged(ColumnAlignmentMap alignment);
+  void ColumnAlignmentChanged(const ColumnAlignmentMap alignment);
 
  protected:
   // QWidget
@@ -160,16 +151,16 @@ class PlaylistView : public QTreeView {
   void drawRow(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &idx) const override;
 
   // QAbstractScrollArea
-  void scrollContentsBy(int dx, int dy) override;
+  void scrollContentsBy(const int dx, const int dy) override;
 
   // QAbstractItemView
-  void rowsInserted(const QModelIndex &parent, int start, int end) override;
-  bool edit(const QModelIndex &idx, QAbstractItemView::EditTrigger trigger, QEvent *event) override;
-  void closeEditor(QWidget *editor, QAbstractItemDelegate::EndEditHint hint) override;
+  void rowsInserted(const QModelIndex &parent, const int start, const int end) override;
+  void closeEditor(QWidget *editor, const QAbstractItemDelegate::EndEditHint hint) override;
 
- private slots:
+ private Q_SLOTS:
   void Update() { update(); }
   void SetHeaderState();
+  void HeaderSectionResized(const int logical_index, const int old_size, const int new_size);
   void InhibitAutoscrollTimeout();
   void MaybeAutoscroll(const Playlist::AutoScroll autoscroll);
   void InvalidateCachedCurrentPixmap();
@@ -198,9 +189,9 @@ class PlaylistView : public QTreeView {
   void LoadTinyPlayPausePixmaps(const int desired_size);
   void UpdateCachedCurrentRowPixmap(QStyleOptionViewItem option, const QModelIndex &idx);
 
-  void set_background_image_type(AppearanceSettingsPage::BackgroundImageType bg) {
+  void set_background_image_type(AppearanceSettings::BackgroundImageType bg) {
     background_image_type_ = bg;
-    emit BackgroundPropertyChanged();  // clazy:exclude=incorrect-emit
+    Q_EMIT BackgroundPropertyChanged();  // clazy:exclude=incorrect-emit
   }
   // Save image as the background_image_ after applying some modifications (opacity, ...).
   // Should be used instead of modifying background_image_ directly
@@ -209,26 +200,28 @@ class PlaylistView : public QTreeView {
   void GlowIntensityChanged();
 
  private:
-  static const int kGlowIntensitySteps;
-  static const int kAutoscrollGraceTimeout;
-  static const int kDropIndicatorWidth;
-  static const int kDropIndicatorGradientWidth;
-
   QList<int> GetEditableColumns();
   QModelIndex NextEditableIndex(const QModelIndex &current);
   QModelIndex PrevEditableIndex(const QModelIndex &current);
 
   void RepositionDynamicControls();
 
-  Application *app_;
+  SharedPtr<Player> player_;
+  SharedPtr<PlaylistManager> playlist_manager_;
+  SharedPtr<CollectionBackend> collection_backend_;
+  SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader_;
+#ifdef HAVE_MOODBAR
+  SharedPtr<MoodbarLoader> moodbar_loader_;
+#endif
+
   PlaylistProxyStyle *style_;
   Playlist *playlist_;
   PlaylistHeader *header_;
 
   qreal device_pixel_ratio_;
-  AppearanceSettingsPage::BackgroundImageType background_image_type_;
+  AppearanceSettings::BackgroundImageType background_image_type_;
   QString background_image_filename_;
-  AppearanceSettingsPage::BackgroundImagePosition background_image_position_;
+  AppearanceSettings::BackgroundImagePosition background_image_position_;
   int background_image_maxsize_;
   bool background_image_stretch_;
   bool background_image_do_not_cut_;
@@ -291,7 +284,6 @@ class PlaylistView : public QTreeView {
   int drop_indicator_row_;
   bool drag_over_;
 
-  int header_state_version_;
   QByteArray header_state_;
   ColumnAlignmentMap column_alignment_;
   bool rating_locked_;
@@ -305,7 +297,6 @@ class PlaylistView : public QTreeView {
 
   QPixmap pixmap_tinyplay_;
   QPixmap pixmap_tinypause_;
-
 };
 
 #endif  // PLAYLISTVIEW_H

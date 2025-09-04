@@ -38,25 +38,46 @@
 #include <QString>
 #include <QUrl>
 
-#include "engine_fwd.h"
-#include "enginetype.h"
-#include "devicefinders.h"
+#include "core/enginemetadata.h"
 #include "core/song.h"
 
-namespace Engine {
-
-struct SimpleMetaBundle;
-
-using Scope = std::vector<int16_t>;
-
-class Base : public QObject {
+class EngineBase : public QObject {
   Q_OBJECT
 
  protected:
-  Base(const EngineType type = EngineType::None, QObject *parent = nullptr);
+  EngineBase(QObject *parent = nullptr);
 
  public:
-  ~Base() override;
+  ~EngineBase() override;
+
+ // State:
+ // Playing when playing,
+ // Paused when paused
+ // Idle when you still have a URL loaded (ie you have not been told to stop())
+ // Empty when you have been told to stop(),
+ // Error when an error occurred and you stopped yourself
+ //
+ // It is vital to be Idle just after the track has ended!
+
+  enum class State {
+    Empty,
+    Idle,
+    Playing,
+    Paused,
+    Error
+  };
+
+  enum class TrackChangeType {
+    // One of:
+    First = 0x01,
+    Manual = 0x02,
+    Auto = 0x04,
+    Intro = 0x08,
+
+    // Any of:
+    SameAlbum = 0x10
+  };
+  Q_DECLARE_FLAGS(TrackChangeFlags, TrackChangeType)
 
   struct OutputDetails {
     QString name;
@@ -65,11 +86,13 @@ class Base : public QObject {
   };
   using OutputDetailsList = QList<OutputDetails>;
 
+  using Scope = std::vector<int16_t>;
+
   virtual bool Init() = 0;
   virtual State state() const = 0;
   virtual void StartPreloading(const QUrl&, const QUrl&, const bool, const qint64, const qint64) {}
-  virtual bool Load(const QUrl &stream_url, const QUrl &original_url, const TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec);
-  virtual bool Play(const quint64 offset_nanosec) = 0;
+  virtual bool Load(const QUrl &media_url, const QUrl &stream_url, const TrackChangeFlags track_change_flags, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
+  virtual bool Play(const bool pause, const quint64 offset_nanosec) = 0;
   virtual void Stop(const bool stop_after = false) = 0;
   virtual void Pause() = 0;
   virtual void Unpause() = 0;
@@ -83,33 +106,31 @@ class Base : public QObject {
 
   // Sets new values for the beginning and end markers of the currently playing song.
   // This doesn't change the state of engine or the stream's current position.
-  virtual void RefreshMarkers(const quint64 beginning_nanosec, const qint64 end_nanosec) {
-    beginning_nanosec_ = beginning_nanosec;
-    end_nanosec_ = end_nanosec;
+  virtual void RefreshMarkers(const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) {
+    beginning_offset_nanosec_ = beginning_offset_nanosec;
+    end_offset_nanosec_ = end_offset_nanosec;
   }
 
   virtual OutputDetailsList GetOutputsList() const = 0;
   virtual bool ValidOutput(const QString &output) = 0;
-  virtual QString DefaultOutput() = 0;
-  virtual bool CustomDeviceSupport(const QString &output) = 0;
-  virtual bool ALSADeviceSupport(const QString &output) = 0;
+  virtual QString DefaultOutput() const = 0;
+  virtual bool CustomDeviceSupport(const QString &output) const = 0;
+  virtual bool ALSADeviceSupport(const QString &output) const = 0;
+  virtual bool ExclusiveModeSupport(const QString &output) const = 0;
 
   // Plays a media stream represented with the URL 'u' from the given 'beginning' to the given 'end' (usually from 0 to a song's length).
   // Both markers should be passed in nanoseconds. 'end' can be negative, indicating that the real length of 'u' stream is unknown.
-  bool Play(const QUrl &stream_url, const QUrl &original_url, const TrackChangeFlags flags, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec, const quint64 offset_nanosec);
+  bool Play(const QUrl &media_url, const QUrl &stream_url, const bool pause, const TrackChangeFlags flags, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const quint64 offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs);
   void SetVolume(const uint volume);
 
- public slots:
+ public Q_SLOTS:
   virtual void ReloadSettings();
   void UpdateVolume(const uint volume);
-
- protected:
-  void EmitAboutToEnd();
+  void EmitAboutToFinish();
+  void UpdateSpotifyAccessToken(const QString &spotify_access_token);
 
  public:
-
   // Simple accessors
-  EngineType type() const { return type_; }
   bool volume_control() const { return volume_control_; }
   inline uint volume() const { return volume_; }
 
@@ -123,54 +144,53 @@ class Base : public QObject {
 
   QVariant device() { return device_; }
 
- public slots:
+ public Q_SLOTS:
   virtual void SetStereoBalancerEnabled(const bool) {}
   virtual void SetStereoBalance(const float) {}
   virtual void SetEqualizerEnabled(const bool) {}
   virtual void SetEqualizerParameters(const int, const QList<int>&) {}
 
- signals:
+ Q_SIGNALS:
   // Emitted when crossfading is enabled and the track is crossfade_duration_ away from finishing
   void TrackAboutToEnd();
 
   void TrackEnded();
 
-  void FadeoutFinishedSignal();
-
-  void StatusText(QString text);
-  void Error(QString text);
+  void StatusText(const QString &text);
+  void Error(const QString &text);
 
   // Emitted when there was a fatal error
   void FatalError();
   // Emitted when Engine was unable to play a song with the given QUrl.
-  void InvalidSongRequested(QUrl url);
+  void InvalidSongRequested(const QUrl &url);
   // Emitted when Engine successfully started playing a song with the given QUrl.
-  void ValidSongRequested(QUrl url);
+  void ValidSongRequested(const QUrl &url);
 
-  void MetaData(Engine::SimpleMetaBundle);
+  void MetaData(const EngineMetadata &metadata);
 
   // Signals that the engine's state has changed (a stream was stopped for example).
   // Always use the state from event, because it's not guaranteed that immediate subsequent call to state() won't return a stale value.
-  void StateChanged(Engine::State);
+  void StateChanged(const EngineBase::State state);
 
-  void VolumeChanged(uint volume);
+  void VolumeChanged(const uint volume);
+
+  void Finished();
+
+ private:
+#ifdef HAVE_SPOTIFY
+  virtual void SetSpotifyAccessToken() {}
+#endif
 
  protected:
-
-  struct PluginDetails {
-    QString name;
-    QString description;
-    QString iconname;
-  };
-  using PluginDetailsList = QList<PluginDetails>;
-
-  EngineType type_;
+  bool playbin3_enabled_;
+  bool exclusive_mode_;
   bool volume_control_;
   uint volume_;
-  quint64 beginning_nanosec_;
-  qint64 end_nanosec_;
+  quint64 beginning_offset_nanosec_;
+  qint64 end_offset_nanosec_;
+  QUrl media_url_;
   QUrl stream_url_;
-  QUrl original_url_;
+  double ebur128_loudness_normalizing_gain_db_;
   Scope scope_;
   bool buffering_;
   bool equalizer_enabled_;
@@ -185,6 +205,10 @@ class Base : public QObject {
   double rg_preamp_;
   double rg_fallbackgain_;
   bool rg_compression_;
+
+  // EBU R 128 Loudness Normalization
+  bool ebur128_loudness_normalization_;
+  double ebur128_target_level_lufs_;
 
   // Buffering
   quint64 buffer_duration_nanosec_;
@@ -215,40 +239,21 @@ class Base : public QObject {
   // Options
   bool bs2b_enabled_;
   bool http2_enabled_;
+  bool strict_ssl_enabled_;
 
- private:
+  // Spotify
+#ifdef HAVE_SPOTIFY
+  QString spotify_access_token_;
+#endif
+
   bool about_to_end_emitted_;
-  Q_DISABLE_COPY(Base)
 
+  Q_DISABLE_COPY(EngineBase)
 };
 
-struct SimpleMetaBundle {
-  SimpleMetaBundle() : type(Type_Any), length(-1), year(-1), track(-1), filetype(Song::FileType_Unknown), samplerate(-1), bitdepth(-1), bitrate(-1) {}
-  enum Type {
-    Type_Any,
-    Type_Current,
-    Type_Next,
-  };
-  Type type;
-  QUrl url;
-  QUrl stream_url;
-  QString title;
-  QString artist;
-  QString album;
-  QString comment;
-  QString genre;
-  qint64 length;
-  int year;
-  int track;
-  Song::FileType filetype;
-  int samplerate;
-  int bitdepth;
-  int bitrate;
-  QString lyrics;
-};
-
-}  // namespace Engine
-
+Q_DECLARE_METATYPE(EngineBase::State)
+Q_DECLARE_METATYPE(EngineBase::TrackChangeType)
 Q_DECLARE_METATYPE(EngineBase::OutputDetails)
+Q_DECLARE_OPERATORS_FOR_FLAGS(EngineBase::TrackChangeFlags)
 
 #endif  // ENGINEBASE_H

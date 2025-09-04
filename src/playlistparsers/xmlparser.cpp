@@ -20,10 +20,11 @@
 
 #include <QObject>
 
+#include "includes/shared_ptr.h"
 #include "parserbase.h"
 #include "xmlparser.h"
 
 class CollectionBackendInterface;
 
-XMLParser::XMLParser(CollectionBackendInterface *collection, QObject *parent)
-    : ParserBase(collection, parent) {}
+XMLParser::XMLParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}

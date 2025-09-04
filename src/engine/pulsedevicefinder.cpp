@@ -30,10 +30,12 @@
 #include <QString>
 
 #include "core/logging.h"
-#include "devicefinder.h"
 #include "pulsedevicefinder.h"
+#include "enginedevice.h"
 
-PulseDeviceFinder::PulseDeviceFinder() : DeviceFinder("pulseaudio", { "pulseaudio", "pulse", "pulsesink" }), mainloop_(nullptr), context_(nullptr) {}
+using namespace Qt::Literals::StringLiterals;
+
+PulseDeviceFinder::PulseDeviceFinder() : DeviceFinder(u"pulseaudio"_s, { u"pulseaudio"_s, u"pulse"_s, u"pulsesink"_s }), mainloop_(nullptr), context_(nullptr) {}
 
 bool PulseDeviceFinder::Initialize() {
 
@@ -65,7 +67,7 @@ bool PulseDeviceFinder::Reconnect() {
   }
 
   // Wait for the context to be connected.
-  forever {
+  Q_FOREVER {
     const pa_context_state state = pa_context_get_state(context_);
     if (state == PA_CONTEXT_FAILED || state == PA_CONTEXT_TERMINATED) {
       qLog(Warning) << "Connection to pulseaudio failed";
@@ -80,17 +82,17 @@ bool PulseDeviceFinder::Reconnect() {
   }
 }
 
-QList<DeviceFinder::Device> PulseDeviceFinder::ListDevices() {
+EngineDeviceList PulseDeviceFinder::ListDevices() {
 
   if (!context_ || pa_context_get_state(context_) != PA_CONTEXT_READY) {
-    return QList<Device>();
+    return EngineDeviceList();
   }
 
 retry:
   ListDevicesState state;
   pa_context_get_sink_info_list(context_, &PulseDeviceFinder::GetSinkInfoCallback, &state);
 
-  forever {
+  Q_FOREVER {
     if (state.finished) {
       return state.devices;
     }
@@ -121,12 +123,12 @@ void PulseDeviceFinder::GetSinkInfoCallback(pa_context *c, const pa_sink_info *i
   if (!state) return;
 
   if (info) {
-    Device dev;
-    dev.description = QString::fromUtf8(info->description);
-    dev.value = QString::fromUtf8(info->name);
-    dev.iconname = GuessIconName(dev.description);
+    EngineDevice device;
+    device.description = QString::fromUtf8(info->description);
+    device.value = QString::fromUtf8(info->name);
+    device.iconname = device.GuessIconName();
 
-    state->devices.append(dev);
+    state->devices.append(device);
   }
 
   if (eol > 0) {

@@ -22,12 +22,14 @@
 
 #include "config.h"
 
+#include <optional>
+
 #include <QtGlobal>
 #include <QObject>
 #include <QAbstractNativeEventFilter>
 #include <QKeySequence>
 #include <QPair>
-#include <QVector>
+#include <QList>
 #include <QHash>
 #include <QByteArray>
 #include <QString>
@@ -48,7 +50,7 @@ class GlobalShortcut : public QObject, QAbstractNativeEventFilter {
   bool setShortcut(const QKeySequence &shortcut);
   bool unsetShortcut();
 
- signals:
+ Q_SIGNALS:
   void activated();
 
  private:
@@ -62,24 +64,19 @@ class GlobalShortcut : public QObject, QAbstractNativeEventFilter {
   static bool registerShortcut(const int native_key, const int native_mods);
   static bool unregisterShortcut(const int native_key, const int native_mods);
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   bool nativeEventFilter(const QByteArray &eventtype, void *message, qintptr *result) override;
-#else
-  bool nativeEventFilter(const QByteArray &eventtype, void *message, long *result) override;
-#endif
 
   static GlobalShortcut *initialized_;
   static QHash<QPair<quint32, quint32>, GlobalShortcut*> internal_shortcuts_;
-  static const QVector<quint32> mask_modifiers_;
+  static const QList<quint32> mask_modifiers_;
 
   GlobalShortcutsBackend *backend_;
   QKeySequence shortcut_;
-  Qt::Key qt_key_;
+  std::optional<Qt::Key> qt_key_;
   Qt::KeyboardModifiers qt_mods_;
   int native_key_;
   int native_key2_;
   int native_mods_;
-
 };
 
 #endif  // GLOBALSHORTCUT_H

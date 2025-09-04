@@ -22,40 +22,45 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QWidget>
 #include <QAbstractItemModel>
 #include <QItemSelectionModel>
 #include <QList>
-#include <QTimer>
+#include <QMetaObject>
 #include <QSettings>
 #include <QKeySequence>
 #include <QLabel>
 #include <QToolButton>
 
+#include "includes/shared_ptr.h"
 #include "core/iconloader.h"
+#include "core/settings.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistdelegates.h"
 #include "playlist/playlistmanager.h"
 #include "queue.h"
 #include "queueview.h"
 #include "ui_queueview.h"
-#include "settings/appearancesettingspage.h"
+#include "constants/appearancesettings.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 QueueView::QueueView(QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_QueueView),
-      playlists_(nullptr),
+      playlist_manager_(nullptr),
       current_playlist_(nullptr) {
 
   ui_->setupUi(this);
   ui_->list->setItemDelegate(new QueuedItemDelegate(this, 0));
 
   // Set icons on buttons
-  ui_->move_down->setIcon(IconLoader::Load("go-down"));
-  ui_->move_up->setIcon(IconLoader::Load("go-up"));
-  ui_->remove->setIcon(IconLoader::Load("edit-delete"));
-  ui_->clear->setIcon(IconLoader::Load("edit-clear-list"));
+  ui_->move_down->setIcon(IconLoader::Load(u"go-down"_s));
+  ui_->move_up->setIcon(IconLoader::Load(u"go-up"_s));
+  ui_->remove->setIcon(IconLoader::Load(u"edit-delete"_s));
+  ui_->clear->setIcon(IconLoader::Load(u"edit-clear-list"_s));
 
   // Set a standard shortcut
   ui_->remove->setShortcut(QKeySequence::Delete);
@@ -74,20 +79,20 @@ QueueView::~QueueView() {
   delete ui_;
 }
 
-void QueueView::SetPlaylistManager(PlaylistManager *manager) {
+void QueueView::SetPlaylistManager(SharedPtr<PlaylistManager> playlist_manager) {
 
-  playlists_ = manager;
+  playlist_manager_ = playlist_manager;
 
-  QObject::connect(playlists_, &PlaylistManager::CurrentChanged, this, &QueueView::CurrentPlaylistChanged);
-  CurrentPlaylistChanged(playlists_->current());
+  QObject::connect(&*playlist_manager, &PlaylistManager::CurrentChanged, this, &QueueView::CurrentPlaylistChanged);
+  CurrentPlaylistChanged(playlist_manager_->current());
 
 }
 
 void QueueView::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizeLeftPanelButtons, 22).toInt();
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizeLeftPanelButtons, 22).toInt();
   s.endGroup();
 
   ui_->move_down->setIconSize(QSize(iconsize, iconsize));
@@ -120,7 +125,7 @@ void QueueView::CurrentPlaylistChanged(Playlist *playlist) {
   QObject::connect(ui_->list->selectionModel(), &QItemSelectionModel::currentChanged, this, &QueueView::UpdateButtonState);
   QObject::connect(ui_->list->selectionModel(), &QItemSelectionModel::selectionChanged, this, &QueueView::UpdateButtonState);
 
-  QTimer::singleShot(0, current_playlist_->queue(), &Queue::UpdateSummaryText);
+  QMetaObject::invokeMethod(current_playlist_->queue(), &Queue::UpdateSummaryText);
 
 }
 
@@ -131,7 +136,7 @@ void QueueView::MoveUp() {
 
   if (indexes.isEmpty() || indexes.first().row() == 0) return;
 
-  for (const QModelIndex &idx : indexes) {
+  for (const QModelIndex &idx : std::as_const(indexes)) {
     current_playlist_->queue()->MoveUp(idx.row());
   }
 
@@ -160,7 +165,8 @@ void QueueView::Remove() {
 
   // collect the rows to be removed
   QList<int> row_list;
-  for (const QModelIndex &idx : ui_->list->selectionModel()->selectedRows()) {
+  const QModelIndexList indexes = ui_->list->selectionModel()->selectedRows();
+  for (const QModelIndex &idx : indexes) {
     if (idx.isValid()) row_list << idx.row();
   }
 

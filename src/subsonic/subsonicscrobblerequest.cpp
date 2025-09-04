@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  * Copyright 2020-2021, Pascal Below <spezifisch@below.fr>
  *
  * Strawberry is free software: you can redistribute it and/or modify
@@ -29,19 +29,21 @@
 #include <QJsonArray>
 #include <QJsonValue>
 
-#include "core/application.h"
 #include "core/logging.h"
 #include "subsonicservice.h"
 #include "subsonicbaserequest.h"
 #include "subsonicscrobblerequest.h"
 
-const int SubsonicScrobbleRequest::kMaxConcurrentScrobbleRequests = 3;
+using namespace Qt::Literals::StringLiterals;
 
-SubsonicScrobbleRequest::SubsonicScrobbleRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, Application *app, QObject *parent)
+namespace {
+constexpr int kMaxConcurrentScrobbleRequests = 3;
+}
+
+SubsonicScrobbleRequest::SubsonicScrobbleRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, QObject *parent)
     : SubsonicBaseRequest(service, parent),
       service_(service),
       url_handler_(url_handler),
-      app_(app),
       scrobble_requests_active_(0) {}
 
 SubsonicScrobbleRequest::~SubsonicScrobbleRequest() {
@@ -73,11 +75,11 @@ void SubsonicScrobbleRequest::FlushScrobbleRequests() {
     Request request = scrobble_requests_queue_.dequeue();
     ++scrobble_requests_active_;
 
-    ParamList params = ParamList() << Param("id", request.song_id)
-                                   << Param("submission", QVariant(request.submission).toString())
-                                   << Param("time", QVariant(request.time_ms).toString());
+    ParamList params = ParamList() << Param(u"id"_s, request.song_id)
+                                   << Param(u"submission"_s, QVariant(request.submission).toString())
+                                   << Param(u"time"_s, QVariant(request.time_ms).toString());
 
-    QNetworkReply *reply = CreateGetRequest("scrobble", params);
+    QNetworkReply *reply = CreateGetRequest(u"scrobble"_s, params);
     replies_ << reply;
     QObject::connect(reply, &QNetworkReply::finished, this, [this, reply]() { ScrobbleReplyReceived(reply); });
 
@@ -96,38 +98,16 @@ void SubsonicScrobbleRequest::ScrobbleReplyReceived(QNetworkReply *reply) {
 
   // "subsonic-response" is empty on success, but some keys like status, version, or type might be present.
   // Therefore, we can only check for errors.
-  QByteArray data = GetReplyData(reply);
 
-  if (data.isEmpty()) {
+  const JsonObjectResult json_object_result = ParseJsonObject(reply);
+  if (!json_object_result.success()) {
+    Error(json_object_result.error_message);
     FinishCheck();
     return;
   }
-
-  QJsonObject json_obj = ExtractJsonObj(data);
-  if (json_obj.isEmpty()) {
+  const QJsonObject &json_object = json_object_result.json_object;
+  if (json_object.isEmpty()) {
     FinishCheck();
-    return;
-  }
-
-  if (json_obj.contains("error")) {
-    QJsonValue json_error = json_obj["error"];
-    if (!json_error.isObject()) {
-      Error("Json error is not an object.", json_obj);
-      FinishCheck();
-      return;
-    }
-    json_obj = json_error.toObject();
-    if (!json_obj.isEmpty() && json_obj.contains("code") && json_obj.contains("message")) {
-      int code = json_obj["code"].toInt();
-      QString message = json_obj["message"].toString();
-      Error(QString("%1 (%2)").arg(message).arg(code));
-      FinishCheck();
-    }
-    else {
-      Error("Json error object is missing code or message.", json_obj);
-      FinishCheck();
-      return;
-    }
     return;
   }
 

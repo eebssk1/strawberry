@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QString>
@@ -35,39 +33,38 @@
 #include <QDBusArgument>
 #include <QVersionNumber>
 
+#include "includes/scoped_ptr.h"
 #include "osdbase.h"
 
 class OrgFreedesktopNotificationsInterface;
 class QDBusPendingCallWatcher;
 
-class Application;
 class SystemTrayIcon;
 
 class OSDDBus : public OSDBase {
   Q_OBJECT
 
  public:
-  explicit OSDDBus(std::shared_ptr<SystemTrayIcon> tray_icon, Application *app, QObject *parent = nullptr);
+  explicit OSDDBus(const SharedPtr<SystemTrayIcon> tray_icon, QObject *parent = nullptr);
   ~OSDDBus() override;
 
   static const char *kSettingsGroup;
 
-  bool SupportsNativeNotifications() override;
-  bool SupportsTrayPopups() override;
+  bool SupportsNativeNotifications() const override;
+  bool SupportsTrayPopups() const override;
 
  private:
   void Init();
   void ShowMessageNative(const QString &summary, const QString &message, const QString &icon = QString(), const QImage &image = QImage()) override;
 
- private slots:
+ private Q_SLOTS:
   void CallFinished(QDBusPendingCallWatcher *watcher);
 
  private:
-  std::unique_ptr<OrgFreedesktopNotificationsInterface> interface_;
+  ScopedPtr<OrgFreedesktopNotificationsInterface> interface_;
   QVersionNumber version_;
   uint notification_id_;
   QDateTime last_notification_time_;
-
 };
 
 QDBusArgument &operator<<(QDBusArgument &arg, const QImage &image);

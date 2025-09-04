@@ -34,6 +34,8 @@
 #include <QWindow>
 #include <qmath.h>
 
+using namespace Qt::Literals::StringLiterals;
+
 // Clamps float color values within (0, 255)
 static int clamp(float x) {
   const int val = x > 255 ? 255 : static_cast<int>(x);
@@ -109,23 +111,13 @@ QPalette StyleHelper::sidebarFontPalette(const QPalette &original) {
 
 QColor StyleHelper::panelTextColor(bool lightColored) {
 
-  if (lightColored) {
-    return Qt::black;
-  }
-  else {
-    return Qt::white;
-  }
+  return lightColored ? Qt::black : Qt::white;
 
 }
 
 QColor StyleHelper::baseColor(bool lightColored) {
 
-  if (lightColored) {
-    return m_baseColor.lighter(230);
-  }
-  else {
-    return m_baseColor;
-  }
+  return lightColored ? m_baseColor.lighter(230) : m_baseColor;
 
 }
 
@@ -176,7 +168,8 @@ void StyleHelper::setBaseColor(const QColor &newcolor) {
 
   if (color.isValid() && color != m_baseColor) {
     m_baseColor = color;
-    for (QWidget *w : QApplication::topLevelWidgets()) {
+    const QList<QWidget*> widgets = QApplication::topLevelWidgets();
+    for (QWidget *w : widgets) {
       w->update();
     }
   }
@@ -470,7 +463,7 @@ QString StyleHelper::dpiSpecificImageFile(const QString &fileName) {
 QString StyleHelper::imageFileWithResolution(const QString &fileName, int dpr) {
 
   const QFileInfo fi(fileName);
-  return dpr == 1 ? fileName : fi.path() + QLatin1Char('/') + fi.completeBaseName() + QLatin1Char('@') + QString::number(dpr) + QLatin1String("x.") + fi.suffix();
+  return dpr == 1 ? fileName : fi.path() + QLatin1Char('/') + fi.completeBaseName() + QLatin1Char('@') + QString::number(dpr) + "x."_L1 + fi.suffix();
 
 }
 

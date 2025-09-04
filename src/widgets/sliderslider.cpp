@@ -99,7 +99,7 @@ void SliderSlider::mouseMoveEvent(QMouseEvent *e) {
     else {
       outside_ = false;
       slideEvent(e);
-      emit sliderMoved(value());
+      Q_EMIT sliderMoved(value());
     }
   }
   else {
@@ -121,10 +121,12 @@ void SliderSlider::mousePressEvent(QMouseEvent *e) {
 
 }
 
-void SliderSlider::mouseReleaseEvent(QMouseEvent*) {
+void SliderSlider::mouseReleaseEvent(QMouseEvent *e) {
+
+  Q_UNUSED(e)
 
   if (!outside_ && QSlider::value() != prev_value_) {
-    emit SliderReleased(value());
+    Q_EMIT SliderReleased(value());
   }
 
   sliding_ = false;
@@ -148,7 +150,7 @@ void SliderSlider::wheelEvent(QWheelEvent *e) {
 
   QSlider::setValue(nval);
 
-  emit SliderReleased(value());
+  Q_EMIT SliderReleased(value());
 
   wheeling_ = false;
 

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -34,92 +34,100 @@
 #include "settingsdialog.h"
 #include "qobuzsettingspage.h"
 #include "ui_qobuzsettingspage.h"
-#include "core/application.h"
 #include "core/iconloader.h"
+#include "core/settings.h"
 #include "widgets/loginstatewidget.h"
-#include "internet/internetservices.h"
 #include "qobuz/qobuzservice.h"
+#include "constants/qobuzsettings.h"
 
-const char *QobuzSettingsPage::kSettingsGroup = "Qobuz";
+using namespace Qt::Literals::StringLiterals;
+using namespace QobuzSettings;
 
-QobuzSettingsPage::QobuzSettingsPage(SettingsDialog *dialog, QWidget *parent)
+QobuzSettingsPage::QobuzSettingsPage(SettingsDialog *dialog, const SharedPtr<QobuzService> service, QWidget *parent)
     : SettingsPage(dialog, parent),
       ui_(new Ui::QobuzSettingsPage),
-      service_(dialog->app()->internet_services()->Service<QobuzService>()) {
+      service_(service) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load("qobuz", true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"qobuz"_s, true, 0, 32));
 
   QObject::connect(ui_->button_login, &QPushButton::clicked, this, &QobuzSettingsPage::LoginClicked);
   QObject::connect(ui_->login_state, &LoginStateWidget::LogoutClicked, this, &QobuzSettingsPage::LogoutClicked);
 
-  QObject::connect(this, &QobuzSettingsPage::Login, service_, &InternetService::LoginWithCredentials);
+  QObject::connect(this, &QobuzSettingsPage::Login, &*service_, &StreamingService::LoginWithCredentials);
 
-  QObject::connect(service_, &InternetService::LoginFailure, this, &QobuzSettingsPage::LoginFailure);
-  QObject::connect(service_, &InternetService::LoginSuccess, this, &QobuzSettingsPage::LoginSuccess);
+  QObject::connect(&*service_, &StreamingService::LoginFailure, this, &QobuzSettingsPage::LoginFailure);
+  QObject::connect(&*service_, &StreamingService::LoginSuccess, this, &QobuzSettingsPage::LoginSuccess);
 
   dialog->installEventFilter(this);
 
-  ui_->format->addItem("MP3 320", 5);
-  ui_->format->addItem("FLAC Lossless", 6);
-  ui_->format->addItem("FLAC Hi-Res <= 96kHz", 7);
-  ui_->format->addItem("FLAC Hi-Res > 96kHz", 27);
+  ui_->format->addItem(u"MP3 320"_s, 5);
+  ui_->format->addItem(u"FLAC Lossless"_s, 6);
+  ui_->format->addItem(u"FLAC Hi-Res <= 96kHz"_s, 7);
+  ui_->format->addItem(u"FLAC Hi-Res > 96kHz"_s, 27);
 
 }
 
 QobuzSettingsPage::~QobuzSettingsPage() { delete ui_; }
 
+void QobuzSettingsPage::showEvent(QShowEvent *e) {
+
+  ui_->login_state->SetLoggedIn(service_->authenticated() ? LoginStateWidget::State::LoggedIn : LoginStateWidget::State::LoggedOut);
+  SettingsPage::showEvent(e);
+
+}
+
 void QobuzSettingsPage::Load() {
 
-  QSettings s;
+  Settings s;
   if (!s.contains(kSettingsGroup)) set_changed();
 
   s.beginGroup(kSettingsGroup);
-  ui_->enable->setChecked(s.value("enabled", false).toBool());
-  ui_->app_id->setText(s.value("app_id").toString());
-  ui_->app_secret->setText(s.value("app_secret").toString());
+  ui_->enable->setChecked(s.value(kEnabled, false).toBool());
+  ui_->app_id->setText(s.value(kAppId).toString());
+  ui_->app_secret->setText(s.value(kAppSecret).toString());
 
-  ui_->username->setText(s.value("username").toString());
-  QByteArray password = s.value("password").toByteArray();
+  ui_->username->setText(s.value(kUsername).toString());
+  QByteArray password = s.value(kPassword).toByteArray();
   if (password.isEmpty()) ui_->password->clear();
   else ui_->password->setText(QString::fromUtf8(QByteArray::fromBase64(password)));
 
-  ComboBoxLoadFromSettings(s, ui_->format, "format", 27);
-  ui_->searchdelay->setValue(s.value("searchdelay", 1500).toInt());
-  ui_->artistssearchlimit->setValue(s.value("artistssearchlimit", 4).toInt());
-  ui_->albumssearchlimit->setValue(s.value("albumssearchlimit", 10).toInt());
-  ui_->songssearchlimit->setValue(s.value("songssearchlimit", 10).toInt());
-  ui_->checkbox_base64_secret->setChecked(s.value("base64secret", false).toBool());
-  ui_->checkbox_download_album_covers->setChecked(s.value("downloadalbumcovers", true).toBool());
+  ComboBoxLoadFromSettings(s, ui_->format, QLatin1String(kFormat), 27);
+  ui_->searchdelay->setValue(s.value(kSearchDelay, 1500).toInt());
+  ui_->artistssearchlimit->setValue(s.value(kArtistsSearchLimit, 4).toInt());
+  ui_->albumssearchlimit->setValue(s.value(kAlbumsSearchLimit, 10).toInt());
+  ui_->songssearchlimit->setValue(s.value(kSongsSearchLimit, 10).toInt());
+  ui_->checkbox_base64_secret->setChecked(s.value(kBase64Secret, false).toBool());
+  ui_->checkbox_download_album_covers->setChecked(s.value(kDownloadAlbumCovers, true).toBool());
 
   s.endGroup();
 
-  if (service_->authenticated()) ui_->login_state->SetLoggedIn(LoginStateWidget::LoggedIn);
+  if (service_->authenticated()) ui_->login_state->SetLoggedIn(LoginStateWidget::State::LoggedIn);
 
   Init(ui_->layout_qobuzsettingspage->parentWidget());
 
-  if (!QSettings().childGroups().contains(kSettingsGroup)) set_changed();
+  if (!Settings().childGroups().contains(QLatin1String(kSettingsGroup))) set_changed();
 
 }
 
 void QobuzSettingsPage::Save() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   s.setValue("enabled", ui_->enable->isChecked());
-  s.setValue("app_id", ui_->app_id->text());
-  s.setValue("app_secret", ui_->app_secret->text());
+  s.setValue(kAppId, ui_->app_id->text());
+  s.setValue(kAppSecret, ui_->app_secret->text());
 
-  s.setValue("username", ui_->username->text());
-  s.setValue("password", QString::fromUtf8(ui_->password->text().toUtf8().toBase64()));
+  s.setValue(kUsername, ui_->username->text());
+  s.setValue(kPassword, QString::fromUtf8(ui_->password->text().toUtf8().toBase64()));
 
-  s.setValue("format", ui_->format->itemData(ui_->format->currentIndex()));
-  s.setValue("searchdelay", ui_->searchdelay->value());
-  s.setValue("artistssearchlimit", ui_->artistssearchlimit->value());
-  s.setValue("albumssearchlimit", ui_->albumssearchlimit->value());
-  s.setValue("songssearchlimit", ui_->songssearchlimit->value());
-  s.setValue("base64secret", ui_->checkbox_base64_secret->isChecked());
-  s.setValue("downloadalbumcovers", ui_->checkbox_download_album_covers->isChecked());
+  s.setValue(kFormat, ui_->format->itemData(ui_->format->currentIndex()));
+  s.setValue(kSearchDelay, ui_->searchdelay->value());
+  s.setValue(kArtistsSearchLimit, ui_->artistssearchlimit->value());
+  s.setValue(kAlbumsSearchLimit, ui_->albumssearchlimit->value());
+  s.setValue(kSongsSearchLimit, ui_->songssearchlimit->value());
+  s.setValue(kBase64Secret, ui_->checkbox_base64_secret->isChecked());
+  s.setValue(kDownloadAlbumCovers, ui_->checkbox_download_album_covers->isChecked());
   s.endGroup();
 
 }
@@ -139,7 +147,7 @@ void QobuzSettingsPage::LoginClicked() {
     return;
   }
 
-  emit Login(ui_->app_id->text(), ui_->username->text(), ui_->password->text());
+  Q_EMIT Login(ui_->app_id->text(), ui_->username->text(), ui_->password->text());
   ui_->button_login->setEnabled(false);
 
 }
@@ -156,8 +164,8 @@ bool QobuzSettingsPage::eventFilter(QObject *object, QEvent *event) {
 
 void QobuzSettingsPage::LogoutClicked() {
 
-  service_->Logout();
-  ui_->login_state->SetLoggedIn(LoginStateWidget::LoggedOut);
+  service_->ClearSession();
+  ui_->login_state->SetLoggedIn(LoginStateWidget::State::LoggedOut);
   ui_->button_login->setEnabled(true);
 
 }
@@ -165,7 +173,7 @@ void QobuzSettingsPage::LogoutClicked() {
 void QobuzSettingsPage::LoginSuccess() {
 
   if (!isVisible()) return;
-  ui_->login_state->SetLoggedIn(LoginStateWidget::LoggedIn);
+  ui_->login_state->SetLoggedIn(LoginStateWidget::State::LoggedIn);
   ui_->button_login->setEnabled(true);
 
 }

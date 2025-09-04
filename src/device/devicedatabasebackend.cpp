@@ -21,6 +21,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QObject>
 #include <QThread>
 #include <QMutex>
@@ -30,23 +32,30 @@
 #include <QString>
 #include <QSqlDatabase>
 
+#include "includes/shared_ptr.h"
 #include "core/database.h"
 #include "core/sqlquery.h"
 #include "core/scopedtransaction.h"
 #include "devicedatabasebackend.h"
 
-const int DeviceDatabaseBackend::kDeviceSchemaVersion = 3;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kDeviceSchemaVersion = 6;
+}
 
 DeviceDatabaseBackend::DeviceDatabaseBackend(QObject *parent)
     : QObject(parent),
       db_(nullptr),
       original_thread_(nullptr) {
 
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
+
   original_thread_ = thread();
 
 }
 
-void DeviceDatabaseBackend::Init(Database *db) { db_ = db; }
+void DeviceDatabaseBackend::Init(SharedPtr<Database> db) { db_ = db; }
 
 void DeviceDatabaseBackend::Close() {
 
@@ -58,7 +67,7 @@ void DeviceDatabaseBackend::Close() {
 }
 
 void DeviceDatabaseBackend::ExitAsync() {
-  QMetaObject::invokeMethod(this, "Exit", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &DeviceDatabaseBackend::Exit, Qt::QueuedConnection);
 }
 
 void DeviceDatabaseBackend::Exit() {
@@ -66,7 +75,7 @@ void DeviceDatabaseBackend::Exit() {
   Q_ASSERT(QThread::currentThread() == thread());
   Close();
   moveToThread(original_thread_);
-  emit ExitFinished();
+  Q_EMIT ExitFinished();
 
 }
 
@@ -79,7 +88,7 @@ DeviceDatabaseBackend::DeviceList DeviceDatabaseBackend::GetAllDevices() {
     QMutexLocker l(db_->Mutex());
     QSqlDatabase db(db_->Connect());
     SqlQuery q(db);
-    q.prepare("SELECT ROWID, unique_id, friendly_name, size, icon, schema_version, transcode_mode, transcode_format FROM devices");
+    q.prepare(u"SELECT ROWID, unique_id, friendly_name, size, icon, schema_version, transcode_mode, transcode_format FROM devices"_s);
     if (!q.Exec()) {
       db_->ReportErrors(q);
       return ret;
@@ -90,7 +99,7 @@ DeviceDatabaseBackend::DeviceList DeviceDatabaseBackend::GetAllDevices() {
       dev.id_ = q.value(0).toInt();
       dev.unique_id_ = q.value(1).toString();
       dev.friendly_name_ = q.value(2).toString();
-      dev.size_ = q.value(3).toLongLong();
+      dev.size_ = q.value(3).toULongLong();
       dev.icon_name_ = q.value(4).toString();
       int schema_version = q.value(5).toInt();
       dev.transcode_mode_ = static_cast<MusicStorage::TranscodeMode>(q.value(6).toInt());
@@ -104,7 +113,7 @@ DeviceDatabaseBackend::DeviceList DeviceDatabaseBackend::GetAllDevices() {
     }
   }
 
-  for (const Device &dev : old_devices) {
+  for (const Device &dev : std::as_const(old_devices)) {
     RemoveDevice(dev.id_);
   }
 
@@ -123,13 +132,13 @@ int DeviceDatabaseBackend::AddDevice(const Device &device) {
 
   // Insert the device into the devices table
   SqlQuery q(db);
-  q.prepare("INSERT INTO devices (unique_id, friendly_name, size, icon, transcode_mode, transcode_format) VALUES (:unique_id, :friendly_name, :size, :icon, :transcode_mode, :transcode_format)");
-  q.BindValue(":unique_id", device.unique_id_);
-  q.BindValue(":friendly_name", device.friendly_name_);
-  q.BindValue(":size", device.size_);
-  q.BindValue(":icon", device.icon_name_);
-  q.BindValue(":transcode_mode", device.transcode_mode_);
-  q.BindValue(":transcode_format", device.transcode_format_);
+  q.prepare(u"INSERT INTO devices (unique_id, friendly_name, size, icon, transcode_mode, transcode_format) VALUES (:unique_id, :friendly_name, :size, :icon, :transcode_mode, :transcode_format)"_s);
+  q.BindValue(u":unique_id"_s, device.unique_id_);
+  q.BindValue(u":friendly_name"_s, device.friendly_name_);
+  q.BindValue(u":size"_s, device.size_);
+  q.BindValue(u":icon"_s, device.icon_name_);
+  q.BindValue(u":transcode_mode"_s, static_cast<int>(device.transcode_mode_));
+  q.BindValue(u":transcode_format"_s, static_cast<int>(device.transcode_format_));
   if (!q.Exec()) {
     db_->ReportErrors(q);
     return -1;
@@ -137,13 +146,13 @@ int DeviceDatabaseBackend::AddDevice(const Device &device) {
   int id = q.lastInsertId().toInt();
 
   // Create the songs tables for the device
-  QString filename(":/schema/device-schema.sql");
+  QString filename(":/schema/device-schema.sql"_L1);
   QFile schema_file(filename);
   if (!schema_file.open(QIODevice::ReadOnly)) {
     qFatal("Couldn't open schema file %s: %s", filename.toUtf8().constData(), schema_file.errorString().toUtf8().constData());
   }
   QString schema = QString::fromUtf8(schema_file.readAll());
-  schema.replace("%deviceid", QString::number(id));
+  schema.replace("%deviceid"_L1, QString::number(id));
 
   db_->ExecSchemaCommands(db, schema, 0, true);
 
@@ -161,19 +170,52 @@ void DeviceDatabaseBackend::RemoveDevice(const int id) {
   ScopedTransaction t(&db);
 
   // Remove the device from the devices table
-  SqlQuery q(db);
-  q.prepare("DELETE FROM devices WHERE ROWID=:id");
-  q.BindValue(":id", id);
-  if (!q.Exec()) {
-    db_->ReportErrors(q);
-    return;
+  {
+    SqlQuery q(db);
+    q.prepare(u"DELETE FROM devices WHERE ROWID=:id"_s);
+    q.BindValue(u":id"_s, id);
+    if (!q.Exec()) {
+      db_->ReportErrors(q);
+      return;
+    }
   }
 
   // Remove the songs tables for the device
-  db.exec(QString("DROP TABLE device_%1_songs").arg(id));
-  db.exec(QString("DROP TABLE device_%1_fts").arg(id));
-  db.exec(QString("DROP TABLE device_%1_directories").arg(id));
-  db.exec(QString("DROP TABLE device_%1_subdirectories").arg(id));
+  {
+    SqlQuery q(db);
+    q.prepare(QStringLiteral("DROP TABLE device_%1_songs").arg(id));
+    if (!q.Exec()) {
+      db_->ReportErrors(q);
+      return;
+    }
+  }
+
+  {
+    SqlQuery q(db);
+    q.prepare(QStringLiteral("DROP TABLE IF EXISTS device_%1_fts").arg(id));
+    if (!q.Exec()) {
+      db_->ReportErrors(q);
+      return;
+    }
+  }
+
+  {
+    SqlQuery q(db);
+    q.prepare(QStringLiteral("DROP TABLE device_%1_directories").arg(id));
+    if (!q.Exec()) {
+      db_->ReportErrors(q);
+      return;
+    }
+  }
+
+  {
+    SqlQuery q(db);
+    q.prepare(QStringLiteral("DROP TABLE device_%1_subdirectories").arg(id));
+    if (!q.Exec()) {
+      db_->ReportErrors(q);
+      return;
+    }
+  }
 
   t.Commit();
 
@@ -185,18 +227,18 @@ void DeviceDatabaseBackend::SetDeviceOptions(const int id, const QString &friend
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare(
+  q.prepare(QStringLiteral(
       "UPDATE devices"
       " SET friendly_name=:friendly_name,"
       "     icon=:icon_name,"
       "     transcode_mode=:transcode_mode,"
       "     transcode_format=:transcode_format"
-      " WHERE ROWID=:id");
-  q.BindValue(":friendly_name", friendly_name);
-  q.BindValue(":icon_name", icon_name);
-  q.BindValue(":transcode_mode", mode);
-  q.BindValue(":transcode_format", format);
-  q.BindValue(":id", id);
+      " WHERE ROWID=:id"));
+  q.BindValue(u":friendly_name"_s, friendly_name);
+  q.BindValue(u":icon_name"_s, icon_name);
+  q.BindValue(u":transcode_mode"_s, static_cast<int>(mode));
+  q.BindValue(u":transcode_format"_s, static_cast<int>(format));
+  q.BindValue(u":id"_s, id);
   if (!q.Exec()) {
     db_->ReportErrors(q);
   }

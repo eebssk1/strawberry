@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,9 +21,8 @@
 
 #include <memory>
 
-#include <QObject>
-#include <QPair>
-#include <QList>
+#include <QApplication>
+#include <QThread>
 #include <QByteArray>
 #include <QVariant>
 #include <QString>
@@ -31,11 +30,7 @@
 #include <QUrlQuery>
 #include <QNetworkRequest>
 #include <QNetworkReply>
-#include <QSslError>
-#include <QDesktopServices>
-#include <QCryptographicHash>
 #include <QRegularExpression>
-#include <QSettings>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -43,295 +38,183 @@
 #include <QJsonParseError>
 #include <QMessageBox>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/networkaccessmanager.h"
-#include "utilities/strutils.h"
-#include "utilities/randutils.h"
-#include "internet/localredirectserver.h"
+#include "core/oauthenticator.h"
 #include "jsonlyricsprovider.h"
-#include "lyricsfetcher.h"
-#include "lyricsprovider.h"
+#include "htmllyricsprovider.h"
 #include "geniuslyricsprovider.h"
 
-const char *GeniusLyricsProvider::kSettingsGroup = "GeniusLyrics";
-const char *GeniusLyricsProvider::kOAuthAuthorizeUrl = "https://api.genius.com/oauth/authorize";
-const char *GeniusLyricsProvider::kOAuthAccessTokenUrl = "https://api.genius.com/oauth/token";
-const char *GeniusLyricsProvider::kOAuthRedirectUrl = "http://localhost:63111/";  // Genius does not accept a random port number. This port must match the URL of the ClientID.
-const char *GeniusLyricsProvider::kUrlSearch = "https://api.genius.com/search/";
-const char *GeniusLyricsProvider::kClientIDB64 = "RUNTNXU4U1VyMU1KUU5hdTZySEZteUxXY2hkanFiY3lfc2JjdXBpNG5WMU9SNUg4dTBZelEtZTZCdFg2dl91SQ==";
-const char *GeniusLyricsProvider::kClientSecretB64 = "VE9pMU9vUjNtTXZ3eFR3YVN0QVRyUjVoUlhVWDI1Ylp5X240eEt1M0ZkYlNwRG5JUnd0LXFFbHdGZkZkRWY2VzJ1S011UnQzM3c2Y3hqY0tVZ3NGN2c=";
+using namespace Qt::Literals::StringLiterals;
+using std::make_shared;
 
-GeniusLyricsProvider::GeniusLyricsProvider(NetworkAccessManager *network, QObject *parent) : JsonLyricsProvider("Genius", true, true, network, parent), server_(nullptr) {
+namespace {
+constexpr char kSettingsGroup[] = "GeniusLyrics";
+constexpr char kOAuthAuthorizeUrl[] = "https://api.genius.com/oauth/authorize";
+constexpr char kOAuthAccessTokenUrl[] = "https://api.genius.com/oauth/token";
+constexpr char kOAuthRedirectUrl[] = "http://localhost:63111/";  // Genius does not accept a random port number. This port must match the URL of the ClientID.
+constexpr char kOAuthScope[] = "me";
+constexpr char kUrlSearch[] = "https://api.genius.com/search/";
+constexpr char kClientIDB64[] = "RUNTNXU4U1VyMU1KUU5hdTZySEZteUxXY2hkanFiY3lfc2JjdXBpNG5WMU9SNUg4dTBZelEtZTZCdFg2dl91SQ==";
+constexpr char kClientSecretB64[] = "VE9pMU9vUjNtTXZ3eFR3YVN0QVRyUjVoUlhVWDI1Ylp5X240eEt1M0ZkYlNwRG5JUnd0LXFFbHdGZkZkRWY2VzJ1S011UnQzM3c2Y3hqY0tVZ3NGN2c=";
+}  // namespace
 
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
-  if (s.contains("access_token")) {
-    access_token_ = s.value("access_token").toString();
-  }
-  s.endGroup();
+GeniusLyricsProvider::GeniusLyricsProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : JsonLyricsProvider(u"Genius"_s, true, true, network, parent),
+      oauth_(new OAuthenticator(network, this)) {
 
-}
+  oauth_->set_settings_group(QLatin1String(kSettingsGroup));
+  oauth_->set_type(OAuthenticator::Type::Authorization_Code);
+  oauth_->set_authorize_url(QUrl(QLatin1String(kOAuthAuthorizeUrl)));
+  oauth_->set_redirect_url(QUrl(QLatin1String(kOAuthRedirectUrl)));
+  oauth_->set_access_token_url(QUrl(QLatin1String(kOAuthAccessTokenUrl)));
+  oauth_->set_client_id(QString::fromLatin1(QByteArray::fromBase64(kClientIDB64)));
+  oauth_->set_client_secret(QString::fromLatin1(QByteArray::fromBase64(kClientSecretB64)));
+  oauth_->set_scope(QLatin1String(kOAuthScope));
+  oauth_->set_use_local_redirect_server(true);
+  oauth_->set_random_port(false);
 
-GeniusLyricsProvider::~GeniusLyricsProvider() {
+  QObject::connect(oauth_, &OAuthenticator::AuthenticationFinished, this, &GeniusLyricsProvider::OAuthFinished);
 
-  while (!replies_.isEmpty()) {
-    QNetworkReply *reply = replies_.takeFirst();
-    QObject::disconnect(reply, nullptr, this, nullptr);
-    reply->abort();
-    reply->deleteLater();
-  }
-
-}
-
-void GeniusLyricsProvider::Authenticate() {
-
-  QUrl redirect_url(kOAuthRedirectUrl);
-
-  if (!server_) {
-    server_ = new LocalRedirectServer(this);
-    server_->set_https(false);
-    server_->set_port(redirect_url.port());
-    if (!server_->Listen()) {
-      AuthError(server_->error());
-      server_->deleteLater();
-      server_ = nullptr;
-      return;
-    }
-    QObject::connect(server_, &LocalRedirectServer::Finished, this, &GeniusLyricsProvider::RedirectArrived);
-  }
-
-  code_verifier_ = Utilities::CryptographicRandomString(44);
-  code_challenge_ = QString(QCryptographicHash::hash(code_verifier_.toUtf8(), QCryptographicHash::Sha256).toBase64(QByteArray::Base64UrlEncoding));
-  if (code_challenge_.lastIndexOf(QChar('=')) == code_challenge_.length() - 1) {
-    code_challenge_.chop(1);
-  }
-
-  const ParamList params = ParamList() << Param("client_id", QByteArray::fromBase64(kClientIDB64))
-                                       << Param("redirect_uri", redirect_url.toString())
-                                       << Param("scope", "me")
-                                       << Param("state", code_challenge_)
-                                       << Param("response_type", "code");
-
-  QUrlQuery url_query;
-  for (const Param &param : params) {
-    url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
-  }
-
-  QUrl url(kOAuthAuthorizeUrl);
-  url.setQuery(url_query);
-
-  const bool result = QDesktopServices::openUrl(url);
-  if (!result) {
-    QMessageBox messagebox(QMessageBox::Information, tr("Genius Authentication"), tr("Please open this URL in your browser") + QString(":<br /><a href=\"%1\">%1</a>").arg(url.toString()), QMessageBox::Ok);
-    messagebox.setTextFormat(Qt::RichText);
-    messagebox.exec();
-  }
+  oauth_->LoadSession();
 
 }
 
-void GeniusLyricsProvider::RedirectArrived() {
+bool GeniusLyricsProvider::authenticated() const {
 
-  if (!server_) return;
-
-  if (server_->error().isEmpty()) {
-    QUrl url = server_->request_url();
-    if (url.isValid()) {
-      QUrlQuery url_query(url);
-      if (url_query.hasQueryItem("error")) {
-        AuthError(QUrlQuery(url).queryItemValue("error"));
-      }
-      else if (url_query.hasQueryItem("code")) {
-        QUrl redirect_url(kOAuthRedirectUrl);
-        redirect_url.setPort(server_->url().port());
-        RequestAccessToken(url, redirect_url);
-      }
-      else {
-        AuthError(tr("Redirect missing token code!"));
-      }
-    }
-    else {
-      AuthError(tr("Received invalid reply from web browser."));
-    }
-  }
-  else {
-    AuthError(server_->error());
-  }
-
-  server_->close();
-  server_->deleteLater();
-  server_ = nullptr;
+  return oauth_->authenticated();
 
 }
 
-void GeniusLyricsProvider::RequestAccessToken(const QUrl &url, const QUrl &redirect_url) {
-
-  qLog(Debug) << "GeniusLyrics: Authorization URL Received" << url;
-
-  QUrlQuery url_query(url);
-
-  if (url.hasQuery() && url_query.hasQueryItem("code") && url_query.hasQueryItem("state")) {
-
-    QString code = url_query.queryItemValue("code");
-
-    const ParamList params = ParamList() << Param("code", code)
-                                         << Param("client_id", QByteArray::fromBase64(kClientIDB64))
-                                         << Param("client_secret", QByteArray::fromBase64(kClientSecretB64))
-                                         << Param("redirect_uri", redirect_url.toString())
-                                         << Param("grant_type", "authorization_code")
-                                         << Param("response_type", "code");
-
-    QUrlQuery new_url_query;
-    for (const Param &param : params) {
-      new_url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
-    }
-
-    QUrl new_url(kOAuthAccessTokenUrl);
-    QNetworkRequest req(new_url);
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    QByteArray query = new_url_query.toString(QUrl::FullyEncoded).toUtf8();
-
-    QNetworkReply *reply = network_->post(req, query);
-    replies_ << reply;
-    QObject::connect(reply, &QNetworkReply::sslErrors, this, &GeniusLyricsProvider::HandleLoginSSLErrors);
-    QObject::connect(reply, &QNetworkReply::finished, this, [this, reply]() { AccessTokenRequestFinished(reply); });
-
-  }
-
-  else {
-    AuthError(tr("Redirect from Genius is missing query items code or state."));
-    return;
-  }
-
-}
-
-void GeniusLyricsProvider::HandleLoginSSLErrors(const QList<QSslError> &ssl_errors) {
-
-  for (const QSslError &ssl_error : ssl_errors) {
-    login_errors_ += ssl_error.errorString();
-  }
-
-}
-
-void GeniusLyricsProvider::AccessTokenRequestFinished(QNetworkReply *reply) {
-
-  if (!replies_.contains(reply)) return;
-  replies_.removeAll(reply);
-  QObject::disconnect(reply, nullptr, this, nullptr);
-  reply->deleteLater();
-
-  if (reply->error() != QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
-    if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
-      // This is a network error, there is nothing more to do.
-      AuthError(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
-      return;
-    }
-    else {
-      // See if there is Json data containing "status" and "userMessage" then use that instead.
-      QByteArray data = reply->readAll();
-      QJsonParseError json_error;
-      QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-      if (json_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
-        QJsonObject json_obj = json_doc.object();
-        if (!json_obj.isEmpty() && json_obj.contains("error") && json_obj.contains("error_description")) {
-          QString error = json_obj["error"].toString();
-          QString error_description = json_obj["error_description"].toString();
-          login_errors_ << QString("Authentication failure: %1 (%2)").arg(error, error_description);
-        }
-      }
-      if (login_errors_.isEmpty()) {
-        if (reply->error() != QNetworkReply::NoError) {
-          login_errors_ << QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-        }
-        else {
-          login_errors_ << QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
-        }
-      }
-      AuthError();
-      return;
-    }
-  }
-
-  QByteArray data = reply->readAll();
-
-  QJsonParseError json_error;
-  QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-
-  if (json_error.error != QJsonParseError::NoError) {
-    Error(QString("Failed to parse Json data in authentication reply: %1").arg(json_error.errorString()));
-    return;
-  }
-
-  if (json_doc.isEmpty()) {
-    AuthError("Authentication reply from server has empty Json document.");
-    return;
-  }
-
-  if (!json_doc.isObject()) {
-    AuthError("Authentication reply from server has Json document that is not an object.", json_doc);
-    return;
-  }
-
-  QJsonObject json_obj = json_doc.object();
-  if (json_obj.isEmpty()) {
-    AuthError("Authentication reply from server has empty Json object.", json_doc);
-    return;
-  }
-
-  if (!json_obj.contains("access_token")) {
-    AuthError("Authentication reply from server is missing access token.", json_obj);
-    return;
-  }
-
-  access_token_ = json_obj["access_token"].toString();
-
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
-  s.setValue("access_token", access_token_);
-  s.endGroup();
-
-  qLog(Debug) << "Genius: Authentication was successful.";
-
-  emit AuthenticationComplete(true);
-  emit AuthenticationSuccess();
-
-}
-
-bool GeniusLyricsProvider::StartSearch(const QString &artist, const QString &album, const QString &title, const int id) {
-
-  Q_UNUSED(album);
-
-  if (access_token_.isEmpty()) return false;
-
-  std::shared_ptr<GeniusLyricsSearchContext> search = std::make_shared<GeniusLyricsSearchContext>();
-
-  search->id = id;
-  search->artist = artist;
-  search->title = title;
-  requests_search_.insert(id, search);
-
-  const ParamList params = ParamList() << Param("q", QString(artist + " " + title));
-
-  QUrlQuery url_query;
-  for (const Param &param : params) {
-    url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
-  }
-
-  QUrl url(kUrlSearch);
-  url.setQuery(url_query);
-  QNetworkRequest req(url);
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setRawHeader("Authorization", "Bearer " + access_token_.toUtf8());
-  QNetworkReply *reply = network_->get(req);
-  replies_ << reply;
-  QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, id]() { HandleSearchReply(reply, id); });
+bool GeniusLyricsProvider::use_authorization_header() const {
 
   return true;
 
 }
 
-void GeniusLyricsProvider::CancelSearch(const int id) { Q_UNUSED(id); }
+void GeniusLyricsProvider::Authenticate() {
+
+  oauth_->Authenticate();
+
+}
+
+void GeniusLyricsProvider::ClearSession() {
+
+  oauth_->ClearSession();
+
+}
+
+QByteArray GeniusLyricsProvider::authorization_header() const {
+
+  return oauth_->authorization_header();
+
+}
+
+void GeniusLyricsProvider::OAuthFinished(const bool success, const QString &error) {
+
+  if (success) {
+    qLog(Debug) << "Genius: Authentication was successful.";
+    Q_EMIT AuthenticationComplete(true);
+    Q_EMIT AuthenticationSuccess();
+  }
+  else {
+    qLog(Debug) << "Genius: Authentication failed.";
+    Q_EMIT AuthenticationFailure(error);
+    Q_EMIT AuthenticationComplete(false, error);
+  }
+
+}
+
+void GeniusLyricsProvider::StartSearch(const int id, const LyricsSearchRequest &request) {
+
+  Q_ASSERT(QThread::currentThread() != qApp->thread());
+
+  if (!authenticated()) {
+    EndSearch(id, request);
+    return;
+  }
+
+  GeniusLyricsSearchContextPtr search = make_shared<GeniusLyricsSearchContext>();
+  search->id = id;
+  search->request = request;
+  requests_search_.insert(id, search);
+
+  QUrlQuery url_query;
+  url_query.addQueryItem(u"q"_s, QString::fromLatin1(QUrl::toPercentEncoding(QStringLiteral("%1 %2").arg(request.artist, request.title))));
+
+  QNetworkReply *reply = CreateGetRequest(QUrl(QLatin1String(kUrlSearch)), url_query);
+  QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, id]() { HandleSearchReply(reply, id); });
+
+  qLog(Debug) << name_ << "Sending request for" << url_query.query();
+
+}
+
+GeniusLyricsProvider::JsonObjectResult GeniusLyricsProvider::ParseJsonObject(QNetworkReply *reply) {
+
+  if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
+    return JsonObjectResult(ErrorCode::NetworkError, QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+  }
+
+  JsonObjectResult result(ErrorCode::Success);
+  result.network_error = reply->error();
+  if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+    result.http_status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  }
+
+  const QByteArray data = reply->readAll();
+  if (!data.isEmpty()) {
+    QJsonParseError json_parse_error;
+    const QJsonDocument json_document = QJsonDocument::fromJson(data, &json_parse_error);
+    if (json_parse_error.error == QJsonParseError::NoError) {
+      const QJsonObject json_object = json_document.object();
+      if (json_object.contains("errors"_L1) && json_object["errors"_L1].isArray()) {
+        const QJsonArray array_errors = json_object["errors"_L1].toArray();
+        for (const auto &value : array_errors) {
+          if (!value.isObject()) continue;
+          const QJsonObject object_error = value.toObject();
+          if (!object_error.contains("category"_L1) || !object_error.contains("code"_L1) || !object_error.contains("detail"_L1)) {
+            continue;
+          }
+          const QString category = object_error["category"_L1].toString();
+          const QString code = object_error["code"_L1].toString();
+          const QString detail = object_error["detail"_L1].toString();
+          result.error_code = ErrorCode::APIError;
+          result.error_message = QStringLiteral("%1 (%2) (%3)").arg(category, code, detail);
+        }
+      }
+      else {
+        result.json_object = json_document.object();
+      }
+    }
+    else {
+      result.error_code = ErrorCode::ParseError;
+      result.error_message = json_parse_error.errorString();
+    }
+  }
+
+  if (result.error_code != ErrorCode::APIError) {
+    if (reply->error() != QNetworkReply::NoError) {
+      result.error_code = ErrorCode::NetworkError;
+      result.error_message = QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
+    }
+    else if (result.http_status_code != 200) {
+      result.error_code = ErrorCode::HttpError;
+      result.error_message = QStringLiteral("Received HTTP code %1").arg(result.http_status_code);
+    }
+  }
+
+  if (reply->error() == QNetworkReply::AuthenticationRequiredError) {
+    oauth_->ClearSession();
+  }
+
+  return result;
+
+}
 
 void GeniusLyricsProvider::HandleSearchReply(QNetworkReply *reply, const int id) {
+
+  Q_ASSERT(QThread::currentThread() != qApp->thread());
 
   if (!replies_.contains(reply)) return;
   replies_.removeAll(reply);
@@ -339,91 +222,92 @@ void GeniusLyricsProvider::HandleSearchReply(QNetworkReply *reply, const int id)
   reply->deleteLater();
 
   if (!requests_search_.contains(id)) return;
-  std::shared_ptr<GeniusLyricsSearchContext> search = requests_search_.value(id);
+  GeniusLyricsSearchContextPtr search = requests_search_.value(id);
 
-  QJsonObject json_obj = ExtractJsonObj(reply);
-  if (json_obj.isEmpty()) {
-    EndSearch(search);
+  const QScopeGuard end_search = qScopeGuard([this, search]() { EndSearch(search); });
+
+  const JsonObjectResult json_object_result = ParseJsonObject(reply);
+  if (!json_object_result.success()) {
+    Error(json_object_result.error_message);
     return;
   }
 
-  if (!json_obj.contains("meta")) {
-    Error("Json reply is missing meta object.", json_obj);
-    EndSearch(search);
+  const QJsonObject &json_object = json_object_result.json_object;
+  if (json_object.isEmpty()) {
     return;
   }
-  if (!json_obj["meta"].isObject()) {
-    Error("Json reply meta is not an object.", json_obj);
-    EndSearch(search);
+
+  if (!json_object.contains("meta"_L1)) {
+    Error(u"Json reply is missing meta object."_s, json_object);
     return;
   }
-  QJsonObject obj_meta = json_obj["meta"].toObject();
-  if (!obj_meta.contains("status")) {
-    Error("Json reply meta object is missing status.", obj_meta);
-    EndSearch(search);
+  if (!json_object["meta"_L1].isObject()) {
+    Error(u"Json reply meta is not an object."_s, json_object);
     return;
   }
-  int status = obj_meta["status"].toInt();
+  const QJsonObject object_meta = json_object["meta"_L1].toObject();
+  if (!object_meta.contains("status"_L1)) {
+    Error(u"Json reply meta object is missing status."_s, object_meta);
+    return;
+  }
+  const int status = object_meta["status"_L1].toInt();
   if (status != 200) {
-    if (obj_meta.contains("message")) {
-      Error(QString("Received error %1: %2.").arg(status).arg(obj_meta["message"].toString()));
+    if (object_meta.contains("message"_L1)) {
+      Error(QStringLiteral("Received error %1: %2.").arg(status).arg(object_meta["message"_L1].toString()));
     }
     else {
-      Error(QString("Received error %1.").arg(status));
+      Error(QStringLiteral("Received error %1.").arg(status));
     }
-    EndSearch(search);
     return;
   }
 
-  if (!json_obj.contains("response")) {
-    Error("Json reply is missing response.", json_obj);
-    EndSearch(search);
+  if (!json_object.contains("response"_L1)) {
+    Error(u"Json reply is missing response."_s, json_object);
     return;
   }
-  if (!json_obj["response"].isObject()) {
-    Error("Json response is not an object.", json_obj);
-    EndSearch(search);
+  if (!json_object["response"_L1].isObject()) {
+    Error(u"Json response is not an object."_s, json_object);
     return;
   }
-  QJsonObject obj_response = json_obj["response"].toObject();
-  if (!obj_response.contains("hits")) {
-    Error("Json response is missing hits.", obj_response);
-    EndSearch(search);
+  const QJsonObject obj_response = json_object["response"_L1].toObject();
+  if (!obj_response.contains("hits"_L1)) {
+    Error(u"Json response is missing hits."_s, obj_response);
     return;
   }
-  if (!obj_response["hits"].isArray()) {
-    Error("Json hits is not an array.", obj_response);
-    EndSearch(search);
+  if (!obj_response["hits"_L1].isArray()) {
+    Error(u"Json hits is not an array."_s, obj_response);
     return;
   }
-  QJsonArray array_hits = obj_response["hits"].toArray();
+  const QJsonArray array_hits = obj_response["hits"_L1].toArray();
 
-  for (const QJsonValueRef value_hit : array_hits) {
+  for (const QJsonValue &value_hit : array_hits) {
     if (!value_hit.isObject()) {
       continue;
     }
-    QJsonObject obj_hit = value_hit.toObject();
-    if (!obj_hit.contains("result")) {
+    const QJsonObject object_hit = value_hit.toObject();
+    if (!object_hit.contains("result"_L1)) {
       continue;
     }
-    if (!obj_hit["result"].isObject()) {
+    if (!object_hit["result"_L1].isObject()) {
       continue;
     }
-    QJsonObject obj_result = obj_hit["result"].toObject();
-    if (!obj_result.contains("title") || !obj_result.contains("primary_artist") || !obj_result.contains("url") || !obj_result["primary_artist"].isObject()) {
-      Error("Missing one or more values in result object", obj_result);
+    const QJsonObject object_result = object_hit["result"_L1].toObject();
+    if (!object_result.contains("title"_L1) || !object_result.contains("primary_artist"_L1) || !object_result.contains("url"_L1) || !object_result["primary_artist"_L1].isObject()) {
+      Error(u"Missing one or more values in result object"_s, object_result);
       continue;
     }
-    QJsonObject primary_artist = obj_result["primary_artist"].toObject();
-    if (!primary_artist.contains("name")) continue;
+    const QJsonObject primary_artist = object_result["primary_artist"_L1].toObject();
+    if (!primary_artist.contains("name"_L1)) continue;
 
-    QString artist = primary_artist["name"].toString();
-    QString title = obj_result["title"].toString();
+    const QString artist = primary_artist["name"_L1].toString();
+    const QString title = object_result["title"_L1].toString();
 
-    // Ignore results where both the artist and title don't match.
-    if (artist.compare(search->artist, Qt::CaseInsensitive) != 0 && title.compare(search->title, Qt::CaseInsensitive) != 0) continue;
+    // Ignore results where the artist or title don't begin or end the same
+    if (!StartsOrEndsMatch(artist, search->request.artist) || !StartsOrEndsMatch(title, search->request.title)) {
+      continue;
+    }
 
-    QUrl url(obj_result["url"].toString());
+    const QUrl url(object_result["url"_L1].toString());
     if (!url.isValid()) continue;
     if (search->requests_lyric_.contains(url)) continue;
 
@@ -434,19 +318,22 @@ void GeniusLyricsProvider::HandleSearchReply(QNetworkReply *reply, const int id)
 
     search->requests_lyric_.insert(url, lyric);
 
-    QNetworkRequest req(url);
-    req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-    QNetworkReply *new_reply = network_->get(req);
-    replies_ << new_reply;
+    QNetworkReply *new_reply = CreateGetRequest(url);
     QObject::connect(new_reply, &QNetworkReply::finished, this, [this, new_reply, search, url]() { HandleLyricReply(new_reply, search->id, url); });
 
-  }
+    qLog(Debug) << name_ << "Sending request for" << url;
 
-  EndSearch(search);
+    // If full match, don't bother iterating further
+    if (artist == search->request.albumartist && artist == search->request.artist && title == search->request.title) {
+      break;
+    }
+  }
 
 }
 
 void GeniusLyricsProvider::HandleLyricReply(QNetworkReply *reply, const int search_id, const QUrl &url) {
+
+  Q_ASSERT(QThread::currentThread() != qApp->thread());
 
   if (!replies_.contains(reply)) return;
   replies_.removeAll(reply);
@@ -454,7 +341,7 @@ void GeniusLyricsProvider::HandleLyricReply(QNetworkReply *reply, const int sear
   reply->deleteLater();
 
   if (!requests_search_.contains(search_id)) return;
-  std::shared_ptr<GeniusLyricsSearchContext> search = requests_search_.value(search_id);
+  GeniusLyricsSearchContextPtr search = requests_search_.value(search_id);
 
   if (!search->requests_lyric_.contains(url)) {
     EndSearch(search);
@@ -463,34 +350,39 @@ void GeniusLyricsProvider::HandleLyricReply(QNetworkReply *reply, const int sear
   const GeniusLyricsLyricContext lyric = search->requests_lyric_.value(url);
 
   if (reply->error() != QNetworkReply::NoError) {
-    Error(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+    Error(QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
     EndSearch(search, lyric);
     return;
   }
-  else if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
-    Error(QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()));
+  if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
+    Error(QStringLiteral("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()));
     EndSearch(search, lyric);
     return;
   }
 
-  QByteArray data = reply->readAll();
+  const QByteArray data = reply->readAll();
   if (data.isEmpty()) {
-    Error("Empty reply received from server.");
+    Error(u"Empty reply received from server."_s);
     EndSearch(search, lyric);
     return;
   }
 
-  QString content = QString::fromUtf8(data);
-  QString lyrics = ParseLyricsFromHTML(content, QRegularExpression("<div[^>]*>"), QRegularExpression("<\\/div>"), QRegularExpression("<div data-lyrics-container=[^>]+>"), true);
-  if (lyrics.isEmpty()) {
-    lyrics = ParseLyricsFromHTML(content, QRegularExpression("<div[^>]*>"), QRegularExpression("<\\/div>"), QRegularExpression("<div class=\"lyrics\">"), true);
-  }
+  static const QRegularExpression start_tag(u"<div[^>]*>"_s);
+  static const QRegularExpression end_tag(u"<\\/div>"_s);
+  static const QRegularExpression lyrics_start(u"<div data-lyrics-container=[^>]+>"_s);
 
+  static const QRegularExpression regex_html_tag_span_trans(u"<span class=\"LyricsHeader__Translations[^>]*>[^<]*</span>"_s);
+  static const QRegularExpression regex_html_tag_div_ellipsis(u"<div class=\"LyricsHeader__TextEllipsis[^>]*>[^<]*</div>"_s);
+  static const QRegularExpression regex_html_tag_span_contribs(u"<span class=\"ContributorsCreditSong__Contributors[^>]*>[^<]*</span>"_s);
+  static const QRegularExpression regex_html_tag_div_bio(u"<div class=\"SongBioPreview__Container[^>]*>.*?</div>"_s);
+  static const QRegularExpression regex_html_tag_h2(u"<h2 [^>]*>[^<]*</h2>"_s);
+  static const QList<QRegularExpression> regex_removes{ regex_html_tag_span_trans, regex_html_tag_div_ellipsis, regex_html_tag_span_contribs, regex_html_tag_div_bio, regex_html_tag_h2 };
+
+  const QString lyrics = HtmlLyricsProvider::ParseLyricsFromHTML(QString::fromUtf8(data), start_tag, end_tag, lyrics_start, true, regex_removes);
   if (!lyrics.isEmpty()) {
-    LyricsSearchResult result;
+    LyricsSearchResult result(lyrics);
     result.artist = lyric.artist;
     result.title = lyric.title;
-    result.lyrics = lyrics;
     search->results.append(result);
   }
 
@@ -498,41 +390,41 @@ void GeniusLyricsProvider::HandleLyricReply(QNetworkReply *reply, const int sear
 
 }
 
-void GeniusLyricsProvider::AuthError(const QString &error, const QVariant &debug) {
-
-  if (!error.isEmpty()) login_errors_ << error;
-
-  for (const QString &e : login_errors_) Error(e);
-  if (debug.isValid()) qLog(Debug) << debug;
-
-  emit AuthenticationFailure(login_errors_);
-  emit AuthenticationComplete(false, login_errors_);
-
-  login_errors_.clear();
-
-}
-
-void GeniusLyricsProvider::Error(const QString &error, const QVariant &debug) {
-
-  qLog(Error) << "GeniusLyrics:" << error;
-  if (debug.isValid()) qLog(Debug) << debug;
-
-}
-
-void GeniusLyricsProvider::EndSearch(std::shared_ptr<GeniusLyricsSearchContext> search, const GeniusLyricsLyricContext &lyric) {
+void GeniusLyricsProvider::EndSearch(GeniusLyricsSearchContextPtr search, const GeniusLyricsLyricContext &lyric) {
 
   if (search->requests_lyric_.contains(lyric.url)) {
     search->requests_lyric_.remove(lyric.url);
   }
   if (search->requests_lyric_.count() == 0) {
     requests_search_.remove(search->id);
-    if (search->results.isEmpty()) {
-      qLog(Debug) << "GeniusLyrics: No lyrics for" << search->artist << search->title;
-    }
-    else {
-      qLog(Debug) << "GeniusLyrics: Got lyrics for" << search->artist << search->title;
-    }
-    emit SearchFinished(search->id, search->results);
+    EndSearch(search->id, search->request, search->results);
   }
+
+}
+
+void GeniusLyricsProvider::EndSearch(const int id, const LyricsSearchRequest &request, const LyricsSearchResults &results) {
+
+  if (results.isEmpty()) {
+    qLog(Debug) << "GeniusLyrics: No lyrics for" << request.artist << request.title;
+  }
+  else {
+    qLog(Debug) << "GeniusLyrics: Got lyrics for" << request.artist << request.title;
+  }
+
+  Q_EMIT SearchFinished(id, results);
+
+}
+
+bool GeniusLyricsProvider::StartsOrEndsMatch(QString s, QString t) {
+
+  constexpr Qt::CaseSensitivity cs = Qt::CaseInsensitive;
+
+  static const QRegularExpression puncts_regex(u"[!,.:;]"_s);
+  static const QRegularExpression quotes_regex(u"[’‘´`]"_s);
+
+  s.remove(puncts_regex).replace(quotes_regex, u"'"_s);
+  t.remove(puncts_regex).replace(quotes_regex, u"'"_s);
+
+  return (s.compare(t, cs) == 0 && !s.isEmpty()) || (!s.isEmpty() && !t.isEmpty() && (s.startsWith(t, cs) || t.startsWith(s, cs) || s.endsWith(t, cs) || t.endsWith(s, cs)));
 
 }

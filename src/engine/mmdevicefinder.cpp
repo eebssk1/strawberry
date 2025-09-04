@@ -29,28 +29,30 @@
 #endif
 #include <mmdeviceapi.h>
 
-#include <QList>
 #include <QVariant>
 #include <QString>
 
 #include "mmdevicefinder.h"
+#include "enginedevice.h"
 #include "core/logging.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 #ifdef _MSC_VER
   DEFINE_GUID(IID_IMMDeviceEnumerator, 0xa95664d2, 0x9614, 0x4f35, 0xa7, 0x46, 0xde, 0x8d, 0xb6, 0x36, 0x17, 0xe6);
   DEFINE_GUID(CLSID_MMDeviceEnumerator, 0xbcde0395, 0xe52f, 0x467c, 0x8e, 0x3d, 0xc4, 0x57, 0x92, 0x91, 0x69, 0x2e);
 #endif
 
-MMDeviceFinder::MMDeviceFinder() : DeviceFinder("mmdevice", { "wasapisink" }) {}
+MMDeviceFinder::MMDeviceFinder() : DeviceFinder(u"mmdevice"_s, { u"wasapisink"_s }) {}
 
-QList<DeviceFinder::Device> MMDeviceFinder::ListDevices() {
+EngineDeviceList MMDeviceFinder::ListDevices() {
 
   HRESULT hr_coinit = CoInitializeEx(NULL, COINIT_MULTITHREADED);
 
-  QList<Device> devices;
-  Device default_device;
-  default_device.description = "Default device";
-  default_device.iconname = GuessIconName(default_device.description);
+  EngineDeviceList devices;
+  EngineDevice default_device;
+  default_device.description = QLatin1String("Default device");
+  default_device.iconname = default_device.GuessIconName();
   devices.append(default_device);
 
   IMMDeviceEnumerator *enumerator = nullptr;
@@ -76,9 +78,9 @@ QList<DeviceFinder::Device> MMDeviceFinder::ListDevices() {
                 PropVariantInit(&var_name);
                 hr = props->GetValue(PKEY_Device_FriendlyName, &var_name);
                 if (hr == S_OK) {
-                  Device device;
+                  EngineDevice device;
                   device.description = QString::fromWCharArray(var_name.pwszVal);
-                  device.iconname = GuessIconName(device.description);
+                  device.iconname = device.GuessIconName();
                   device.value = QString::fromStdWString(pwszid);
                   devices.append(device);
                   PropVariantClear(&var_name);

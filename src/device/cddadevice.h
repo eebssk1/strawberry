@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,45 +24,70 @@
 
 #include "config.h"
 
+#include <cstddef>
+
+#include <cdio/types.h>
+#include <cdio/cdio.h>
+
 #include <QObject>
 #include <QString>
 #include <QStringList>
 #include <QUrl>
 
-// These must come after Qt includes
-#include <cdio/cdio.h>
-#include <gst/audio/gstaudiocdsrc.h>
-
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "core/musicstorage.h"
 #include "cddasongloader.h"
 #include "connecteddevice.h"
 
-class Application;
+class QTimer;
+
 class DeviceLister;
 class DeviceManager;
+class TaskManager;
+class Database;
+class TagReaderClient;
+class AlbumCoverLoader;
 
-class CddaDevice : public ConnectedDevice {
+class CDDADevice : public ConnectedDevice {
   Q_OBJECT
 
  public:
-  Q_INVOKABLE explicit CddaDevice(const QUrl &url, DeviceLister *lister, const QString &unique_id, DeviceManager *manager, Application *app, const int database_id, const bool first_time, QObject *parent = nullptr);
+  Q_INVOKABLE explicit CDDADevice(const QUrl &url,
+                                  DeviceLister *lister,
+                                  const QString &unique_id,
+                                  DeviceManager *device_manager,
+                                  const SharedPtr<TaskManager> task_manager,
+                                  const SharedPtr<Database> database,
+                                  const SharedPtr<TagReaderClient> tagreader_client,
+                                  const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                                  const int database_id,
+                                  const bool first_time,
+                                  QObject *parent = nullptr);
+
+  ~CDDADevice();
 
   bool Init() override;
-  void Refresh() override;
-  bool CopyToStorage(const MusicStorage::CopyJob&) override { return false; }
+  bool CopyToStorage(const CopyJob&, QString&) override { return false; }
   bool DeleteFromStorage(const MusicStorage::DeleteJob&) override { return false; }
 
-  static QStringList url_schemes() { return QStringList() << "cdda"; }
+  static QStringList url_schemes() { return QStringList() << QStringLiteral("cdda"); }
 
- signals:
-  void SongsDiscovered(SongList songs);
+  void LoadSongs();
+  void WatchForDiscChanges(const bool watch);
 
- private slots:
-  void SongsLoaded(const SongList &songs);
+ Q_SIGNALS:
+  void SongsDiscovered(const SongList &songs);
+
+ private Q_SLOTS:
+  void CheckDiscChanged();
+  void SongsLoaded(const SongList &songs = SongList());
+  void SongLoadingFinished();
 
  private:
-  CddaSongLoader cdda_song_loader_;
+  CDDASongLoader cdda_song_loader_;
+  CdIo_t *cdio_;
+  QTimer *timer_disc_changed_;
 };
 
 #endif  // CDDADEVICE_H

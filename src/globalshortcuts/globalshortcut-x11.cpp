@@ -21,7 +21,7 @@
 
 #include <QApplication>
 #include <QGuiApplication>
-#include <QVector>
+#include <QList>
 #include <QByteArray>
 #include <QKeySequence>
 #include <QFlags>
@@ -35,21 +35,11 @@
 #include <xcb/xcb.h>
 #include <xcb/xproto.h>
 
-#if QT_VERSION < QT_VERSION_CHECK(6, 2, 0)
-#  if defined(HAVE_X11EXTRAS)
-#    include <QX11Info>
-#  elif defined(HAVE_QPA_QPLATFORMNATIVEINTERFACE_H)
-#    include <qpa/qplatformnativeinterface.h>
-#  endif
-#endif
-
-const QVector<quint32> GlobalShortcut::mask_modifiers_ = QVector<quint32>() << 0 << Mod2Mask << LockMask << (Mod2Mask | LockMask);
+const QList<quint32> GlobalShortcut::mask_modifiers_ = QList<quint32>() << 0 << Mod2Mask << LockMask << (Mod2Mask | LockMask);
 
 namespace {
 
 Display *X11Display() {
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)  // 6.2: Use the new native interface.
 
   if (!qApp) return nullptr;
 
@@ -58,30 +48,9 @@ Display *X11Display() {
   }
   return nullptr;
 
-#elif defined(HAVE_X11EXTRAS)  // Qt 5: Use X11Extras
-
-  return QX11Info::display();
-
-#elif defined(HAVE_QPA_QPLATFORMNATIVEINTERFACE_H)  // Use private headers.
-
-  if (!qApp) return nullptr;
-
-  QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
-  if (!native) return nullptr;
-
-  return reinterpret_cast<Display*>(native->nativeResourceForIntegration("display"));
-
-#else
-
-#  error "Missing Qt >= 6.2, X11Extras or qpa/qplatformnativeinterface.h header."
-
-#endif
-
 }
 
 quint32 AppRootWindow() {
-
-#if QT_VERSION >= QT_VERSION_CHECK(6, 2, 0)  // 6.2: Use the new native interface.
 
   if (QNativeInterface::QX11Application *x11_app = qApp->nativeInterface<QNativeInterface::QX11Application>()) {
     if (x11_app->display()) {
@@ -89,28 +58,6 @@ quint32 AppRootWindow() {
     }
   }
   return 0;
-
-#elif defined(HAVE_X11EXTRAS)  // Qt 5: Use X11Extras
-
-  return QX11Info::appRootWindow();
-
-#elif defined(HAVE_QPA_QPLATFORMNATIVEINTERFACE_H)  // Use private headers.
-
-  if (!qApp) return 0;
-
-  QPlatformNativeInterface *native = QGuiApplication::platformNativeInterface();
-  if (!native) return 0;
-
-  QScreen *screen = QGuiApplication::primaryScreen();
-  if (!screen) return 0;
-
-  return static_cast<xcb_window_t>(reinterpret_cast<quintptr>(native->nativeResourceForScreen("rootwindow", screen)));
-
-#else
-
-#  error "Missing Qt >= 6.2, X11Extras or qpa/qplatformnativeinterface.h header."
-
-#endif
 
 }
 
@@ -144,7 +91,10 @@ int GlobalShortcut::nativeKeycode(const Qt::Key qt_keycode) {
 
 }
 
-int GlobalShortcut::nativeKeycode2(const Qt::Key) { return 0; }
+int GlobalShortcut::nativeKeycode2(const Qt::Key qt_keycode) {
+  Q_UNUSED(qt_keycode)
+  return 0;
+}
 
 bool GlobalShortcut::registerShortcut(const int native_key, const int native_mods) {
 
@@ -170,11 +120,7 @@ bool GlobalShortcut::unregisterShortcut(const int native_key, const int native_m
 
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 bool GlobalShortcut::nativeEventFilter(const QByteArray &eventtype, void *message, qintptr *result) {
-#else
-bool GlobalShortcut::nativeEventFilter(const QByteArray &eventtype, void *message, long *result) {
-#endif
 
   Q_UNUSED(eventtype);
   Q_UNUSED(result);

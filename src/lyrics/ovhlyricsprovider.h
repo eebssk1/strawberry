@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,13 +22,9 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QList>
-#include <QVariant>
-#include <QString>
-
+#include "includes/shared_ptr.h"
 #include "jsonlyricsprovider.h"
+#include "lyricssearchrequest.h"
 
 class QNetworkReply;
 class NetworkAccessManager;
@@ -37,22 +33,16 @@ class OVHLyricsProvider : public JsonLyricsProvider {
   Q_OBJECT
 
  public:
-  explicit OVHLyricsProvider(NetworkAccessManager *network, QObject *parent = nullptr);
-  ~OVHLyricsProvider() override;
+  explicit OVHLyricsProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
-  bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
-  void CancelSearch(const int id) override;
+ protected Q_SLOTS:
+  void StartSearch(const int id, const LyricsSearchRequest &request) override;
 
- private:
-  void Error(const QString &error, const QVariant &debug = QVariant()) override;
+private:
+  OVHLyricsProvider::JsonObjectResult ParseJsonObject(QNetworkReply *reply);
 
- private slots:
-  void HandleSearchReply(QNetworkReply *reply, const int id, const QString &artist, const QString &title);
-
- private:
-  static const char *kUrlSearch;
-  QList<QNetworkReply*> replies_;
-
+ private Q_SLOTS:
+  void HandleSearchReply(QNetworkReply *reply, const int id, const LyricsSearchRequest &request);
 };
 
 #endif  // OVHLYRICSPROVIDER_H

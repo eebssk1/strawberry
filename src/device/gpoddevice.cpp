@@ -36,13 +36,16 @@
 #include <QString>
 #include <QUrl>
 #include <QImage>
-#include <QTemporaryFile>
-#include <QStandardPaths>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/application.h"
+#include "core/standardpaths.h"
+#include "core/temporaryfile.h"
+#include "core/taskmanager.h"
+#include "core/database.h"
 #include "collection/collectionbackend.h"
 #include "collection/collectionmodel.h"
+#include "covermanager/albumcoverloader.h"
 #include "connecteddevice.h"
 #include "gpoddevice.h"
 #include "gpodloader.h"
@@ -50,8 +53,22 @@
 class DeviceLister;
 class DeviceManager;
 
-GPodDevice::GPodDevice(const QUrl &url, DeviceLister *lister, const QString &unique_id, DeviceManager *manager, Application *app, const int database_id, const bool first_time, QObject *parent)
-    : ConnectedDevice(url, lister, unique_id, manager, app, database_id, first_time, parent),
+using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
+
+GPodDevice::GPodDevice(const QUrl &url,
+                       DeviceLister *lister,
+                       const QString &unique_id,
+                       DeviceManager *device_manager,
+                       const SharedPtr<TaskManager> task_manager,
+                       const SharedPtr<Database> database,
+                       const SharedPtr<TagReaderClient> tagreader_client,
+                       const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                       const int database_id,
+                       const bool first_time,
+                       QObject *parent)
+    : ConnectedDevice(url, lister, unique_id, device_manager, task_manager, database, tagreader_client, albumcover_loader, database_id, first_time, parent),
+      task_manager_(task_manager),
       loader_(nullptr),
       loader_thread_(nullptr),
       db_(nullptr),
@@ -60,9 +77,9 @@ GPodDevice::GPodDevice(const QUrl &url, DeviceLister *lister, const QString &uni
 bool GPodDevice::Init() {
 
   InitBackendDirectory(url_.path(), first_time_);
-  model_->Init();
+  collection_model_->Init();
 
-  loader_ = new GPodLoader(url_.path(), app_->task_manager(), backend_, shared_from_this());
+  loader_ = new GPodLoader(url_.path(), task_manager_, collection_backend_, shared_from_this());
   loader_thread_ = new QThread();
   loader_->moveToThread(loader_thread_);
 
@@ -126,12 +143,14 @@ void GPodDevice::LoadFinished(Itdb_iTunesDB *db, const bool success) {
     ConnectedDevice::Close();
   }
   else {
-    emit DeviceConnectFinished(unique_id_, success);
+    Q_EMIT DeviceConnectFinished(unique_id_, success);
   }
 
 }
 
-void GPodDevice::LoaderError(const QString &message) { app_->AddError(message); }
+void GPodDevice::LoaderError(const QString &message) {
+  Q_EMIT Error(message);
+}
 
 void GPodDevice::Start() {
 
@@ -182,7 +201,7 @@ void GPodDevice::AddTrackToModel(Itdb_Track *track, const QString &prefix) {
 
 }
 
-bool GPodDevice::CopyToStorage(const CopyJob &job) {
+bool GPodDevice::CopyToStorage(const CopyJob &job, QString &error_text) {
 
   Q_ASSERT(db_);
 
@@ -192,18 +211,16 @@ bool GPodDevice::CopyToStorage(const CopyJob &job) {
     bool result = false;
     if (!job.cover_image_.isNull()) {
 #ifdef Q_OS_LINUX
-      QString temp_path = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/organize";
+      QString temp_path = StandardPaths::WritableLocation(StandardPaths::StandardLocation::CacheLocation) + u"/organize"_s;
 #else
-      QString temp_path = QStandardPaths::writableLocation(QStandardPaths::TempLocation);
+      QString temp_path = StandardPaths::WritableLocation(StandardPaths::StandardLocation::TempLocation);
 #endif
       if (!QDir(temp_path).exists()) QDir().mkpath(temp_path);
-      std::shared_ptr<QTemporaryFile> cover_file = std::make_shared<QTemporaryFile>(temp_path + "/track-albumcover-XXXXXX.jpg");
-      cover_file->setAutoRemove(true);
-      if (cover_file->open()) {
-        cover_file->close();
+      SharedPtr<TemporaryFile> cover_file = make_shared<TemporaryFile>(temp_path + u"/track-albumcover-XXXXXX.jpg"_s);
+      if (!cover_file->filename().isEmpty()) {
         const QImage &image = job.cover_image_;
-        if (image.save(cover_file->fileName(), "JPG")) {
-          const QByteArray filename = QFile::encodeName(cover_file->fileName());
+        if (image.save(cover_file->filename(), "JPG")) {
+          const QByteArray filename = QFile::encodeName(cover_file->filename());
           result = itdb_track_set_thumbnails(track, filename.constData());
           if (result) {
             cover_files_ << cover_file;
@@ -211,11 +228,11 @@ bool GPodDevice::CopyToStorage(const CopyJob &job) {
           }
         }
         else {
-          qLog(Error) << "Failed to save" << cover_file->fileName() << cover_file->errorString();
+          qLog(Error) << "Failed to save" << cover_file->filename();
         }
       }
       else {
-        qLog(Error) << "Failed to open" << cover_file->fileName() << cover_file->errorString();
+        qLog(Error) << "Failed to obtain temporary file";
       }
     }
     else if (!job.cover_source_.isEmpty()) {
@@ -235,9 +252,10 @@ bool GPodDevice::CopyToStorage(const CopyJob &job) {
   GError *error = nullptr;
   itdb_cp_track_to_ipod(track, QDir::toNativeSeparators(job.source_).toLocal8Bit().constData(), &error);
   if (error) {
-    qLog(Error) << "Copying failed:" << error->message;
-    app_->AddError(QString::fromUtf8(error->message));
+    error_text = tr("Could not copy %1 to %2: %3").arg(job.metadata_.url().toLocalFile(), url_.path(), QString::fromUtf8(error->message));
     g_error_free(error);
+    qLog(Error) << error_text;
+    Q_EMIT Error(error_text);
 
     // Need to remove the track from the db again
     itdb_track_remove(track);
@@ -269,19 +287,24 @@ bool GPodDevice::CopyToStorage(const CopyJob &job) {
 
 }
 
-bool GPodDevice::WriteDatabase() {
+bool GPodDevice::WriteDatabase(QString &error_text) {
 
   // Write the itunes database
   GError *error = nullptr;
-  itdb_write(db_, &error);
+  const bool success = itdb_write(db_, &error);
   cover_files_.clear();
-  if (error) {
-    qLog(Error) << "Writing database failed:" << error->message;
-    app_->AddError(QString::fromUtf8(error->message));
-    g_error_free(error);
-    return false;
+  if (!success) {
+    if (error) {
+      error_text = tr("Writing database failed: %1").arg(QString::fromUtf8(error->message));
+      g_error_free(error);
+    }
+    else {
+      error_text = tr("Writing database failed.");
+    }
+    Q_EMIT Error(error_text);
   }
-  else return true;
+
+  return success;
 
 }
 
@@ -289,12 +312,12 @@ void GPodDevice::Finish(const bool success) {
 
   // Update the collection model
   if (success) {
-    if (!songs_to_add_.isEmpty()) backend_->AddOrUpdateSongs(songs_to_add_);
-    if (!songs_to_remove_.isEmpty()) backend_->DeleteSongs(songs_to_remove_);
+    if (!songs_to_add_.isEmpty()) collection_backend_->AddOrUpdateSongs(songs_to_add_);
+    if (!songs_to_remove_.isEmpty()) collection_backend_->DeleteSongs(songs_to_remove_);
   }
 
   // This is done in the organize thread so close the unique DB connection.
-  backend_->Close();
+  collection_backend_->Close();
 
   songs_to_add_.clear();
   songs_to_remove_.clear();
@@ -304,11 +327,11 @@ void GPodDevice::Finish(const bool success) {
 
 }
 
-void GPodDevice::FinishCopy(bool success) {
+bool GPodDevice::FinishCopy(bool success, QString &error_text) {
 
-  if (success) success = WriteDatabase();
+  if (success) success = WriteDatabase(error_text);
   Finish(success);
-  ConnectedDevice::FinishCopy(success);
+  return ConnectedDevice::FinishCopy(success, error_text);
 
 }
 
@@ -318,17 +341,17 @@ bool GPodDevice::RemoveTrackFromITunesDb(const QString &path, const QString &rel
 
   QString ipod_filename = path;
   if (!relative_to.isEmpty() && path.startsWith(relative_to)) {
-    ipod_filename.remove(0, relative_to.length() + (relative_to.endsWith('/') ? -1 : 0));
+    ipod_filename.remove(0, relative_to.length() + (relative_to.endsWith(u'/') ? -1 : 0));
   }
 
-  ipod_filename.replace('/', ':');
+  ipod_filename.replace(u'/', u':');
 
   // Find the track in the itdb, identify it by its filename
   Itdb_Track *track = nullptr;
   for (GList *tracks = db_->tracks; tracks != nullptr; tracks = tracks->next) {
     Itdb_Track *t = static_cast<Itdb_Track*>(tracks->data);
 
-    if (t->ipod_path == ipod_filename) {
+    if (QString::fromUtf8(t->ipod_path) == ipod_filename) {
       track = t;
       break;
     }
@@ -375,16 +398,17 @@ bool GPodDevice::DeleteFromStorage(const DeleteJob &job) {
 
 }
 
-void GPodDevice::FinishDelete(bool success) {
+bool GPodDevice::FinishDelete(bool success, QString &error_text) {
 
-  if (success) success = WriteDatabase();
+  if (success) success = WriteDatabase(error_text);
   Finish(success);
-  ConnectedDevice::FinishDelete(success);
+  return ConnectedDevice::FinishDelete(success, error_text);
 
 }
 
 bool GPodDevice::GetSupportedFiletypes(QList<Song::FileType> *ret) {
-  *ret << Song::FileType_MP4;
-  *ret << Song::FileType_MPEG;
+  *ret << Song::FileType::MP4;
+  *ret << Song::FileType::MPEG;
+  *ret << Song::FileType::ALAC;
   return true;
 }

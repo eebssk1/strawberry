@@ -32,15 +32,12 @@
 #include "sliderslider.h"
 
 class QTimer;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 class QEnterEvent;
-#else
-class QEvent;
-#endif
 class QPaintEvent;
 class QMouseEvent;
 class QWheelEvent;
 class QContextMenuEvent;
+class QEvent;
 
 class VolumeSlider : public SliderSlider {
   Q_OBJECT
@@ -48,27 +45,27 @@ class VolumeSlider : public SliderSlider {
  public:
   explicit VolumeSlider(QWidget *parent, uint max = 0);
   void SetEnabled(const bool enabled);
+  void HandleWheel(const int delta);
 
  protected:
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-  void enterEvent(QEnterEvent*) override;
-#else
-  void enterEvent(QEvent*) override;
-#endif
-  void leaveEvent(QEvent*) override;
-  void paintEvent(QPaintEvent*) override;
-  virtual void paletteChange(const QPalette&);
-  void slideEvent(QMouseEvent*) override;
-  void contextMenuEvent(QContextMenuEvent*) override;
+  void enterEvent(QEnterEvent *e) override;
+  void leaveEvent(QEvent *e) override;
+  void paintEvent(QPaintEvent *e) override;
+  virtual void paletteChange(const QPalette &palette);
+  void slideEvent(QMouseEvent *e) override;
+  void contextMenuEvent(QContextMenuEvent *e) override;
   void mousePressEvent(QMouseEvent*) override;
   void wheelEvent(QWheelEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   virtual void slotAnimTimer();
 
  private:
   static const int ANIM_INTERVAL = 18;
   static const int ANIM_MAX = 18;
+
+  // Units are eighths of a degree
+  static const int WHEEL_ROTATION_PER_STEP = 30;
 
   VolumeSlider(const VolumeSlider&);
   VolumeSlider &operator=(const VolumeSlider&);
@@ -76,6 +73,8 @@ class VolumeSlider : public SliderSlider {
   void generateGradient();
   QPixmap drawVolumePixmap() const;
   void drawVolumeSliderHandle();
+
+  int wheel_accumulator_;
 
   bool anim_enter_;
   int anim_count_;

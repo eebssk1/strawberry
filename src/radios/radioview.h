@@ -42,10 +42,10 @@ class RadioView : public AutoExpandingTreeView {
   void showEvent(QShowEvent *e) override;
   void contextMenuEvent(QContextMenuEvent *e) override;
 
- signals:
+ Q_SIGNALS:
   void GetChannels();
 
- private slots:
+ private Q_SLOTS:
   void AddToPlaylist();
   void ReplacePlaylist();
   void OpenInNewPlaylist();

@@ -22,16 +22,15 @@
 
 #include "config.h"
 
-#include <QList>
-
 #include "devicefinder.h"
+#include "enginedevice.h"
 
 class AlsaDeviceFinder : public DeviceFinder {
  public:
   explicit AlsaDeviceFinder();
 
   bool Initialize() override { return true; }
-  QList<Device> ListDevices() override;
+  EngineDeviceList ListDevices() override;
 
  private:
   Q_DISABLE_COPY(AlsaDeviceFinder)

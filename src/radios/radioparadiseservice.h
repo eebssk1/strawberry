@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2021-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,22 +24,32 @@
 #include <QUrl>
 
 #include "radioservice.h"
+#include "radiochannel.h"
 
-class Application;
+class TaskManager;
 class NetworkAccessManager;
+class QNetworkReply;
 
 class RadioParadiseService : public RadioService {
   Q_OBJECT
 
  public:
-  explicit RadioParadiseService(Application *app, NetworkAccessManager *network, QObject *parent = nullptr);
+  explicit RadioParadiseService(const SharedPtr<TaskManager> task_manager, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
   QUrl Homepage() override;
   QUrl Donate() override;
 
- public slots:
+  void Abort();
+
+ public Q_SLOTS:
   void GetChannels() override;
 
+ private Q_SLOTS:
+  void GetChannelsReply(QNetworkReply *reply, const int task_id);
+
+ private:
+  QList<QNetworkReply*> replies_;
+  RadioChannelList channels_;
 };
 
 #endif  // RADIOPARADISESERVICE_H

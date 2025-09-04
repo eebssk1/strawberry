@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -30,93 +30,98 @@
 #include "core/sqlquery.h"
 #include "core/song.h"
 
-#include "collection/collection.h"
-#include "collection/collectionplaylistitem.h"
 #include "playlistitem.h"
 #include "songplaylistitem.h"
+#include "collection/collectionplaylistitem.h"
+#include "streaming/streamserviceplaylistitem.h"
+#include "radios/radiostreamplaylistitem.h"
 
-#include "internet/internetplaylistitem.h"
-#include "radios/radioplaylistitem.h"
+using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
+
+PlaylistItem::PlaylistItem(const Song::Source source) : should_skip_(false), source_(source) {}
+
+PlaylistItem::~PlaylistItem() = default;
 
 PlaylistItemPtr PlaylistItem::NewFromSource(const Song::Source source) {
 
   switch (source) {
-    case Song::Source_Collection:
-      return std::make_shared<CollectionPlaylistItem>();
-    case Song::Source_Subsonic:
-    case Song::Source_Tidal:
-    case Song::Source_Qobuz:
-      return std::make_shared<InternetPlaylistItem>(source);
-    case Song::Source_Stream:
-    case Song::Source_RadioParadise:
-    case Song::Source_SomaFM:
-      return std::make_shared<RadioPlaylistItem>(source);
-    case Song::Source_LocalFile:
-    case Song::Source_CDDA:
-    case Song::Source_Device:
-    case Song::Source_Unknown:
+    case Song::Source::Collection:
+      return make_shared<CollectionPlaylistItem>(source);
+    case Song::Source::Subsonic:
+    case Song::Source::Tidal:
+    case Song::Source::Spotify:
+    case Song::Source::Qobuz:
+      return make_shared<StreamServicePlaylistItem>(source);
+    case Song::Source::Stream:
+    case Song::Source::RadioParadise:
+    case Song::Source::SomaFM:
+      return make_shared<RadioStreamPlaylistItem>(source);
+    case Song::Source::LocalFile:
+    case Song::Source::CDDA:
+    case Song::Source::Device:
+    case Song::Source::Unknown:
       break;
   }
 
-  return std::make_shared<SongPlaylistItem>(source);
+  return make_shared<SongPlaylistItem>(source);
 
 }
 
 PlaylistItemPtr PlaylistItem::NewFromSong(const Song &song) {
 
   switch (song.source()) {
-    case Song::Source_Collection:
-      return std::make_shared<CollectionPlaylistItem>(song);
-    case Song::Source_Subsonic:
-    case Song::Source_Tidal:
-    case Song::Source_Qobuz:
-      return std::make_shared<InternetPlaylistItem>(song);
-    case Song::Source_Stream:
-    case Song::Source_RadioParadise:
-    case Song::Source_SomaFM:
-      return std::make_shared<RadioPlaylistItem>(song);
-    case Song::Source_LocalFile:
-    case Song::Source_CDDA:
-    case Song::Source_Device:
-    case Song::Source_Unknown:
+    case Song::Source::Collection:
+      return make_shared<CollectionPlaylistItem>(song);
+    case Song::Source::Subsonic:
+    case Song::Source::Tidal:
+    case Song::Source::Spotify:
+    case Song::Source::Qobuz:
+      return make_shared<StreamServicePlaylistItem>(song);
+    case Song::Source::Stream:
+    case Song::Source::RadioParadise:
+    case Song::Source::SomaFM:
+      return make_shared<RadioStreamPlaylistItem>(song);
+    case Song::Source::LocalFile:
+    case Song::Source::CDDA:
+    case Song::Source::Device:
+    case Song::Source::Unknown:
       break;
   }
 
-  return std::make_shared<SongPlaylistItem>(song);
+  return make_shared<SongPlaylistItem>(song);
 
 }
 
-PlaylistItem::~PlaylistItem() = default;
+void PlaylistItem::SetStreamMetadata(const Song &song) {
+  stream_song_ = song;
+}
+
+void PlaylistItem::UpdateStreamMetadata(const Song &song) {
+
+  if (!stream_song_.is_valid()) return;
+
+  const Song old_stream_song = stream_song_;
+  stream_song_ = song;
+
+  // Keep samplerate, bitdepth and bitrate from the old metadata if it's not present in the new.
+  if (stream_song_.samplerate() <= 0 && old_stream_song.samplerate() > 0) stream_song_.set_samplerate(old_stream_song.samplerate());
+  if (stream_song_.bitdepth() <= 0 && old_stream_song.bitdepth() > 0) stream_song_.set_bitdepth(old_stream_song.bitdepth());
+  if (stream_song_.bitrate() <= 0 && old_stream_song.bitrate() > 0) stream_song_.set_bitrate(old_stream_song.bitrate());
+
+}
+
+void PlaylistItem::ClearStreamMetadata() {
+  stream_song_ = Song();
+}
 
 void PlaylistItem::BindToQuery(SqlQuery *query) const {
 
-  query->BindValue(":type", source_);
-  query->BindValue(":collection_id", DatabaseValue(Column_CollectionId));
+  query->BindValue(u":type"_s, static_cast<int>(source_));
+  query->BindValue(u":collection_id"_s, DatabaseValue(DatabaseColumn::CollectionId));
 
   DatabaseSongMetadata().BindToQuery(query);
 
-}
-
-void PlaylistItem::SetTemporaryMetadata(const Song &metadata) {
-  temp_metadata_ = metadata;
-}
-
-void PlaylistItem::UpdateTemporaryMetadata(const Song &metadata) {
-
-  if (!temp_metadata_.is_valid()) return;
-
-  Song old_metadata = temp_metadata_;
-  temp_metadata_ = metadata;
-
-  // Keep samplerate, bitdepth and bitrate from the old metadata if it's not present in the new.
-  if (temp_metadata_.samplerate() <= 0 && old_metadata.samplerate() > 0) temp_metadata_.set_samplerate(old_metadata.samplerate());
-  if (temp_metadata_.bitdepth() <= 0 && old_metadata.bitdepth() > 0) temp_metadata_.set_bitdepth(old_metadata.bitdepth());
-  if (temp_metadata_.bitrate() <= 0 && old_metadata.bitrate() > 0) temp_metadata_.set_bitrate(old_metadata.bitrate());
-
-}
-
-void PlaylistItem::ClearTemporaryMetadata() {
-  temp_metadata_ = Song();
 }
 
 static void ReloadPlaylistItem(PlaylistItemPtr item) {
@@ -130,23 +135,26 @@ QFuture<void> PlaylistItem::BackgroundReload() {
 void PlaylistItem::SetBackgroundColor(short priority, const QColor &color) {
   background_colors_[priority] = color;
 }
+
 bool PlaylistItem::HasBackgroundColor(short priority) const {
   return background_colors_.contains(priority);
 }
+
 void PlaylistItem::RemoveBackgroundColor(short priority) {
   background_colors_.remove(priority);
 }
+
 QColor PlaylistItem::GetCurrentBackgroundColor() const {
 
   if (background_colors_.isEmpty()) {
     return QColor();
   }
-  else {
-    QList<short> background_colors_keys = background_colors_.keys();
-    return background_colors_[background_colors_keys.last()];
-  }
+
+  QList<short> background_colors_keys = background_colors_.keys();
+  return background_colors_[background_colors_keys.last()];
 
 }
+
 bool PlaylistItem::HasCurrentBackgroundColor() const {
   return !background_colors_.isEmpty();
 }
@@ -154,23 +162,28 @@ bool PlaylistItem::HasCurrentBackgroundColor() const {
 void PlaylistItem::SetForegroundColor(const short priority, const QColor &color) {
   foreground_colors_[priority] = color;
 }
+
 bool PlaylistItem::HasForegroundColor(const short priority) const {
   return foreground_colors_.contains(priority);
 }
+
 void PlaylistItem::RemoveForegroundColor(const short priority) {
   foreground_colors_.remove(priority);
 }
+
 QColor PlaylistItem::GetCurrentForegroundColor() const {
 
   if (foreground_colors_.isEmpty()) return QColor();
-  else {
-    QList<short> foreground_colors_keys = foreground_colors_.keys();
-    return foreground_colors_[foreground_colors_keys.last()];
-  }
+
+  QList<short> foreground_colors_keys = foreground_colors_.keys();
+  return foreground_colors_[foreground_colors_keys.last()];
 
 }
+
 bool PlaylistItem::HasCurrentForegroundColor() const {
   return !foreground_colors_.isEmpty();
 }
-void PlaylistItem::SetShouldSkip(const bool val) { should_skip_ = val; }
+
+void PlaylistItem::SetShouldSkip(const bool should_skip) { should_skip_ = should_skip; }
+
 bool PlaylistItem::GetShouldSkip() const { return should_skip_; }

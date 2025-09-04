@@ -29,13 +29,16 @@
 #include <QSettings>
 
 #include "core/logging.h"
+#include "core/settings.h"
 #include "networkproxyfactory.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 NetworkProxyFactory *NetworkProxyFactory::sInstance = nullptr;
 const char *NetworkProxyFactory::kSettingsGroup = "NetworkProxy";
 
 NetworkProxyFactory::NetworkProxyFactory()
-    : mode_(Mode_System),
+    : mode_(Mode::System),
       type_(QNetworkProxy::HttpProxy),
       port_(8080),
       use_authentication_(false) {
@@ -43,11 +46,10 @@ NetworkProxyFactory::NetworkProxyFactory()
 #ifdef Q_OS_LINUX
   // Linux uses environment variables to pass proxy configuration information, which systemProxyForQuery doesn't support for some reason.
 
-  QStringList urls;
-  urls << QString::fromLocal8Bit(qgetenv("HTTP_PROXY"));
-  urls << QString::fromLocal8Bit(qgetenv("http_proxy"));
-  urls << QString::fromLocal8Bit(qgetenv("ALL_PROXY"));
-  urls << QString::fromLocal8Bit(qgetenv("all_proxy"));
+  const QStringList urls = QStringList() << QString::fromLocal8Bit(qgetenv("HTTP_PROXY"))
+                                         << QString::fromLocal8Bit(qgetenv("http_proxy"))
+                                         << QString::fromLocal8Bit(qgetenv("ALL_PROXY"))
+                                         << QString::fromLocal8Bit(qgetenv("all_proxy"));
 
   qLog(Debug) << "Detected system proxy URLs:" << urls;
 
@@ -78,13 +80,13 @@ void NetworkProxyFactory::ReloadSettings() {
 
   QMutexLocker l(&mutex_);
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
 
-  mode_ = Mode(s.value("mode", Mode_System).toInt());
+  mode_ = static_cast<Mode>(s.value("mode", static_cast<int>(Mode::System)).toInt());
   type_ = QNetworkProxy::ProxyType(s.value("type", QNetworkProxy::HttpProxy).toInt());
   hostname_ = s.value("hostname").toString();
-  port_ = s.value("port", 8080).toInt();
+  port_ = s.value("port", 8080).toULongLong();
   use_authentication_ = s.value("use_authentication", false).toBool();
   username_ = s.value("username").toString();
   password_ = s.value("password").toString();
@@ -100,7 +102,7 @@ QList<QNetworkProxy> NetworkProxyFactory::queryProxy(const QNetworkProxyQuery &q
   QNetworkProxy ret;
 
   switch (mode_) {
-    case Mode_System:
+    case Mode::System:
 #ifdef Q_OS_LINUX
       Q_UNUSED(query);
 
@@ -112,7 +114,7 @@ QList<QNetworkProxy> NetworkProxyFactory::queryProxy(const QNetworkProxyQuery &q
         ret.setPort(env_url_.port());
         ret.setUser(env_url_.userName());
         ret.setPassword(env_url_.password());
-        if (env_url_.scheme().startsWith("http")) {
+        if (env_url_.scheme().startsWith("http"_L1)) {
           ret.setType(QNetworkProxy::HttpProxy);
         }
         else {
@@ -125,11 +127,11 @@ QList<QNetworkProxy> NetworkProxyFactory::queryProxy(const QNetworkProxyQuery &q
       return systemProxyForQuery(query);
 #endif
 
-    case Mode_Direct:
+    case Mode::Direct:
       ret.setType(QNetworkProxy::NoProxy);
       break;
 
-    case Mode_Manual:
+    case Mode::Manual:
       ret.setType(type_);
       ret.setHostName(hostname_);
       ret.setPort(port_);

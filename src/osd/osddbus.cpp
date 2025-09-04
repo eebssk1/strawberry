@@ -40,10 +40,14 @@
 #include <QDBusPendingReply>
 #include <QDBusPendingCallWatcher>
 
+#include "includes/scoped_ptr.h"
 #include "core/logging.h"
 #include "osddbus.h"
 
 #include "notification.h"
+
+using std::make_unique;
+using namespace Qt::Literals::StringLiterals;
 
 QDBusArgument &operator<<(QDBusArgument &arg, const QImage &image) {
 
@@ -80,15 +84,11 @@ QDBusArgument &operator<<(QDBusArgument &arg, const QImage &image) {
   arg << static_cast<qint32>(i.height());
   arg << static_cast<qint32>(i.bytesPerLine());
   arg << i.hasAlphaChannel();
-  qint32 channels = i.isGrayscale() ? 1 : (i.hasAlphaChannel() ? 4 : 3);
+  qint32 channels = i.hasAlphaChannel() ? 4 : 3;
   qint32 bitspersample = i.depth() / channels;
   arg << bitspersample;
   arg << channels;
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
   arg << QByteArray(reinterpret_cast<const char*>(i.constBits()), static_cast<int>(i.sizeInBytes()));
-#else
-  arg << QByteArray(reinterpret_cast<const char*>(i.constBits()), i.byteCount());
-#endif
   arg.endStructure();
 
   return arg;
@@ -105,8 +105,8 @@ const QDBusArgument &operator>>(const QDBusArgument &arg, QImage &image) {
 
 }
 
-OSDDBus::OSDDBus(std::shared_ptr<SystemTrayIcon> tray_icon, Application *app, QObject *parent)
-    : OSDBase(tray_icon, app, parent),
+OSDDBus::OSDDBus(const SharedPtr<SystemTrayIcon> tray_icon, QObject *parent)
+    : OSDBase(tray_icon, parent),
       version_(1, 1),
       notification_id_(0) {
 
@@ -118,7 +118,7 @@ OSDDBus::~OSDDBus() = default;
 
 void OSDDBus::Init() {
 
-  interface_ = std::make_unique<OrgFreedesktopNotificationsInterface>(OrgFreedesktopNotificationsInterface::staticInterfaceName(), "/org/freedesktop/Notifications", QDBusConnection::sessionBus());
+  interface_ = make_unique<OrgFreedesktopNotificationsInterface>(QString::fromUtf8(OrgFreedesktopNotificationsInterface::staticInterfaceName()), u"/org/freedesktop/Notifications"_s, QDBusConnection::sessionBus());
   if (!interface_->isValid()) {
     qLog(Warning) << "Error connecting to notifications service.";
   }
@@ -136,9 +136,9 @@ void OSDDBus::Init() {
 
 }
 
-bool OSDDBus::SupportsNativeNotifications() { return true; }
+bool OSDDBus::SupportsNativeNotifications() const { return true; }
 
-bool OSDDBus::SupportsTrayPopups() { return true; }
+bool OSDDBus::SupportsTrayPopups() const { return true; }
 
 void OSDDBus::ShowMessageNative(const QString &summary, const QString &message, const QString &icon, const QImage &image) {
 
@@ -146,21 +146,22 @@ void OSDDBus::ShowMessageNative(const QString &summary, const QString &message, 
 
   QVariantMap hints;
   QString summary_stripped = summary;
-  summary_stripped = summary_stripped.remove(QRegularExpression("[&\"<>]")).simplified();
+  static const QRegularExpression regex_illegal_characters(u"[&\"<>]"_s);
+  summary_stripped = summary_stripped.remove(regex_illegal_characters).simplified();
 
   if (!image.isNull()) {
     if (version_ >= QVersionNumber(1, 2)) {
-      hints["image-data"] = QVariant(image);
+      hints[u"image-data"_s] = QVariant(image);
     }
     else if (version_ >= QVersionNumber(1, 1)) {
-      hints["image_data"] = QVariant(image);
+      hints[u"image_data"_s] = QVariant(image);
     }
     else {
-      hints["icon_data"] = QVariant(image);
+      hints[u"icon_data"_s] = QVariant(image);
     }
   }
 
-  hints["transient"] = QVariant(true);
+  hints[u"transient"_s] = QVariant(true);
 
   quint64 id = 0;
   if (last_notification_time_.secsTo(QDateTime::currentDateTime()) * 1000 < timeout_msec()) {
@@ -169,7 +170,7 @@ void OSDDBus::ShowMessageNative(const QString &summary, const QString &message, 
     id = notification_id_;
   }
 
-  QDBusPendingReply<uint> reply = interface_->Notify(app_name(), id, icon, summary_stripped, message, QStringList(), hints, timeout_msec());
+  QDBusPendingReply<uint> reply = interface_->Notify(QCoreApplication::applicationName(), id, icon, summary_stripped, message, QStringList(), hints, timeout_msec());
   QDBusPendingCallWatcher *watcher = new QDBusPendingCallWatcher(reply, this);
   QObject::connect(watcher, &QDBusPendingCallWatcher::finished, this, &OSDDBus::CallFinished);
 
@@ -177,7 +178,7 @@ void OSDDBus::ShowMessageNative(const QString &summary, const QString &message, 
 
 void OSDDBus::CallFinished(QDBusPendingCallWatcher *watcher) {
 
-  std::unique_ptr<QDBusPendingCallWatcher> w(watcher);
+  ScopedPtr<QDBusPendingCallWatcher> w(watcher);
 
   QDBusPendingReply<uint> reply = *w;
   if (reply.isError()) {

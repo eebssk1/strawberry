@@ -28,18 +28,26 @@
 #include <QRunnable>
 #include <QString>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
+#include "albumcoverloaderoptions.h"
 #include "albumcoverexport.h"
+
+class TagReaderClient;
 
 class CoverExportRunnable : public QObject, public QRunnable {
   Q_OBJECT
 
  public:
-  explicit CoverExportRunnable(const AlbumCoverExport::DialogResult &dialog_result, const Song &song, QObject *parent = nullptr);
+  explicit CoverExportRunnable(const SharedPtr<TagReaderClient> tagreader_client,
+                               const AlbumCoverExport::DialogResult &dialog_result,
+                               const AlbumCoverLoaderOptions::Types &cover_types,
+                               const Song &song,
+                               QObject *parent = nullptr);
 
   void run() override;
 
- signals:
+ Q_SIGNALS:
   void CoverExported();
   void CoverSkipped();
 
@@ -49,11 +57,11 @@ class CoverExportRunnable : public QObject, public QRunnable {
 
   void ProcessAndExportCover();
   void ExportCover();
-  QString GetCoverPath();
 
+  SharedPtr<TagReaderClient> tagreader_client_;
   AlbumCoverExport::DialogResult dialog_result_;
+  AlbumCoverLoaderOptions::Types cover_types_;
   Song song_;
-
 };
 
 #endif  // COVEREXPORTRUNNABLE_H

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2022, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,60 +22,52 @@
 
 #include "config.h"
 
-#include <memory>
-
-#include <QtGlobal>
-#include <QObject>
 #include <QList>
-#include <QVariant>
 #include <QString>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
 #include "jsonlyricsprovider.h"
-#include "lyricsfetcher.h"
-#include "providers/musixmatchprovider.h"
+#include "lyricssearchrequest.h"
+#include "lyricssearchresult.h"
 
 class QNetworkReply;
 class NetworkAccessManager;
 
-class MusixmatchLyricsProvider : public JsonLyricsProvider, public MusixmatchProvider {
+class MusixmatchLyricsProvider : public JsonLyricsProvider {
   Q_OBJECT
 
  public:
-  explicit MusixmatchLyricsProvider(NetworkAccessManager *network, QObject *parent = nullptr);
-  ~MusixmatchLyricsProvider() override;
-
-  bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
-  void CancelSearch(const int id) override;
+  explicit MusixmatchLyricsProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
  private:
   struct LyricsSearchContext {
     explicit LyricsSearchContext() : id(-1) {}
     int id;
-    QString artist;
-    QString album;
-    QString title;
+    LyricsSearchRequest request;
     QList<QUrl> requests_lyrics_;
     LyricsSearchResults results;
   };
 
-  using LyricsSearchContextPtr = std::shared_ptr<LyricsSearchContext>;
+  using LyricsSearchContextPtr = SharedPtr<LyricsSearchContext>;
 
   bool SendSearchRequest(LyricsSearchContextPtr search);
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
   bool CreateLyricsRequest(LyricsSearchContextPtr search);
+  void SendLyricsRequest(const LyricsSearchRequest &request, const QString &artist, const QString &title);
   bool SendLyricsRequest(LyricsSearchContextPtr search, const QUrl &url);
   void EndSearch(LyricsSearchContextPtr search, const QUrl &url = QUrl());
-  void Error(const QString &error, const QVariant &debug = QVariant()) override;
 
- private slots:
-  void HandleSearchReply(QNetworkReply *reply, LyricsSearchContextPtr search);
-  void HandleLyricsReply(QNetworkReply *reply, LyricsSearchContextPtr search, const QUrl &url);
+ protected Q_SLOTS:
+  void StartSearch(const int id, const LyricsSearchRequest &request) override;
+
+ private Q_SLOTS:
+  void HandleSearchReply(QNetworkReply *reply, MusixmatchLyricsProvider::LyricsSearchContextPtr search);
+  void HandleLyricsReply(QNetworkReply *reply, MusixmatchLyricsProvider::LyricsSearchContextPtr search, const QUrl &url);
 
  private:
   QList<LyricsSearchContextPtr> requests_search_;
-  QList<QNetworkReply*> replies_;
-  bool rate_limit_exceeded_;
-
+  bool use_api_;
 };
 
 #endif  // MUSIXMATCHLYRICSPROVIDER_H

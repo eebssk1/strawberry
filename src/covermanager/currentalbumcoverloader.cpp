@@ -27,92 +27,101 @@
 #include <QObject>
 #include <QDir>
 #include <QImage>
-#include <QTemporaryFile>
 
-#include "core/application.h"
+#include "core/logging.h"
+#include "core/standardpaths.h"
 #include "core/song.h"
-#include "playlist/playlistmanager.h"
+#include "core/temporaryfile.h"
 #include "albumcoverloader.h"
 #include "albumcoverloaderresult.h"
 #include "currentalbumcoverloader.h"
 
-CurrentAlbumCoverLoader::CurrentAlbumCoverLoader(Application *app, QObject *parent)
+using std::make_unique;
+using namespace Qt::Literals::StringLiterals;
+
+CurrentAlbumCoverLoader::CurrentAlbumCoverLoader(const SharedPtr<AlbumCoverLoader> albumcover_loader, QObject *parent)
     : QObject(parent),
-      app_(app),
-      temp_file_pattern_(QDir::tempPath() + "/strawberry-cover-XXXXXX.jpg"),
+      albumcover_loader_(albumcover_loader),
+      temp_file_pattern_(StandardPaths::WritableLocation(StandardPaths::StandardLocation::TempLocation) + u"/strawberry-cover-XXXXXX.jpg"_s),
       id_(0) {
 
-  options_.get_image_data_ = true;
-  options_.get_image_ = true;
-  options_.scale_output_image_ = false;
-  options_.pad_output_image_ = false;
-  options_.create_thumbnail_ = true;
-  options_.thumbnail_size_ = QSize(120, 120);
-  options_.default_output_image_ = QImage(":/pictures/cdcase.png");
-  options_.default_thumbnail_image_ = options_.default_output_image_.scaledToHeight(120, Qt::SmoothTransformation);
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
 
-  QObject::connect(app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &CurrentAlbumCoverLoader::TempAlbumCoverLoaded);
-  QObject::connect(app_->playlist_manager(), &PlaylistManager::CurrentSongChanged, this, &CurrentAlbumCoverLoader::LoadAlbumCover);
+  options_.options = AlbumCoverLoaderOptions::Option::RawImageData | AlbumCoverLoaderOptions::Option::OriginalImage | AlbumCoverLoaderOptions::Option::ScaledImage;
+  options_.desired_scaled_size = QSize(120, 120);
+  options_.default_cover = u":/pictures/cdcase.png"_s;
+
+  QObject::connect(&*albumcover_loader, &AlbumCoverLoader::AlbumCoverLoaded, this, &CurrentAlbumCoverLoader::AlbumCoverReady);
+
+  ReloadSettingsAsync();
 
 }
 
-CurrentAlbumCoverLoader::~CurrentAlbumCoverLoader() {
+CurrentAlbumCoverLoader::~CurrentAlbumCoverLoader() = default;
 
-  if (temp_cover_) temp_cover_->remove();
-  if (temp_cover_thumbnail_) temp_cover_thumbnail_->remove();
+void CurrentAlbumCoverLoader::ReloadSettingsAsync() {
+
+  QMetaObject::invokeMethod(this, &CurrentAlbumCoverLoader::ReloadSettings);
+
+}
+
+void CurrentAlbumCoverLoader::ReloadSettings() {
+
+  options_.types = AlbumCoverLoaderOptions::LoadTypes();
 
 }
 
 void CurrentAlbumCoverLoader::LoadAlbumCover(const Song &song) {
 
   last_song_ = song;
-  id_ = app_->album_cover_loader()->LoadImageAsync(options_, last_song_);
+  id_ = albumcover_loader_->LoadImageAsync(options_, last_song_);
 
 }
 
-void CurrentAlbumCoverLoader::TempAlbumCoverLoaded(const quint64 id, AlbumCoverLoaderResult result) {
+void CurrentAlbumCoverLoader::AlbumCoverReady(const quint64 id, AlbumCoverLoaderResult result) {
 
   if (id != id_) return;
   id_ = 0;
 
   if (!result.album_cover.image.isNull()) {
-    temp_cover_ = std::make_unique<QTemporaryFile>(temp_file_pattern_);
-    temp_cover_->setAutoRemove(true);
-    if (temp_cover_->open()) {
-      if (result.album_cover.image.save(temp_cover_->fileName(), "JPEG")) {
-        result.temp_cover_url = QUrl::fromLocalFile(temp_cover_->fileName());
+    temp_cover_ = make_unique<TemporaryFile>(temp_file_pattern_);
+    if (!temp_cover_->filename().isEmpty()) {
+      if (result.album_cover.image.save(temp_cover_->filename(), "JPEG")) {
+        result.temp_cover_url = QUrl::fromLocalFile(temp_cover_->filename());
       }
       else {
-        qLog(Error) << "Failed to save cover image to" << temp_cover_->fileName() << temp_cover_->errorString();
+        qLog(Error) << "Failed to save cover image to" << temp_cover_->filename();
       }
     }
     else {
-      qLog(Error) << "Failed to open" << temp_cover_->fileName() << temp_cover_->errorString();
+      qLog(Error) << "Failed to open" << temp_cover_->filename();
     }
   }
 
   QUrl thumbnail_url;
-  if (!result.image_thumbnail.isNull()) {
-    temp_cover_thumbnail_ = std::make_unique<QTemporaryFile>(temp_file_pattern_);
-    temp_cover_thumbnail_->setAutoRemove(true);
-    if (temp_cover_thumbnail_->open()) {
-      if (result.image_thumbnail.save(temp_cover_thumbnail_->fileName(), "JPEG")) {
-        thumbnail_url = QUrl::fromLocalFile(temp_cover_thumbnail_->fileName());
+  if (!result.image_scaled.isNull()) {
+    temp_cover_thumbnail_ = make_unique<TemporaryFile>(temp_file_pattern_);
+    if (!temp_cover_thumbnail_->filename().isEmpty()) {
+      if (result.image_scaled.save(temp_cover_thumbnail_->filename(), "JPEG")) {
+        thumbnail_url = QUrl::fromLocalFile(temp_cover_thumbnail_->filename());
       }
       else {
-        qLog(Error) << "Unable to save cover thumbnail image to" << temp_cover_thumbnail_->fileName();
+        qLog(Error) << "Unable to save cover thumbnail image to" << temp_cover_thumbnail_->filename();
       }
     }
     else {
-      qLog(Error) << "Unable to open" << temp_cover_thumbnail_->fileName();
+      qLog(Error) << "Unable to open" << temp_cover_thumbnail_->filename();
     }
   }
 
-  if (result.updated) {
-    last_song_.set_art_manual(result.album_cover.cover_url);
+  if (result.art_manual_updated.isValid()) {
+    last_song_.set_art_manual(result.art_manual_updated);
+  }
+  if (result.art_automatic_updated.isValid()) {
+    last_song_.set_art_automatic(result.art_automatic_updated);
   }
 
-  emit AlbumCoverLoaded(last_song_, result);
-  emit ThumbnailLoaded(last_song_, thumbnail_url, result.image_thumbnail);
+  Q_EMIT AlbumCoverLoaded(last_song_, result);
+  Q_EMIT ThumbnailLoaded(last_song_, thumbnail_url, result.image_scaled);
 
 }

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,56 +22,57 @@
 
 #include "config.h"
 
-#include <QObject>
 #include <QPair>
-#include <QList>
-#include <QVariant>
 #include <QByteArray>
 #include <QString>
-#include <QJsonObject>
 
-class Application;
-class Song;
+#include "includes/shared_ptr.h"
+#include "core/song.h"
+#include "core/jsonbaserequest.h"
 
-class ScrobblerService : public QObject {
+#include "scrobblersettingsservice.h"
+
+class ScrobblerService : public JsonBaseRequest {
   Q_OBJECT
 
  public:
-  explicit ScrobblerService(const QString &name, Application *app, QObject *parent);
+  explicit ScrobblerService(const QString &name, const SharedPtr<NetworkAccessManager> network, const SharedPtr<ScrobblerSettingsService> settings, QObject *parent);
 
   QString name() const { return name_; }
+  QString service_name() const override { return name_; }
 
   virtual void ReloadSettings() = 0;
 
-  virtual bool IsEnabled() const { return false; }
-  virtual bool IsAuthenticated() const { return false; }
+  virtual bool enabled() const { return false; }
+  virtual bool authenticated() const override { return false; }
 
   virtual void UpdateNowPlaying(const Song &song) = 0;
   virtual void ClearPlaying() = 0;
   virtual void Scrobble(const Song &song) = 0;
   virtual void Love() {}
-  virtual void Error(const QString &error, const QVariant &debug = QVariant()) = 0;
 
   virtual void StartSubmit(const bool initial = false) = 0;
-  virtual void Submitted() = 0;
-  virtual bool IsSubmitted() const { return false; }
+  virtual bool submitted() const { return false; }
 
-  using Param = QPair<QString, QString>;
+ protected:
   using EncodedParam = QPair<QByteArray, QByteArray>;
-  using ParamList = QList<Param>;
 
-  QJsonObject ExtractJsonObj(const QByteArray &data, const bool ignore_empty = false);
+  QString StripAlbum(const QString &album) const;
+  QString StripTitle(const QString &title) const;
 
- public slots:
+ public Q_SLOTS:
   virtual void Submit() = 0;
   virtual void WriteCache() = 0;
 
- signals:
-  void ErrorMessage(QString);
+ Q_SIGNALS:
+  void ErrorMessage(const QString &error);
+  void OpenSettingsDialog();
 
- private:
-  QString name_;
-
+ protected:
+  const QString name_;
+  const SharedPtr<ScrobblerSettingsService> settings_;
 };
+
+using ScrobblerServicePtr = SharedPtr<ScrobblerService>;
 
 #endif  // SCROBBLERSERVICE_H

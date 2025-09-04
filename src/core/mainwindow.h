@@ -24,7 +24,7 @@
 
 #include "config.h"
 
-#include <memory>
+#include <optional>
 
 #include <QtGlobal>
 #include <QObject>
@@ -48,18 +48,19 @@
 #include <QSettings>
 #include <QtEvents>
 
-#include "lazy.h"
-#include "platforminterface.h"
-#include "song.h"
-#include "tagreaderclient.h"
-#include "engine/enginetype.h"
-#include "engine/engine_fwd.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
+#include "includes/lazy.h"
+#include "core/platforminterface.h"
+#include "core/song.h"
+#include "core/settings.h"
+#include "core/commandlineoptions.h"
+#include "tagreader/tagreaderclient.h"
 #include "osd/osdbase.h"
-#include "collection/collectionmodel.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistitem.h"
 #include "settings/settingsdialog.h"
-#include "settings/behavioursettingspage.h"
+#include "constants/behavioursettings.h"
 #include "covermanager/albumcoverloaderresult.h"
 #include "covermanager/albumcoverimageresult.h"
 
@@ -69,11 +70,10 @@ class AlbumCoverManager;
 class Application;
 class ContextView;
 class CollectionViewContainer;
+class CollectionFilter;
 class AlbumCoverChoiceController;
 class CommandlineOptions;
-#ifndef Q_OS_WIN
 class DeviceViewContainer;
-#endif
 class EditTagDialog;
 class Equalizer;
 class ErrorDialog;
@@ -88,61 +88,67 @@ class SystemTrayIcon;
 class TagFetcher;
 #endif
 class TrackSelectionDialog;
-#ifdef HAVE_GSTREAMER
 class TranscodeDialog;
-#endif
 class Ui_MainWindow;
-class InternetSongsView;
-class InternetTabsView;
+class StreamingSongsView;
+class StreamingTabsView;
 class SmartPlaylistsViewContainer;
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 class Windows7ThumbBar;
 #endif
 class AddStreamDialog;
 class LastFMImportDialog;
 class RadioViewContainer;
 
+#ifdef HAVE_DISCORD_RPC
+namespace discord {
+class RichPresence;
+}
+#endif
+
 class MainWindow : public QMainWindow, public PlatformInterface {
   Q_OBJECT
 
  public:
-  explicit MainWindow(Application *app, std::shared_ptr<SystemTrayIcon> tray_icon, OSDBase *osd, const CommandlineOptions &options, QWidget *parent = nullptr);
+  explicit MainWindow(Application *app,
+                      SharedPtr<SystemTrayIcon> systemtrayicon,
+                      OSDBase *osd,
+#ifdef HAVE_DISCORD_RPC
+                      discord::RichPresence *discord_rich_presence,
+#endif
+                      const CommandlineOptions &options,
+                      QWidget *parent = nullptr);
   ~MainWindow() override;
-
-  static const char *kSettingsGroup;
-  static const char *kAllFilesFilterSpec;
 
   void SetHiddenInTray(const bool hidden);
   void CommandlineOptionsReceived(const CommandlineOptions &options);
 
  protected:
   void showEvent(QShowEvent *e) override;
+  void hideEvent(QHideEvent *e) override;
   void closeEvent(QCloseEvent *e) override;
   void keyPressEvent(QKeyEvent *e) override;
-#ifdef Q_OS_WIN
-#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+#ifdef Q_OS_WIN32
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
-#  else
-  bool nativeEvent(const QByteArray &eventType, void *message, long *result) override;
-#  endif
 #endif
 
   // PlatformInterface
   void Activate() override;
   bool LoadUrl(const QString &url) override;
 
- signals:
-  void AlbumCoverReady(Song song, QImage image);
+ Q_SIGNALS:
+  void AlbumCoverReady(const Song &song, const QImage &image);
   void SearchCoverInProgress();
   // Signals that stop playing after track was toggled.
-  void StopAfterToggled(bool stop);
+  void StopAfterToggled(const bool stop);
 
-  void AuthorizationUrlReceived(QUrl url);
+  void AuthorizationUrlReceived(const QUrl &url);
 
- private slots:
+ private Q_SLOTS:
+  void PlaylistsLoaded();
+
   void FilePathChanged(const QString &path);
 
-  void EngineChanged(Engine::EngineType enginetype);
   void MediaStopped();
   void MediaPaused();
   void MediaPlaying();
@@ -207,7 +213,9 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void TaskCountChanged(const int count);
 
-  void ShowCollectionConfig();
+  void OpenCollectionSettingsDialog();
+  void OpenServiceSettingsDialog(const Song::Source source);
+
   void ReloadSettings();
   void ReloadAllSettings();
   void RefreshStyleSheet();
@@ -221,7 +229,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void PlayingWidgetPositionChanged(const bool above_status_bar);
 
-  void SongSaveComplete(TagReaderReply *reply, const QPersistentModelIndex &idx);
+  void SongSaveComplete(TagReaderReplyPtr reply, const QPersistentModelIndex &idx);
 
   void ShowCoverManager();
   void ShowEqualizer();
@@ -232,20 +240,17 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   SettingsDialog *CreateSettingsDialog();
   EditTagDialog *CreateEditTagDialog();
   void OpenSettingsDialog();
-  void OpenSettingsDialogAtPage(SettingsDialog::Page page);
+  void OpenSettingsDialogAtPage(const SettingsDialog::Page page);
 
   void TabSwitched();
   void ToggleSidebar(const bool checked);
   void ToggleSearchCoverAuto(const bool checked);
   void SaveGeometry();
-  void SavePlaybackStatus();
-  void LoadPlaybackStatus();
-  void ResumePlayback();
 
   void Exit();
   void DoExit();
 
-  void HandleNotificationPreview(const OSDBase::Behaviour type, const QString &line1, const QString &line2);
+  void HandleNotificationPreview(const OSDSettings::Type type, const QString &line1, const QString &line2);
 
   void ShowConsole();
 
@@ -272,16 +277,18 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void FocusSearchField();
 
- public slots:
-  void CommandlineOptionsReceived(const quint32 instanceId, const QByteArray &string_options);
+  void DeleteFilesFinished(const SongList &songs_with_errors);
+
+ public Q_SLOTS:
+  void CommandlineOptionsReceived(const QByteArray &string_options);
   void Raise();
 
  private:
 
   void SaveSettings();
 
-  static void ApplyAddBehaviour(const BehaviourSettingsPage::AddBehaviour b, MimeData *mimedata);
-  void ApplyPlayBehaviour(const BehaviourSettingsPage::PlayBehaviour b, MimeData *mimedata) const;
+  static void ApplyAddBehaviour(const BehaviourSettings::AddBehaviour b, MimeData *mimedata);
+  void ApplyPlayBehaviour(const BehaviourSettings::PlayBehaviour b, MimeData *mimedata) const;
 
   void CheckFullRescanRevisions();
 
@@ -292,15 +299,22 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void SetToggleScrobblingIcon(const bool value);
 
+#ifdef HAVE_DBUS
+  void UpdateTaskbarProgress(const bool visible, const double progress = 0);
+#endif
+
  private:
   Ui_MainWindow *ui_;
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
   Windows7ThumbBar *thumbbar_;
 #endif
 
   Application *app_;
-  std::shared_ptr<SystemTrayIcon> tray_icon_;
+  SharedPtr<SystemTrayIcon> systemtrayicon_;
   OSDBase *osd_;
+#ifdef HAVE_DISCORD_RPC
+  discord::RichPresence *discord_rich_presence_;
+#endif
   Lazy<About> about_dialog_;
   Lazy<Console> console_;
   Lazy<EditTagDialog> edit_tag_dialog_;
@@ -311,33 +325,38 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   ContextView *context_view_;
   CollectionViewContainer *collection_view_;
   FileView *file_view_;
-#ifndef Q_OS_WIN
   DeviceViewContainer *device_view_;
-#endif
   PlaylistListContainer *playlist_list_;
   QueueView *queue_view_;
 
   Lazy<ErrorDialog> error_dialog_;
   Lazy<SettingsDialog> settings_dialog_;
   Lazy<AlbumCoverManager> cover_manager_;
-  std::unique_ptr<Equalizer> equalizer_;
+  SharedPtr<Equalizer> equalizer_;
   Lazy<OrganizeDialog> organize_dialog_;
-#ifdef HAVE_GSTREAMER
   Lazy<TranscodeDialog> transcode_dialog_;
-#endif
   Lazy<AddStreamDialog> add_stream_dialog_;
 
 #ifdef HAVE_MUSICBRAINZ
-  std::unique_ptr<TagFetcher> tag_fetcher_;
+  ScopedPtr<TagFetcher> tag_fetcher_;
 #endif
-  std::unique_ptr<TrackSelectionDialog> track_selection_dialog_;
-  PlaylistItemList autocomplete_tag_items_;
+  ScopedPtr<TrackSelectionDialog> track_selection_dialog_;
+  PlaylistItemPtrList autocomplete_tag_items_;
 
   SmartPlaylistsViewContainer *smartplaylists_view_;
 
-  InternetSongsView *subsonic_view_;
-  InternetTabsView *tidal_view_;
-  InternetTabsView *qobuz_view_;
+#ifdef HAVE_SUBSONIC
+  StreamingSongsView *subsonic_view_;
+#endif
+#ifdef HAVE_TIDAL
+  StreamingTabsView *tidal_view_;
+#endif
+#ifdef HAVE_SPOTIFY
+  StreamingTabsView *spotify_view_;
+#endif
+#ifdef HAVE_QOBUZ
+  StreamingTabsView *qobuz_view_;
+#endif
 
   RadioViewContainer *radio_view_;
 
@@ -357,9 +376,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   QAction *playlist_move_to_collection_;
   QAction *playlist_open_in_browser_;
   QAction *playlist_organize_;
-#ifndef Q_OS_WIN
   QAction *playlist_copy_to_device_;
-#endif
   QAction *playlist_delete_;
   QAction *playlist_queue_;
   QAction *playlist_queue_play_next_;
@@ -371,31 +388,32 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   QModelIndex playlist_menu_index_;
 
-  QSortFilterProxyModel *collection_sort_model_;
-
   QTimer *track_position_timer_;
   QTimer *track_slider_timer_;
-  QSettings settings_;
+  Settings settings_;
 
   bool keep_running_;
   bool playing_widget_;
-  BehaviourSettingsPage::AddBehaviour doubleclick_addmode_;
-  BehaviourSettingsPage::PlayBehaviour doubleclick_playmode_;
-  BehaviourSettingsPage::PlaylistAddBehaviour doubleclick_playlist_addmode_;
-  BehaviourSettingsPage::PlayBehaviour menu_playmode_;
+#ifdef HAVE_DBUS
+  bool taskbar_progress_;
+#endif
+  BehaviourSettings::AddBehaviour doubleclick_addmode_;
+  BehaviourSettings::PlayBehaviour doubleclick_playmode_;
+  BehaviourSettings::PlaylistAddBehaviour doubleclick_playlist_addmode_;
+  BehaviourSettings::PlayBehaviour menu_playmode_;
 
   bool initialized_;
   bool was_maximized_;
   bool was_minimized_;
-  bool hidden_;
 
   Song song_;
   Song song_playing_;
   AlbumCoverImageResult album_cover_;
   bool exit_;
   int exit_count_;
+  bool playlists_loaded_;
   bool delete_files_;
-  bool ignore_close_;
+  std::optional<CommandlineOptions> options_;
 
 };
 

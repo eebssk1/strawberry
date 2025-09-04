@@ -21,16 +21,17 @@
 
 #include "config.h"
 
-#include <memory>
+#include <QtGlobal>
+
 #include <algorithm>
+#include <memory>
+
 #include <glib.h>
 #include <glib/gtypes.h>
 #include <gst/gst.h>
 
-#include <QtGlobal>
 #include <QThread>
 #include <QCoreApplication>
-#include <QStandardPaths>
 #include <QByteArray>
 #include <QDir>
 #include <QFileInfo>
@@ -40,9 +41,15 @@
 #include <QString>
 #include <QSettings>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
+#include "core/standardpaths.h"
 #include "core/signalchecker.h"
+#include "core/settings.h"
 #include "transcoder.h"
+
+using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
 
 int Transcoder::JobFinishedEvent::sEventType = -1;
 
@@ -64,7 +71,7 @@ GstElement *Transcoder::CreateElement(const QString &factory_name, GstElement *b
     SetElementProperties(factory_name, G_OBJECT(ret));
   }
   else {
-    emit LogLine(tr("Could not create the GStreamer element \"%1\" - make sure you have all the required GStreamer plugins installed").arg(factory_name));
+    Q_EMIT LogLine(tr("Could not create the GStreamer element \"%1\" - make sure you have all the required GStreamer plugins installed").arg(factory_name));
   }
 
   return ret;
@@ -84,14 +91,14 @@ struct SuitableElement {
 
 };
 
-GstElement *Transcoder::CreateElementForMimeType(const QString &element_type, const QString &mime_type, GstElement *bin) {
+GstElement *Transcoder::CreateElementForMimeType(GstElementFactoryListType element_type, const QString &mime_type, GstElement *bin) {
 
   if (mime_type.isEmpty()) return nullptr;
 
   // HACK: Force mp4mux because it doesn't set any useful src caps
-  if (mime_type == "audio/mp4") {
-    emit LogLine(QString("Using '%1' (rank %2)").arg("mp4mux").arg(-1));
-    return CreateElement("mp4mux", bin);
+  if (mime_type == "audio/mp4"_L1) {
+    Q_EMIT LogLine(QStringLiteral("Using '%1' (rank %2)").arg("mp4mux"_L1).arg(-1));
+    return CreateElement(u"mp4mux"_s, bin);
   }
 
   // Keep track of all the suitable elements we find and figure out which is the best at the end.
@@ -107,31 +114,15 @@ GstElement *Transcoder::CreateElementForMimeType(const QString &element_type, co
     GstElementFactory *factory = GST_ELEMENT_FACTORY(f->data);
 
     // Is this the right type of plugin?
-    if (QString(gst_element_factory_get_klass(factory)).contains(element_type)) {
-      const GList *const templates = gst_element_factory_get_static_pad_templates(factory);
-      for (const GList *t = templates; t; t = g_list_next(t)) {
-        // Only interested in source pads
-        GstStaticPadTemplate *pad_template = reinterpret_cast<GstStaticPadTemplate*>(t->data);
-        if (pad_template->direction != GST_PAD_SRC) continue;
-
-        // Does this pad support the mime type we want?
-        GstCaps *caps = gst_static_pad_template_get_caps(pad_template);
-        GstCaps *intersection = gst_caps_intersect(caps, target_caps);
-        gst_caps_unref(caps);
-
-        if (intersection) {
-          if (!gst_caps_is_empty(intersection)) {
-            int rank = static_cast<int>(gst_plugin_feature_get_rank(GST_PLUGIN_FEATURE(factory)));
-            QString name = GST_OBJECT_NAME(factory);
-
-            if (name.startsWith("ffmux") || name.startsWith("ffenc")) {
-              rank = -1;  // ffmpeg usually sucks
-            }
-
-            suitable_elements_ << SuitableElement(name, rank);
-          }
-          gst_caps_unref(intersection);
+    if (gst_element_factory_list_is_type(factory, element_type)) {
+      // check if the element factory supports the target caps
+      if (gst_element_factory_can_src_any_caps(factory, target_caps)) {
+        const QString name = QString::fromUtf8(GST_OBJECT_NAME(factory));
+        int rank = static_cast<int>(gst_plugin_feature_get_rank(GST_PLUGIN_FEATURE(factory)));
+        if (name.startsWith("avmux"_L1) || name.startsWith("avenc"_L1)) {
+          rank = -1;  // ffmpeg usually sucks
         }
+        suitable_elements_ << SuitableElement(name, rank);
       }
     }
   }
@@ -145,21 +136,21 @@ GstElement *Transcoder::CreateElementForMimeType(const QString &element_type, co
   std::sort(suitable_elements_.begin(), suitable_elements_.end());
   const SuitableElement &best = suitable_elements_.last();
 
-  emit LogLine(QString("Using '%1' (rank %2)").arg(best.name_).arg(best.rank_));
+  Q_EMIT LogLine(QStringLiteral("Using '%1' (rank %2)").arg(best.name_).arg(best.rank_));
 
-  if (best.name_ == "lamemp3enc") {
+  if (best.name_ == "lamemp3enc"_L1) {
     // Special case: we need to add xingmux and id3v2mux to the pipeline when using lamemp3enc because it doesn't write the VBR or ID3v2 headers itself.
 
-    emit LogLine("Adding xingmux and id3v2mux to the pipeline");
+    Q_EMIT LogLine(u"Adding xingmux and id3v2mux to the pipeline"_s);
 
     // Create the bin
     GstElement *mp3bin = gst_bin_new("mp3bin");
     gst_bin_add(GST_BIN(bin), mp3bin);
 
     // Create the elements
-    GstElement *lame = CreateElement("lamemp3enc", mp3bin);
-    GstElement *xing = CreateElement("xingmux", mp3bin);
-    GstElement *id3v2 = CreateElement("id3v2mux", mp3bin);
+    GstElement *lame = CreateElement(u"lamemp3enc"_s, mp3bin);
+    GstElement *xing = CreateElement(u"xingmux"_s, mp3bin);
+    GstElement *id3v2 = CreateElement(u"id3v2mux"_s, mp3bin);
 
     if (!lame || !xing || !id3v2) {
       return nullptr;
@@ -191,7 +182,7 @@ Transcoder::JobFinishedEvent::JobFinishedEvent(JobState *state, bool success)
 void Transcoder::JobState::PostFinished(const bool success) {
 
   if (success) {
-    emit parent_->LogLine(tr("Successfully written %1").arg(QDir::toNativeSeparators(job_.output)));
+    Q_EMIT parent_->LogLine(tr("Successfully written %1").arg(QDir::toNativeSeparators(job_.output)));
   }
 
   QCoreApplication::postEvent(parent_, new Transcoder::JobFinishedEvent(this, success));
@@ -207,8 +198,8 @@ Transcoder::Transcoder(QObject *parent, const QString &settings_postfix)
     JobFinishedEvent::sEventType = QEvent::registerEventType();
 
   // Initialize some settings for the lamemp3enc element.
-  QSettings s;
-  s.beginGroup("Transcoder/lamemp3enc" + settings_postfix_);
+  Settings s;
+  s.beginGroup("Transcoder/lamemp3enc"_L1 + settings_postfix_);
 
   if (s.value("target").isNull()) {
     s.setValue("target", 1);  // 1 == bitrate
@@ -224,16 +215,17 @@ Transcoder::Transcoder(QObject *parent, const QString &settings_postfix)
 QList<TranscoderPreset> Transcoder::GetAllPresets() {
 
   QList<TranscoderPreset> ret;
-  ret << PresetForFileType(Song::FileType_WAV);
-  ret << PresetForFileType(Song::FileType_FLAC);
-  ret << PresetForFileType(Song::FileType_WavPack);
-  ret << PresetForFileType(Song::FileType_OggFlac);
-  ret << PresetForFileType(Song::FileType_OggVorbis);
-  ret << PresetForFileType(Song::FileType_OggOpus);
-  ret << PresetForFileType(Song::FileType_OggSpeex);
-  ret << PresetForFileType(Song::FileType_MPEG);
-  ret << PresetForFileType(Song::FileType_MP4);
-  ret << PresetForFileType(Song::FileType_ASF);
+  ret << PresetForFileType(Song::FileType::WAV);
+  ret << PresetForFileType(Song::FileType::FLAC);
+  ret << PresetForFileType(Song::FileType::WavPack);
+  ret << PresetForFileType(Song::FileType::OggFlac);
+  ret << PresetForFileType(Song::FileType::OggVorbis);
+  ret << PresetForFileType(Song::FileType::OggOpus);
+  ret << PresetForFileType(Song::FileType::OggSpeex);
+  ret << PresetForFileType(Song::FileType::MPEG);
+  ret << PresetForFileType(Song::FileType::MP4);
+  ret << PresetForFileType(Song::FileType::ASF);
+  ret << PresetForFileType(Song::FileType::ALAC);
 
   return ret;
 
@@ -242,28 +234,30 @@ QList<TranscoderPreset> Transcoder::GetAllPresets() {
 TranscoderPreset Transcoder::PresetForFileType(const Song::FileType filetype) {
 
   switch (filetype) {
-    case Song::FileType_WAV:
-      return TranscoderPreset(filetype, "Wav",                    "wav",  QString(), "audio/x-wav");
-    case Song::FileType_FLAC:
-      return TranscoderPreset(filetype, "FLAC",                   "flac", "audio/x-flac");
-    case Song::FileType_WavPack:
-      return TranscoderPreset(filetype, "WavPack",                "wv",   "audio/x-wavpack");
-    case Song::FileType_OggFlac:
-      return TranscoderPreset(filetype, "Ogg FLAC",               "ogg",  "audio/x-flac", "application/ogg");
-    case Song::FileType_OggVorbis:
-      return TranscoderPreset(filetype, "Ogg Vorbis",             "ogg",  "audio/x-vorbis", "application/ogg");
-    case Song::FileType_OggOpus:
-      return TranscoderPreset(filetype, "Ogg Opus",               "opus", "audio/x-opus", "application/ogg");
-    case Song::FileType_OggSpeex:
-      return TranscoderPreset(filetype, "Ogg Speex",              "spx",  "audio/x-speex", "application/ogg");
-    case Song::FileType_MPEG:
-      return TranscoderPreset(filetype, "MP3",                    "mp3",  "audio/mpeg, mpegversion=(int)1, layer=(int)3");
-    case Song::FileType_MP4:
-      return TranscoderPreset(filetype, "M4A AAC",                "mp4",  "audio/mpeg, mpegversion=(int)4", "audio/mp4");
-    case Song::FileType_ASF:
-      return TranscoderPreset(filetype, "Windows Media audio",    "wma",  "audio/x-wma", "video/x-ms-asf");
+    case Song::FileType::WAV:
+      return TranscoderPreset(filetype, u"Wav"_s,                    u"wav"_s,  QString(), u"audio/x-wav"_s);
+    case Song::FileType::FLAC:
+      return TranscoderPreset(filetype, u"FLAC"_s,                   u"flac"_s, u"audio/x-flac"_s);
+    case Song::FileType::WavPack:
+      return TranscoderPreset(filetype, u"WavPack"_s,                u"wv"_s,   u"audio/x-wavpack"_s);
+    case Song::FileType::OggFlac:
+      return TranscoderPreset(filetype, u"Ogg FLAC"_s,               u"ogg"_s,  u"audio/x-flac"_s, u"application/ogg"_s);
+    case Song::FileType::OggVorbis:
+      return TranscoderPreset(filetype, u"Ogg Vorbis"_s,             u"ogg"_s,  u"audio/x-vorbis"_s, u"application/ogg"_s);
+    case Song::FileType::OggOpus:
+      return TranscoderPreset(filetype, u"Ogg Opus"_s,               u"opus"_s, u"audio/x-opus"_s, u"application/ogg"_s);
+    case Song::FileType::OggSpeex:
+      return TranscoderPreset(filetype, u"Ogg Speex"_s,              u"spx"_s,  u"audio/x-speex"_s, u"application/ogg"_s);
+    case Song::FileType::MPEG:
+      return TranscoderPreset(filetype, u"MP3"_s,                    u"mp3"_s,  u"audio/mpeg, mpegversion=(int)1, layer=(int)3"_s);
+    case Song::FileType::MP4:
+      return TranscoderPreset(filetype, u"M4A AAC"_s,                u"mp4"_s,  u"audio/mpeg, mpegversion=(int)4"_s, u"audio/mp4"_s);
+    case Song::FileType::ASF:
+      return TranscoderPreset(filetype, u"Windows Media audio"_s,    u"wma"_s,  u"audio/x-wma"_s, u"video/x-ms-asf"_s);
+    case Song::FileType::ALAC:
+      return TranscoderPreset(filetype, u"ALAC"_s,                   u"m4a"_s,  u"audio/x-alac"_s, u"audio/mp4"_s);
     default:
-      qLog(Warning) << "Unsupported format in PresetForFileType:" << filetype;
+      qLog(Warning) << "Unsupported format in PresetForFileType:" << static_cast<int>(filetype);
       return TranscoderPreset();
   }
 
@@ -271,15 +265,11 @@ TranscoderPreset Transcoder::PresetForFileType(const Song::FileType filetype) {
 
 Song::FileType Transcoder::PickBestFormat(const QList<Song::FileType> &supported) {
 
-  if (supported.isEmpty()) return Song::FileType_Unknown;
+  if (supported.isEmpty()) return Song::FileType::Unknown;
 
-  QList<Song::FileType> best_formats;
-  best_formats << Song::FileType_FLAC;
-  best_formats << Song::FileType_OggFlac;
-  best_formats << Song::FileType_WavPack;
-
+  const QList<Song::FileType> best_formats = QList<Song::FileType>() << Song::FileType::FLAC << Song::FileType::OggFlac << Song::FileType::WavPack;
   for (Song::FileType type : best_formats) {
-    if (supported.isEmpty() || supported.contains(type)) return type;
+    if (supported.contains(type)) return type;
   }
 
   return supported[0];
@@ -296,10 +286,10 @@ QString Transcoder::GetFile(const QString &input, const TranscoderPreset &preset
 
   if (!fileinfo_output.isFile() || fileinfo_output.filePath().isEmpty() || fileinfo_output.path().isEmpty() || fileinfo_output.fileName().isEmpty() || fileinfo_output.suffix().isEmpty()) {
     QFileInfo fileinfo_input(input);
-    QString temp_dir = QStandardPaths::writableLocation(QStandardPaths::CacheLocation) + "/transcoder";
+    QString temp_dir = StandardPaths::WritableLocation(StandardPaths::StandardLocation::CacheLocation) + "/transcoder"_L1;
     if (!QDir(temp_dir).exists()) QDir().mkpath(temp_dir);
-    QString filename = fileinfo_input.completeBaseName() + "." + preset.extension_;
-    fileinfo_output.setFile(temp_dir + "/" + filename);
+    QString filename = fileinfo_input.completeBaseName() + QLatin1Char('.') + preset.extension_;
+    fileinfo_output.setFile(temp_dir + QLatin1Char('/') + filename);
   }
 
   // Never overwrite existing files
@@ -308,7 +298,7 @@ QString Transcoder::GetFile(const QString &input, const TranscoderPreset &preset
     QString filename = fileinfo_output.completeBaseName();
     QString suffix = fileinfo_output.suffix();
     for (int i = 0;; ++i) {
-      QString new_filename = QString("%1/%2-%3.%4").arg(path, filename).arg(i).arg(suffix);
+      QString new_filename = QStringLiteral("%1/%2-%3.%4").arg(path, filename).arg(i).arg(suffix);
       fileinfo_output.setFile(new_filename);
       if (!fileinfo_output.exists()) {
         break;
@@ -333,37 +323,39 @@ void Transcoder::AddJob(const QString &input, const TranscoderPreset &preset, co
 
 void Transcoder::Start() {
 
-  emit LogLine(tr("Transcoding %1 files using %2 threads").arg(queued_jobs_.count()).arg(max_threads()));
+  Q_EMIT LogLine(tr("Transcoding %1 files using %2 threads").arg(queued_jobs_.count()).arg(max_threads()));
 
-  forever {
+  Q_FOREVER {
     StartJobStatus status = MaybeStartNextJob();
-    if (status == AllThreadsBusy || status == NoMoreJobs) break;
+    if (status == StartJobStatus::AllThreadsBusy || status == StartJobStatus::NoMoreJobs) break;
   }
 
 }
 
 Transcoder::StartJobStatus Transcoder::MaybeStartNextJob() {
 
-  if (current_jobs_.count() >= max_threads()) return AllThreadsBusy;
+  if (current_jobs_.count() >= max_threads()) return StartJobStatus::AllThreadsBusy;
   if (queued_jobs_.isEmpty()) {
     if (current_jobs_.isEmpty()) {
-      emit AllJobsComplete();
+      Q_EMIT AllJobsComplete();
     }
 
-    return NoMoreJobs;
+    return StartJobStatus::NoMoreJobs;
   }
 
   Job job = queued_jobs_.takeFirst();
   if (StartJob(job)) {
-    return StartedSuccessfully;
+    return StartJobStatus::StartedSuccessfully;
   }
 
-  emit JobComplete(job.input, job.output, false);
-  return FailedToStart;
+  Q_EMIT JobComplete(job.input, job.output, false);
+  return StartJobStatus::FailedToStart;
 
 }
 
-void Transcoder::NewPadCallback(GstElement*, GstPad *pad, gpointer data) {
+void Transcoder::NewPadCallback(GstElement *element, GstPad *pad, gpointer data) {
+
+  Q_UNUSED(element)
 
   JobState *state = reinterpret_cast<JobState*>(data);
   GstPad *const audiopad = gst_element_get_static_pad(state->convert_element_, "sink");
@@ -378,7 +370,9 @@ void Transcoder::NewPadCallback(GstElement*, GstPad *pad, gpointer data) {
 
 }
 
-GstBusSyncReply Transcoder::BusCallbackSync(GstBus*, GstMessage *msg, gpointer data) {
+GstBusSyncReply Transcoder::BusCallbackSync(GstBus *bus, GstMessage *msg, gpointer data) {
+
+  Q_UNUSED(bus)
 
   JobState *state = reinterpret_cast<JobState*>(data);
   switch (GST_MESSAGE_TYPE(msg)) {
@@ -410,15 +404,15 @@ void Transcoder::JobState::ReportError(GstMessage *msg) const {
   g_error_free(error);
   g_free(debugs);
 
-  emit parent_->LogLine(tr("Error processing %1: %2").arg(QDir::toNativeSeparators(job_.input), message));
+  Q_EMIT parent_->LogLine(tr("Error processing %1: %2").arg(QDir::toNativeSeparators(job_.input), message));
 
 }
 
 bool Transcoder::StartJob(const Job &job) {
 
-  std::shared_ptr<JobState> state = std::make_shared<JobState>(job, this);
+  SharedPtr<JobState> state = make_shared<JobState>(job, this);
 
-  emit LogLine(tr("Starting %1").arg(QDir::toNativeSeparators(job.input)));
+  Q_EMIT LogLine(tr("Starting %1").arg(QDir::toNativeSeparators(job.input)));
 
   // Create the pipeline.
   // This should be a scoped_ptr, but scoped_ptr doesn't support custom destructors.
@@ -426,23 +420,23 @@ bool Transcoder::StartJob(const Job &job) {
   if (!state->pipeline_) return false;
 
   // Create all the elements
-  GstElement *src      = CreateElement("filesrc", state->pipeline_);
-  GstElement *decode   = CreateElement("decodebin", state->pipeline_);
-  GstElement *convert  = CreateElement("audioconvert", state->pipeline_);
-  GstElement *resample = CreateElement("audioresample", state->pipeline_);
-  GstElement *codec    = CreateElementForMimeType("Codec/Encoder/Audio", job.preset.codec_mimetype_, state->pipeline_);
-  GstElement *muxer    = CreateElementForMimeType("Codec/Muxer", job.preset.muxer_mimetype_, state->pipeline_);
-  GstElement *sink     = CreateElement("filesink", state->pipeline_);
+  GstElement *src      = CreateElement(u"filesrc"_s, state->pipeline_);
+  GstElement *decode   = CreateElement(u"decodebin"_s, state->pipeline_);
+  GstElement *convert  = CreateElement(u"audioconvert"_s, state->pipeline_);
+  GstElement *resample = CreateElement(u"audioresample"_s, state->pipeline_);
+  GstElement *codec    = CreateElementForMimeType(GST_ELEMENT_FACTORY_TYPE_AUDIO_ENCODER, job.preset.codec_mimetype_, state->pipeline_);
+  GstElement *muxer    = CreateElementForMimeType(GST_ELEMENT_FACTORY_TYPE_MUXER, job.preset.muxer_mimetype_, state->pipeline_);
+  GstElement *sink     = CreateElement(u"filesink"_s, state->pipeline_);
 
   if (!src || !decode || !convert || !sink) return false;
 
   if (!codec && !job.preset.codec_mimetype_.isEmpty()) {
-    emit LogLine(tr("Couldn't find an encoder for %1, check you have the correct GStreamer plugins installed").arg(job.preset.codec_mimetype_));
+    Q_EMIT LogLine(tr("Couldn't find an encoder for %1, check you have the correct GStreamer plugins installed").arg(job.preset.codec_mimetype_));
     return false;
   }
 
   if (!muxer && !job.preset.muxer_mimetype_.isEmpty()) {
-    emit LogLine(tr("Couldn't find a muxer for %1, check you have the correct GStreamer plugins installed").arg(job.preset.muxer_mimetype_));
+    Q_EMIT LogLine(tr("Couldn't find a muxer for %1, check you have the correct GStreamer plugins installed").arg(job.preset.muxer_mimetype_));
     return false;
   }
 
@@ -504,10 +498,10 @@ bool Transcoder::event(QEvent *e) {
     gst_bus_set_sync_handler(gst_pipeline_get_bus(GST_PIPELINE(finished_event->state_->pipeline_)), nullptr, nullptr, nullptr);
 
     // Remove it from the list - this will also destroy the GStreamer pipeline
-    current_jobs_.erase(it);  // clazy:exclude=strict-iterators
+    current_jobs_.erase(it);
 
     // Emit the finished signal
-    emit JobComplete(input, output, finished_event->success_);
+    Q_EMIT JobComplete(input, output, finished_event->success_);
 
     // Start some more jobs
     MaybeStartNextJob();
@@ -527,7 +521,7 @@ void Transcoder::Cancel() {
   // Stop the running ones
   JobStateList::iterator it = current_jobs_.begin();
   while (it != current_jobs_.end()) {
-    std::shared_ptr<JobState> state(*it);
+    SharedPtr<JobState> state(*it);
 
     // Remove event handlers from the gstreamer pipeline, so they don't get called after the pipeline is shutting down
     gst_bus_set_sync_handler(gst_pipeline_get_bus(GST_PIPELINE(state->pipeline_)), nullptr, nullptr, nullptr);
@@ -539,7 +533,7 @@ void Transcoder::Cancel() {
     }
 
     // Remove the job, this destroys the GStreamer pipeline too
-    it = current_jobs_.erase(it);  // clazy:exclude=strict-iterators
+    it = current_jobs_.erase(it);
   }
 
 }
@@ -566,8 +560,8 @@ QMap<QString, float> Transcoder::GetProgress() const {
 
 void Transcoder::SetElementProperties(const QString &name, GObject *object) {
 
-  QSettings s;
-  s.beginGroup("Transcoder/" + name + settings_postfix_);
+  Settings s;
+  s.beginGroup("Transcoder/"_L1 + name + settings_postfix_);
 
   guint properties_count = 0;
   GParamSpec **properties = g_object_class_list_properties(G_OBJECT_GET_CLASS(object), &properties_count);
@@ -575,16 +569,16 @@ void Transcoder::SetElementProperties(const QString &name, GObject *object) {
   for (uint i = 0; i < properties_count; ++i) {
     GParamSpec *property = properties[i];
 
-    if (!s.contains(property->name)) {
+    if (!s.contains(QString::fromUtf8(property->name))) {
       continue;
     }
 
-    const QVariant value = s.value(property->name);
+    const QVariant value = s.value(QString::fromUtf8(property->name));
     if (value.isNull()) {
       continue;
     }
 
-    emit LogLine(QString("Setting %1 property: %2 = %3").arg(name, property->name, value.toString()));
+    Q_EMIT LogLine(QStringLiteral("Setting %1 property: %2 = %3").arg(name, QString::fromUtf8(property->name), value.toString()));
 
     switch (property->value_type) {
       case G_TYPE_FLOAT:{
@@ -613,7 +607,7 @@ void Transcoder::SetElementProperties(const QString &name, GObject *object) {
         break;
       }
       case G_TYPE_UINT:{
-        const guint g_value = static_cast<gint>(value.toUInt());
+        const guint g_value = static_cast<guint>(value.toUInt());
         qLog(Debug) << "Setting" << property->name << "(uint)" << "to" << g_value;
         g_object_set(object, property->name, g_value, nullptr);
         break;

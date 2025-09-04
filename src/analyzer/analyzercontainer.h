@@ -30,15 +30,14 @@
 #include <QAction>
 #include <QActionGroup>
 
-#include "engine/engine_fwd.h"
+#include "includes/shared_ptr.h"
+#include "engine/enginebase.h"
 
 class QTimer;
 class QMouseEvent;
 class QWheelEvent;
 
-namespace Analyzer {
-class Base;
-}  // namespace Analyzer
+class AnalyzerBase;
 
 class AnalyzerContainer : public QWidget {
   Q_OBJECT
@@ -46,32 +45,25 @@ class AnalyzerContainer : public QWidget {
  public:
   explicit AnalyzerContainer(QWidget *parent);
 
-  void SetEngine(EngineBase *engine);
-  void SetActions(QAction *visualisation);
+  void SetEngine(SharedPtr<EngineBase> engine);
 
   static const char *kSettingsGroup;
   static const char *kSettingsFramerate;
 
- signals:
-  void WheelEvent(int delta);
+ Q_SIGNALS:
+  void WheelEvent(const int delta);
 
  protected:
-  void mouseReleaseEvent(QMouseEvent*) override;
+  void mouseReleaseEvent(QMouseEvent *e) override;
   void wheelEvent(QWheelEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void ChangeAnalyzer(const int id);
   void ChangeFramerate(int new_framerate);
   void DisableAnalyzer();
   void ShowPopupMenu();
 
  private:
-  static const int kLowFramerate;
-  static const int kMediumFramerate;
-  static const int kHighFramerate;
-  static const int kHigherFramerate;
-  static const int kSuperHighFramerate;
-
   void Load();
   void Save();
   void SaveFramerate(const int framerate);
@@ -95,8 +87,8 @@ class AnalyzerContainer : public QWidget {
   QPoint last_click_pos_;
   bool ignore_next_click_;
 
-  Analyzer::Base *current_analyzer_;
-  EngineBase *engine_;
+  AnalyzerBase *current_analyzer_;
+  SharedPtr<EngineBase> engine_;
 };
 
 template<typename T>

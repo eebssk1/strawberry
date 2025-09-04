@@ -29,16 +29,21 @@
 #include <QSqlDatabase>
 #include <QSqlQuery>
 #include <QSqlRecord>
+#include <QSqlError>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollBar>
 #include <QTextBrowser>
 
 #include "console.h"
-#include "core/application.h"
+
+#include "includes/shared_ptr.h"
+#include "core/logging.h"
 #include "core/database.h"
 
-Console::Console(Application *app, QWidget *parent) : QDialog(parent), ui_{}, app_(app) {
+using namespace Qt::Literals::StringLiterals;
+
+Console::Console(const SharedPtr<Database> database, QWidget *parent) : QDialog(parent), ui_{}, database_(database) {
 
   ui_.setupUi(this);
 
@@ -46,7 +51,7 @@ Console::Console(Application *app, QWidget *parent) : QDialog(parent), ui_{}, ap
 
   QObject::connect(ui_.run, &QPushButton::clicked, this, &Console::RunQuery);
 
-  QFont font("Monospace");
+  QFont font(u"Monospace"_s);
   font.setStyleHint(QFont::TypeWriter);
 
   ui_.output->setFont(font);
@@ -56,15 +61,22 @@ Console::Console(Application *app, QWidget *parent) : QDialog(parent), ui_{}, ap
 
 void Console::RunQuery() {
 
-  QSqlDatabase db = app_->database()->Connect();
-  QSqlQuery query = db.exec(ui_.query->text());
-  //ui_.query->clear();
+  QSqlDatabase db = database_->Connect();
+  QSqlQuery query(db);
+  if (!query.prepare(ui_.query->text())) {
+    qLog(Error) << query.lastError();
+    Q_EMIT Error(query.lastError().text());
+    return;
+  }
+  if (!query.exec()) {
+    qLog(Error) << query.lastError();
+    Q_EMIT Error(query.lastError().text());
+    return;
+  }
 
-  ui_.output->append("<b>&gt; " + query.executedQuery() + "</b>");
+  ui_.output->append(u"<b>&gt; "_s + query.executedQuery() + u"</b>"_s);
 
-  query.next();
-
-  while (query.isValid()) {
+  while (query.next() && query.isValid()) {
     QSqlRecord record = query.record();
     QStringList values;  // clazy:exclude=container-inside-loop
     values.reserve(record.count());
@@ -72,9 +84,8 @@ void Console::RunQuery() {
       values.append(record.value(i).toString());
     }
 
-    ui_.output->append(values.join("|"));
+    ui_.output->append(values.join(u'|'));
 
-    query.next();
   }
 
   ui_.output->verticalScrollBar()->setValue(ui_.output->verticalScrollBar()->maximum());

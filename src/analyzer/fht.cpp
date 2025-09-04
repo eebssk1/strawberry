@@ -25,10 +25,10 @@
 #include <algorithm>
 #include <cmath>
 
-#include <QVector>
+#include <QList>
 #include <QtMath>
 
-FHT::FHT(uint n) : num_((n < 3) ? 0 : 1 << n), exp2_((n < 3) ? static_cast<int>(-1) : static_cast<int>(n)) {
+FHT::FHT(uint n) : num_((n < 3) ? 0 : 1 << n), exp2_((n < 3) ? -1 : static_cast<int>(n)) {
 
   if (n > 3) {
     buf_vector_.resize(num_);
@@ -47,7 +47,7 @@ float *FHT::buf_() { return buf_vector_.data(); }
 float *FHT::tab_() { return tab_vector_.data(); }
 int *FHT::log_() { return log_vector_.data(); }
 
-void FHT::makeCasTable(void) {
+void FHT::makeCasTable() {
 
   float *costab = tab_();
   float *sintab = tab_() + num_ / 2 + 1;

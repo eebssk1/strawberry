@@ -39,14 +39,18 @@
 #include "core/logging.h"
 #include "core/signalchecker.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 #ifndef u_int32_t
 using u_int32_t = unsigned int;
 #endif
 
-static const int kDecodeRate = 11025;
-static const int kDecodeChannels = 1;
-static const int kPlayLengthSecs = 30;
-static const int kTimeoutSecs = 10;
+namespace {
+constexpr int kDecodeRate = 11025;
+constexpr int kDecodeChannels = 1;
+constexpr int kPlayLengthSecs = 30;
+constexpr int kTimeoutSecs = 10;
+}  // namespace
 
 Chromaprinter::Chromaprinter(const QString &filename)
     : filename_(filename),
@@ -78,11 +82,11 @@ QString Chromaprinter::CreateFingerprint() {
     return QString();
   }
 
-  GstElement *src = CreateElement("filesrc", pipeline);
-  GstElement *decode = CreateElement("decodebin", pipeline);
-  GstElement *convert = CreateElement("audioconvert", pipeline);
-  GstElement *resample = CreateElement("audioresample", pipeline);
-  GstElement *sink = CreateElement("appsink", pipeline);
+  GstElement *src = CreateElement(u"filesrc"_s, pipeline);
+  GstElement *decode = CreateElement(u"decodebin"_s, pipeline);
+  GstElement *convert = CreateElement(u"audioconvert"_s, pipeline);
+  GstElement *resample = CreateElement(u"audioresample"_s, pipeline);
+  GstElement *sink = CreateElement(u"appsink"_s, pipeline);
 
   if (!src || !decode || !convert || !resample || !sink) {
     gst_object_unref(pipeline);
@@ -166,7 +170,7 @@ QString Chromaprinter::CreateFingerprint() {
     int encoded_size = 0;
     ret = chromaprint_encode_fingerprint(fprint, size, CHROMAPRINT_ALGORITHM_DEFAULT, &encoded, &encoded_size, 1);
     if (ret == 1) {
-      fingerprint.append(reinterpret_cast<char*>(encoded), encoded_size);
+      fingerprint.append(encoded, encoded_size);
       chromaprint_dealloc(encoded);
     }
     chromaprint_dealloc(fprint);
@@ -183,11 +187,13 @@ QString Chromaprinter::CreateFingerprint() {
   gst_element_set_state(pipeline, GST_STATE_NULL);
   gst_object_unref(pipeline);
 
-  return fingerprint;
+  return QString::fromUtf8(fingerprint);
 
 }
 
-void Chromaprinter::NewPadCallback(GstElement*, GstPad *pad, gpointer data) {
+void Chromaprinter::NewPadCallback(GstElement *element, GstPad *pad, gpointer data) {
+
+  Q_UNUSED(element)
 
   Chromaprinter *instance = reinterpret_cast<Chromaprinter*>(data);
   GstPad *const audiopad = gst_element_get_static_pad(instance->convert_element_, "sink");

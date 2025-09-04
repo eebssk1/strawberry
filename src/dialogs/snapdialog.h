@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2023, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,22 +20,13 @@
 #ifndef SNAPDIALOG_H
 #define SNAPDIALOG_H
 
-#include <QDialog>
+#include "messagedialog.h"
 
-class Ui_SnapDialog;
-
-class SnapDialog : public QDialog {
+class SnapDialog : public MessageDialog {
   Q_OBJECT
 
  public:
   explicit SnapDialog(QWidget *parent = nullptr);
-  ~SnapDialog() override;
-
- private slots:
-  void DoNotShowMessageAgain();
-
- private:
-  Ui_SnapDialog *ui_;
 };
 
 #endif  // SNAPDIALOG_H

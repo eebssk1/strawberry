@@ -21,7 +21,7 @@
 
 #include "config.h"
 
-#ifdef HAVE_LIBGPOD
+#ifdef HAVE_GPOD
 #  include <gpod/itdb.h>
 #endif
 
@@ -37,11 +37,15 @@
 
 #include "core/logging.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 DeviceLister::DeviceLister(QObject *parent)
     : QObject(parent),
       thread_(nullptr),
       original_thread_(nullptr),
       next_mount_request_id_(0) {
+
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
 
   original_thread_ = thread();
 
@@ -60,6 +64,7 @@ DeviceLister::~DeviceLister() {
 void DeviceLister::Start() {
 
   thread_ = new QThread;
+  thread_->setObjectName(objectName());
   QObject::connect(thread_, &QThread::started, this, &DeviceLister::ThreadStarted);
 
   moveToThread(thread_);
@@ -83,11 +88,11 @@ void DeviceLister::UnmountDeviceAsync(const QString &id) {
 }
 
 void DeviceLister::MountDevice(const QString &id, const int request_id) {
-  emit DeviceMounted(id, request_id, true);
+  Q_EMIT DeviceMounted(id, request_id, true);
 }
 
 void DeviceLister::ExitAsync() {
-  QMetaObject::invokeMethod(this, "Exit", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &DeviceLister::Exit, Qt::QueuedConnection);
 }
 
 void DeviceLister::Exit() {
@@ -96,13 +101,13 @@ void DeviceLister::Exit() {
   if (thread_) {
     moveToThread(original_thread_);
   }
-  emit ExitFinished();
+  Q_EMIT ExitFinished();
 
 }
 
 namespace {
 
-#ifdef HAVE_LIBGPOD
+#ifdef HAVE_GPOD
 
 QString GetIpodColour(Itdb_IpodModel model) {
 
@@ -110,48 +115,48 @@ QString GetIpodColour(Itdb_IpodModel model) {
     case ITDB_IPOD_MODEL_MINI_GREEN:
     case ITDB_IPOD_MODEL_NANO_GREEN:
     case ITDB_IPOD_MODEL_SHUFFLE_GREEN:
-      return "green";
+      return u"green"_s;
 
     case ITDB_IPOD_MODEL_MINI_BLUE:
     case ITDB_IPOD_MODEL_NANO_BLUE:
     case ITDB_IPOD_MODEL_SHUFFLE_BLUE:
-      return "blue";
+      return u"blue"_s;
 
     case ITDB_IPOD_MODEL_MINI_PINK:
     case ITDB_IPOD_MODEL_NANO_PINK:
     case ITDB_IPOD_MODEL_SHUFFLE_PINK:
-      return "pink";
+      return u"pink"_s;
 
     case ITDB_IPOD_MODEL_MINI_GOLD:
-      return "gold";
+      return u"gold"_s;
 
     case ITDB_IPOD_MODEL_NANO_WHITE:
     case ITDB_IPOD_MODEL_VIDEO_WHITE:
-      return "white";
+      return u"white"_s;
 
     case ITDB_IPOD_MODEL_NANO_SILVER:
     case ITDB_IPOD_MODEL_CLASSIC_SILVER:
-      return "silver";
+      return u"silver"_s;
 
     case ITDB_IPOD_MODEL_NANO_RED:
     case ITDB_IPOD_MODEL_SHUFFLE_RED:
-      return "red";
+      return u"red"_s;
 
     case ITDB_IPOD_MODEL_NANO_YELLOW:
-      return "yellow";
+      return u"yellow"_s;
 
     case ITDB_IPOD_MODEL_NANO_PURPLE:
     case ITDB_IPOD_MODEL_SHUFFLE_PURPLE:
-      return "purple";
+      return u"purple"_s;
 
     case ITDB_IPOD_MODEL_NANO_ORANGE:
     case ITDB_IPOD_MODEL_SHUFFLE_ORANGE:
-      return "orange";
+      return u"orange"_s;
 
     case ITDB_IPOD_MODEL_NANO_BLACK:
     case ITDB_IPOD_MODEL_VIDEO_BLACK:
     case ITDB_IPOD_MODEL_CLASSIC_BLACK:
-      return "black";
+      return u"black"_s;
 
     default:
       return QString();
@@ -167,7 +172,7 @@ QString GetIpodModel(Itdb_IpodModel model) {
     case ITDB_IPOD_MODEL_MINI_PINK:
     case ITDB_IPOD_MODEL_MINI_GREEN:
     case ITDB_IPOD_MODEL_MINI_GOLD:
-      return "mini";
+      return u"mini"_s;
 
     case ITDB_IPOD_MODEL_NANO_WHITE:
     case ITDB_IPOD_MODEL_NANO_BLACK:
@@ -179,7 +184,7 @@ QString GetIpodModel(Itdb_IpodModel model) {
     case ITDB_IPOD_MODEL_NANO_YELLOW:
     case ITDB_IPOD_MODEL_NANO_PURPLE:
     case ITDB_IPOD_MODEL_NANO_ORANGE:
-      return "nano";
+      return u"nano"_s;
 
     case ITDB_IPOD_MODEL_SHUFFLE:
     case ITDB_IPOD_MODEL_SHUFFLE_SILVER:
@@ -188,17 +193,17 @@ QString GetIpodModel(Itdb_IpodModel model) {
     case ITDB_IPOD_MODEL_SHUFFLE_GREEN:
     case ITDB_IPOD_MODEL_SHUFFLE_ORANGE:
     case ITDB_IPOD_MODEL_SHUFFLE_RED:
-      return "shuffle";
+      return u"shuffle"_s;
 
     case ITDB_IPOD_MODEL_COLOR:
     case ITDB_IPOD_MODEL_REGULAR:
     case ITDB_IPOD_MODEL_CLASSIC_SILVER:
     case ITDB_IPOD_MODEL_CLASSIC_BLACK:
-      return "standard";
+      return u"standard"_s;
 
     case ITDB_IPOD_MODEL_COLOR_U2:
     case ITDB_IPOD_MODEL_REGULAR_U2:
-      return "U2";
+      return u"U2"_s;
 
     default:
       return QString();
@@ -213,7 +218,7 @@ QUrl DeviceLister::MakeUrlFromLocalPath(const QString &path) const {
 
   if (IsIpod(path)) {
     QUrl ret;
-    ret.setScheme("ipod");
+    ret.setScheme(u"ipod"_s);
     ret.setPath(QDir::fromNativeSeparators(path));
     return ret;
   }
@@ -222,40 +227,40 @@ QUrl DeviceLister::MakeUrlFromLocalPath(const QString &path) const {
 
 }
 
-bool DeviceLister::IsIpod(const QString &path) const {
-  return QFile::exists(path + "/iTunes_Control") ||
-         QFile::exists(path + "/iPod_Control") ||
-         QFile::exists(path + "/iTunes/iTunes_Control");
+bool DeviceLister::IsIpod(const QString &path) {
+  return QFile::exists(path + "/iTunes_Control"_L1) ||
+         QFile::exists(path + "/iPod_Control"_L1) ||
+         QFile::exists(path + "/iTunes/iTunes_Control"_L1);
 }
 
 QVariantList DeviceLister::GuessIconForPath(const QString &path) {
 
   QVariantList ret;
 
-#ifdef HAVE_LIBGPOD
+#ifdef HAVE_GPOD
   if (IsIpod(path)) {
     Itdb_Device *device = itdb_device_new();
     itdb_device_set_mountpoint(device, path.toLocal8Bit().constData());
     const Itdb_IpodInfo *info = itdb_device_get_ipod_info(device);
 
     if (info->ipod_model == ITDB_IPOD_MODEL_INVALID) {
-      ret << "device-ipod";
+      ret << u"device-ipod"_s;
     }
     else {
       QString model = GetIpodModel(info->ipod_model);
       QString colour = GetIpodColour(info->ipod_model);
 
       if (!model.isEmpty()) {
-        QString model_icon = QString("multimedia-player-ipod-%1").arg(model);
+        QString model_icon = QStringLiteral("multimedia-player-ipod-%1").arg(model);
         if (QFile(model_icon).exists()) ret << model_icon;
         if (!colour.isEmpty()) {
-          QString colour_icon = QString("multimedia-player-ipod-%1-%2").arg(model, colour);
+          QString colour_icon = QStringLiteral("multimedia-player-ipod-%1-%2").arg(model, colour);
           if (QFile(colour_icon).exists()) ret << colour_icon;
         }
       }
 
       if (ret.isEmpty()) {
-        ret << "device-ipod";
+        ret << u"device-ipod"_s;
       }
 
     }
@@ -274,8 +279,8 @@ QVariantList DeviceLister::GuessIconForPath(const QString &path) {
 QVariantList DeviceLister::GuessIconForModel(const QString &vendor, const QString &model) {
 
   QVariantList ret;
-  if (vendor.startsWith("Google") && model.contains("Nexus")) {
-    ret << "phone-google-nexus-one";
+  if (vendor.startsWith("Google"_L1) && model.contains("Nexus"_L1)) {
+    ret << u"phone-google-nexus-one"_s;
   }
   return ret;
 

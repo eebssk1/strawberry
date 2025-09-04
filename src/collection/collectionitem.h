@@ -1,8 +1,6 @@
 /*
  * Strawberry Music Player
- * This file was part of Clementine.
- * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,31 +20,23 @@
 #ifndef COLLECTIONITEM_H
 #define COLLECTIONITEM_H
 
-#include "config.h"
-
 #include "core/simpletreeitem.h"
 #include "core/song.h"
 
 class CollectionItem : public SimpleTreeItem<CollectionItem> {
  public:
-  enum Type {
-    Type_Root,
-    Type_Divider,
-    Type_Container,
-    Type_Song,
-    Type_LoadingIndicator,
+  enum class Type {
+    Root,
+    Divider,
+    Container,
+    Song,
+    LoadingIndicator,
   };
 
-  explicit CollectionItem(SimpleTreeModel<CollectionItem> *_model)
-      : SimpleTreeItem<CollectionItem>(Type_Root, _model),
-        container_level(-1),
-        compilation_artist_node_(nullptr) {}
+  explicit CollectionItem(SimpleTreeModel<CollectionItem> *_model);
+  explicit CollectionItem(const Type _type, CollectionItem *_parent = nullptr);
 
-  explicit CollectionItem(Type _type, CollectionItem *_parent = nullptr)
-      : SimpleTreeItem<CollectionItem>(_type, _parent),
-        container_level(-1),
-        compilation_artist_node_(nullptr) {}
-
+  Type type;
   int container_level;
   Song metadata;
   CollectionItem *compilation_artist_node_;
@@ -54,5 +44,7 @@ class CollectionItem : public SimpleTreeItem<CollectionItem> {
  private:
   Q_DISABLE_COPY(CollectionItem)
 };
+
+Q_DECLARE_METATYPE(CollectionItem::Type)
 
 #endif  // COLLECTIONITEM_H

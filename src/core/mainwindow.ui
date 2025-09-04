@@ -13,10 +13,6 @@
   <property name="windowTitle">
    <string>Strawberry Music Player</string>
   </property>
-  <property name="windowIcon">
-   <iconset resource="../../data/icons.qrc">
-    <normaloff>:/icons/128x128/strawberry.png</normaloff>:/icons/128x128/strawberry.png</iconset>
-  </property>
   <widget class="QWidget" name="centralWidget">
    <layout class="QVBoxLayout" name="layout_centralWidget">
     <property name="spacing">
@@ -122,6 +118,9 @@
                 </property>
                 <item>
                  <widget class="QToolButton" name="back_button">
+                  <property name="accessibleName">
+                   <string>MenuPopupToolButton</string>
+                  </property>
                   <property name="iconSize">
                    <size>
                     <width>32</width>
@@ -135,6 +134,9 @@
                 </item>
                 <item>
                  <widget class="QToolButton" name="pause_play_button">
+                  <property name="accessibleName">
+                   <string>MenuPopupToolButton</string>
+                  </property>
                   <property name="iconSize">
                    <size>
                     <width>32</width>
@@ -150,6 +152,9 @@
                  <widget class="QToolButton" name="stop_button">
                   <property name="enabled">
                    <bool>false</bool>
+                  </property>
+                  <property name="accessibleName">
+                   <string>MenuPopupToolButton</string>
                   </property>
                   <property name="iconSize">
                    <size>
@@ -167,6 +172,9 @@
                 </item>
                 <item>
                  <widget class="QToolButton" name="forward_button">
+                  <property name="accessibleName">
+                   <string>MenuPopupToolButton</string>
+                  </property>
                   <property name="iconSize">
                    <size>
                     <width>32</width>
@@ -205,6 +213,9 @@
                    </item>
                    <item>
                     <widget class="QToolButton" name="button_love">
+                     <property name="accessibleName">
+                      <string>MenuPopupToolButton</string>
+                     </property>
                      <property name="iconSize">
                       <size>
                        <width>32</width>
@@ -509,7 +520,7 @@
     <addaction name="separator"/>
     <addaction name="action_update_collection"/>
     <addaction name="action_full_collection_scan"/>
-    <addaction name="action_abort_collection_scan"/>
+    <addaction name="action_stop_collection_scan"/>
     <addaction name="separator"/>
     <addaction name="action_settings"/>
     <addaction name="action_import_data_from_last_fm"/>
@@ -619,9 +630,6 @@
   <action name="action_edit_value">
    <property name="text">
     <string>Edit tag...</string>
-   </property>
-   <property name="shortcut">
-    <string>F2</string>
    </property>
   </action>
   <action name="action_settings">
@@ -792,9 +800,12 @@
     <string>&amp;Do a full collection rescan</string>
    </property>
   </action>
-  <action name="action_abort_collection_scan">
+  <action name="action_stop_collection_scan">
    <property name="text">
-    <string>Abort collection scan</string>
+    <string>Stop collection scan</string>
+   </property>
+   <property name="toolTip">
+    <string>Stop collection scan</string>
    </property>
   </action>
   <action name="action_auto_complete_tags">

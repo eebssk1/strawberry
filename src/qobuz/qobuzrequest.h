@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,11 +22,6 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QPair>
-#include <QSet>
-#include <QList>
 #include <QHash>
 #include <QMap>
 #include <QMultiMap>
@@ -36,13 +31,14 @@
 #include <QStringList>
 #include <QUrl>
 #include <QJsonObject>
+#include <QScopedPointer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "qobuzbaserequest.h"
 
 class QNetworkReply;
 class QTimer;
-class Application;
 class NetworkAccessManager;
 class QobuzService;
 class QobuzUrlHandler;
@@ -51,9 +47,7 @@ class QobuzRequest : public QobuzBaseRequest {
   Q_OBJECT
 
  public:
-
-  explicit QobuzRequest(QobuzService *service, QobuzUrlHandler *url_handler, Application *app, NetworkAccessManager *network, QueryType type, QObject *parent = nullptr);
-  ~QobuzRequest() override;
+  explicit QobuzRequest(QobuzService *service, QobuzUrlHandler *url_handler, const SharedPtr<NetworkAccessManager> network, const Type query_type, QObject *parent = nullptr);
 
   void ReloadSettings();
 
@@ -97,31 +91,28 @@ class QobuzRequest : public QobuzBaseRequest {
     QString filename;
   };
 
- signals:
-  void LoginSuccess();
-  void LoginFailure(QString failure_reason);
-  void Results(int id, SongMap songs, QString error);
-  void UpdateStatus(int id, QString text);
-  void UpdateProgress(int id, int max);
-  void StreamURLFinished(QUrl original_url, QUrl url, Song::FileType, QString error = QString());
+ Q_SIGNALS:
+  void Results(const int id, const SongMap &songs, const QString &error);
+  void UpdateStatus(const int id, const QString &text);
+  void UpdateProgress(const int id, const int max);
+  void StreamURLFinished(const QUrl &media_url, const QUrl &url, const Song::FileType filetype, const QString &error = QString());
 
- private slots:
+ private Q_SLOTS:
   void ArtistsReplyReceived(QNetworkReply *reply, const int limit_requested, const int offset_requested);
 
   void AlbumsReplyReceived(QNetworkReply *reply, const int limit_requested, const int offset_requested);
-  void AlbumsReceived(QNetworkReply *reply, const Artist &artist_requested, const int limit_requested, const int offset_requested);
+  void AlbumsReceived(QNetworkReply *reply, const QobuzRequest::Artist &artist_requested, const int limit_requested, const int offset_requested);
 
   void SongsReplyReceived(QNetworkReply *reply, const int limit_requested, const int offset_requested);
-  void SongsReceived(QNetworkReply *reply, const Artist &artist_requested, const Album &album_requested, const int limit_requested, const int offset_requested);
+  void SongsReceived(QNetworkReply *reply, const QobuzRequest::Artist &artist_requested, const QobuzRequest::Album &album_requested, const int limit_requested, const int offset_requested);
 
-  void ArtistAlbumsReplyReceived(QNetworkReply *reply, const Artist &artist, const int offset_requested);
-  void AlbumSongsReplyReceived(QNetworkReply *reply, const Artist &artist, const Album &album, const int offset_requested);
+  void ArtistAlbumsReplyReceived(QNetworkReply *reply, const QobuzRequest::Artist &artist, const int offset_requested);
+  void AlbumSongsReplyReceived(QNetworkReply *reply, const QobuzRequest::Artist &artist, const QobuzRequest::Album &album, const int offset_requested);
   void AlbumCoverReceived(QNetworkReply *reply, const QUrl &cover_url, const QString &filename);
 
  private:
-
-  bool IsQuery() { return (type_ == QueryType_Artists || type_ == QueryType_Albums || type_ == QueryType_Songs); }
-  bool IsSearch() { return (type_ == QueryType_SearchArtists || type_ == QueryType_SearchAlbums || type_ == QueryType_SearchSongs); }
+  bool IsQuery() const { return (query_type_ == Type::FavouriteArtists || query_type_ == Type::FavouriteAlbums || query_type_ == Type::FavouriteSongs); }
+  bool IsSearch() const { return (query_type_ == Type::SearchArtists || query_type_ == Type::SearchAlbums || query_type_ == Type::SearchSongs); }
 
   void StartRequests();
   void FlushRequests();
@@ -144,9 +135,9 @@ class QobuzRequest : public QobuzBaseRequest {
   void AddSongsSearchRequest(const int offset = 0);
   void FlushSongsRequests();
 
-  void ArtistsFinishCheck(const int limit = 0, const int offset = 0, const int artists_received = 0);
-  void AlbumsFinishCheck(const Artist &artist, const int limit = 0, const int offset = 0, const int albums_total = 0, const int albums_received = 0);
-  void SongsFinishCheck(const Artist &artist, const Album &album, const int limit = 0, const int offset = 0, const int songs_total = 0, const int songs_received = 0);
+  void ArtistsFinishCheck(const int limit, const int offset, const int artists_received);
+  void AlbumsFinishCheck(const Artist &artist, const int limit, const int offset, const int albums_total, const int albums_received);
+  void SongsFinishCheck(const Artist &artist, const Album &album, const int limit, const int offset, const int songs_total, const int songs_received);
 
   void AddArtistAlbumsRequest(const Artist &artist, const int offset = 0);
   void FlushArtistAlbumsRequests();
@@ -167,24 +158,13 @@ class QobuzRequest : public QobuzBaseRequest {
   int GetProgress(const int count, const int total);
 
   void FinishCheck();
-  static void Warn(const QString &error, const QVariant &debug = QVariant());
-  void Error(const QString &error, const QVariant &debug = QVariant()) override;
+  static void Warn(const QString &error_message, const QVariant &debug_output = QVariant());
+  void Error(const QString &error_message, const QVariant &debug_output = QVariant());
 
-  static const int kMaxConcurrentArtistsRequests;
-  static const int kMaxConcurrentAlbumsRequests;
-  static const int kMaxConcurrentSongsRequests;
-  static const int kMaxConcurrentArtistAlbumsRequests;
-  static const int kMaxConcurrentAlbumSongsRequests;
-  static const int kMaxConcurrentAlbumCoverRequests;
-  static const int kFlushRequestsDelay;
-
-  QobuzService *service_;
   QobuzUrlHandler *url_handler_;
-  Application *app_;
-  NetworkAccessManager *network_;
   QTimer *timer_flush_requests_;
 
-  const QueryType type_;
+  const Type query_type_;
   int query_id_;
   QString search_text_;
 
@@ -237,11 +217,10 @@ class QobuzRequest : public QobuzBaseRequest {
   int album_covers_requests_received_;
 
   SongMap songs_;
-  QStringList errors_;
   bool no_results_;
-  QList<QNetworkReply*> replies_;
-  QList<QNetworkReply*> album_cover_replies_;
-
+  QString error_;
 };
+
+using QobuzRequestPtr = QScopedPointer<QobuzRequest, QScopedPointerDeleteLater>;
 
 #endif  // QOBUZREQUEST_H

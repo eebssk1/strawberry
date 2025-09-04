@@ -20,68 +20,38 @@
 
 #include "config.h"
 
-#include <QWidget>
-#include <QTimer>
 #include <QIODevice>
 #include <QFile>
 #include <QMessageBox>
-#include <QImage>
-#include <QPixmap>
-#include <QPainter>
-#include <QPalette>
 #include <QDateTime>
+#include <QMetaObject>
 #include <QPropertyAnimation>
-#include <QKeyEvent>
+#include <QEvent>
 #include <QEnterEvent>
+#include <QShowEvent>
+#include <QResizeEvent>
 
-#include "utilities/colorutils.h"
+#include "includes/shared_ptr.h"
 #include "core/iconloader.h"
+#include "utilities/colorutils.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistdelegates.h"
 #include "smartplaylistsearchterm.h"
 #include "smartplaylistsearchtermwidget.h"
+#include "smartplaylistsearchtermwidgetoverlay.h"
 #include "ui_smartplaylistsearchtermwidget.h"
 
-// Exported by QtGui
-void qt_blurImage(QPainter *p, QImage &blurImage, qreal radius, bool quality, bool alphaOnly, int transposed = 0);
+using namespace Qt::Literals::StringLiterals;
 
-class SmartPlaylistSearchTermWidget::Overlay : public QWidget {  // clazy:exclude=missing-qobject-macro
- public:
-  explicit Overlay(SmartPlaylistSearchTermWidget *parent);
-  void Grab();
-  void SetOpacity(const float opacity);
-  float opacity() const { return opacity_; }
-
-  static const int kSpacing;
-  static const int kIconSize;
-
- protected:
-  void paintEvent(QPaintEvent*) override;
-  void mouseReleaseEvent(QMouseEvent*) override;
-  void keyReleaseEvent(QKeyEvent *e) override;
-
- private:
-  SmartPlaylistSearchTermWidget *parent_;
-
-  float opacity_;
-  QString text_;
-  QPixmap pixmap_;
-  QPixmap icon_;
-
-};
-
-const int SmartPlaylistSearchTermWidget::Overlay::kSpacing = 6;
-const int SmartPlaylistSearchTermWidget::Overlay::kIconSize = 22;
-
-SmartPlaylistSearchTermWidget::SmartPlaylistSearchTermWidget(CollectionBackend *collection, QWidget *parent)
+SmartPlaylistSearchTermWidget::SmartPlaylistSearchTermWidget(SharedPtr<CollectionBackend> collection_backend, QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_SmartPlaylistSearchTermWidget),
-      collection_(collection),
+      collection_backend_(collection_backend),
       overlay_(nullptr),
       animation_(new QPropertyAnimation(this, "overlay_opacity", this)),
       active_(true),
       initialized_(false),
-      current_field_type_(SmartPlaylistSearchTerm::Type_Invalid) {
+      current_field_type_(SmartPlaylistSearchTerm::Type::Invalid) {
 
   ui_->setupUi(this);
 
@@ -103,34 +73,36 @@ SmartPlaylistSearchTermWidget::SmartPlaylistSearchTermWidget(CollectionBackend *
   ui_->value_date->setDate(QDate::currentDate());
 
   // Populate the combo boxes
-  for (int i = 0; i < SmartPlaylistSearchTerm::FieldCount; ++i) {
-    ui_->field->addItem(SmartPlaylistSearchTerm::FieldName(static_cast<SmartPlaylistSearchTerm::Field>(i)));
-    ui_->field->setItemData(i, i);
+  for (int i = 0; i < static_cast<int>(SmartPlaylistSearchTerm::Field::FieldCount); ++i) {
+    const SmartPlaylistSearchTerm::Field field = static_cast<SmartPlaylistSearchTerm::Field>(i);
+    ui_->field->addItem(SmartPlaylistSearchTerm::FieldName(field));
+    ui_->field->setItemData(i, QVariant::fromValue(field));
   }
   ui_->field->model()->sort(0);
 
   // Populate the date type combo box
   for (int i = 0; i < 5; ++i) {
-    ui_->date_type->addItem(SmartPlaylistSearchTerm::DateName(static_cast<SmartPlaylistSearchTerm::DateType>(i), false));
-    ui_->date_type->setItemData(i, i);
+    const SmartPlaylistSearchTerm::DateType datetype = static_cast<SmartPlaylistSearchTerm::DateType>(i);
+    ui_->date_type->addItem(SmartPlaylistSearchTerm::DateName(datetype, false));
+    ui_->date_type->setItemData(i, QVariant::fromValue(datetype));
 
-    ui_->date_type_relative->addItem(SmartPlaylistSearchTerm::DateName(static_cast<SmartPlaylistSearchTerm::DateType>(i), false));
-    ui_->date_type_relative->setItemData(i, i);
+    ui_->date_type_relative->addItem(SmartPlaylistSearchTerm::DateName(datetype, false));
+    ui_->date_type_relative->setItemData(i, QVariant::fromValue(datetype));
   }
 
   // Icons on the buttons
-  ui_->remove->setIcon(IconLoader::Load("list-remove"));
+  ui_->remove->setIcon(IconLoader::Load(u"list-remove"_s));
 
   // Set stylesheet
-  QFile stylesheet_file(":/style/smartplaylistsearchterm.css");
+  QFile stylesheet_file(u":/style/smartplaylistsearchterm.css"_s);
   if (stylesheet_file.open(QIODevice::ReadOnly)) {
     QString stylesheet = QString::fromLatin1(stylesheet_file.readAll());
     stylesheet_file.close();
     const QColor base(222, 97, 97, 128);
-    stylesheet.replace("%light2", Utilities::ColorToRgba(base.lighter(140)));
-    stylesheet.replace("%light", Utilities::ColorToRgba(base.lighter(120)));
-    stylesheet.replace("%dark", Utilities::ColorToRgba(base.darker(120)));
-    stylesheet.replace("%base", Utilities::ColorToRgba(base));
+    stylesheet.replace("%light2"_L1, Utilities::ColorToRgba(base.lighter(140)));
+    stylesheet.replace("%light"_L1, Utilities::ColorToRgba(base.lighter(120)));
+    stylesheet.replace("%dark"_L1, Utilities::ColorToRgba(base.darker(120)));
+    stylesheet.replace("%base"_L1, Utilities::ColorToRgba(base));
     setStyleSheet(stylesheet);
   }
 
@@ -140,45 +112,46 @@ SmartPlaylistSearchTermWidget::~SmartPlaylistSearchTermWidget() { delete ui_; }
 
 void SmartPlaylistSearchTermWidget::FieldChanged(int index) {
 
-  SmartPlaylistSearchTerm::Field field = static_cast<SmartPlaylistSearchTerm::Field>(ui_->field->itemData(index).toInt());
-  SmartPlaylistSearchTerm::Type type = SmartPlaylistSearchTerm::TypeOf(field);
+  const SmartPlaylistSearchTerm::Field field = ui_->field->itemData(index).value<SmartPlaylistSearchTerm::Field>();
+  const SmartPlaylistSearchTerm::Type type = SmartPlaylistSearchTerm::TypeOf(field);
 
   // Populate the operator combo box
   if (type != current_field_type_) {
     ui_->op->clear();
-    for (SmartPlaylistSearchTerm::Operator op : SmartPlaylistSearchTerm::OperatorsForType(type)) {
+    const SmartPlaylistSearchTerm::OperatorList operators = SmartPlaylistSearchTerm::OperatorsForType(type);
+    for (const SmartPlaylistSearchTerm::Operator op : operators) {
       const int i = ui_->op->count();
       ui_->op->addItem(SmartPlaylistSearchTerm::OperatorText(type, op));
-      ui_->op->setItemData(i, op);
+      ui_->op->setItemData(i, QVariant::fromValue(op));
     }
     current_field_type_ = type;
   }
 
   // Show the correct value editor
   QWidget *page = nullptr;
-  SmartPlaylistSearchTerm::Operator op = static_cast<SmartPlaylistSearchTerm::Operator>(ui_->op->itemData(ui_->op->currentIndex()).toInt());
+  const SmartPlaylistSearchTerm::Operator op = ui_->op->currentData().value<SmartPlaylistSearchTerm::Operator>();
   switch (type) {
-    case SmartPlaylistSearchTerm::Type_Time:
+    case SmartPlaylistSearchTerm::Type::Time:
       page = ui_->page_time;
       break;
-    case SmartPlaylistSearchTerm::Type_Number:
+    case SmartPlaylistSearchTerm::Type::Number:
       page = ui_->page_number;
       break;
-    case SmartPlaylistSearchTerm::Type_Date:
+    case SmartPlaylistSearchTerm::Type::Date:
       page = ui_->page_date;
       break;
-    case SmartPlaylistSearchTerm::Type_Text:
-      if (op == SmartPlaylistSearchTerm::Op_Empty || op == SmartPlaylistSearchTerm::Op_NotEmpty) {
+    case SmartPlaylistSearchTerm::Type::Text:
+      if (op == SmartPlaylistSearchTerm::Operator::Empty || op == SmartPlaylistSearchTerm::Operator::NotEmpty) {
         page = ui_->page_empty;
       }
       else {
         page = ui_->page_text;
       }
       break;
-    case SmartPlaylistSearchTerm::Type_Rating:
+    case SmartPlaylistSearchTerm::Type::Rating:
       page = ui_->page_rating;
       break;
-    case SmartPlaylistSearchTerm::Type_Invalid:
+    case SmartPlaylistSearchTerm::Type::Invalid:
       page = nullptr;
       break;
   }
@@ -186,19 +159,38 @@ void SmartPlaylistSearchTermWidget::FieldChanged(int index) {
 
   // Maybe set a tag completer
   switch (field) {
-    case SmartPlaylistSearchTerm::Field_Artist:
-      new TagCompleter(collection_, Playlist::Column_Artist, ui_->value_text);
+    case SmartPlaylistSearchTerm::Field::Artist:
+      new TagCompleter(collection_backend_, Playlist::Column::Artist, ui_->value_text);
       break;
-
-    case SmartPlaylistSearchTerm::Field_Album:
-      new TagCompleter(collection_, Playlist::Column_Album, ui_->value_text);
+    case SmartPlaylistSearchTerm::Field::ArtistSort:
+      new TagCompleter(collection_backend_, Playlist::Column::ArtistSort, ui_->value_text);
       break;
-
+    case SmartPlaylistSearchTerm::Field::Album:
+      new TagCompleter(collection_backend_, Playlist::Column::Album, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::AlbumSort:
+      new TagCompleter(collection_backend_, Playlist::Column::AlbumSort, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::AlbumArtist:
+      new TagCompleter(collection_backend_, Playlist::Column::AlbumArtist, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::AlbumArtistSort:
+      new TagCompleter(collection_backend_, Playlist::Column::AlbumArtistSort, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::ComposerSort:
+      new TagCompleter(collection_backend_, Playlist::Column::ComposerSort, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::PerformerSort:
+      new TagCompleter(collection_backend_, Playlist::Column::PerformerSort, ui_->value_text);
+      break;
+    case SmartPlaylistSearchTerm::Field::TitleSort:
+      new TagCompleter(collection_backend_, Playlist::Column::TitleSort, ui_->value_text);
+      break;
     default:
       ui_->value_text->setCompleter(nullptr);
   }
 
-  emit Changed();
+  Q_EMIT Changed();
 
 }
 
@@ -207,14 +199,13 @@ void SmartPlaylistSearchTermWidget::OpChanged(int idx) {
   Q_UNUSED(idx);
 
   // Determine the currently selected operator
-  SmartPlaylistSearchTerm::Operator op = static_cast<SmartPlaylistSearchTerm::Operator>(
-    // This uses the operatorss index in the combobox to get its enum value
-    ui_->op->itemData(ui_->op->currentIndex()).toInt());
+  // This uses the operatorss index in the combobox to get its enum value
+  const SmartPlaylistSearchTerm::Operator op = ui_->op->currentData().value<SmartPlaylistSearchTerm::Operator>();
 
   // We need to change the page only in the following case
   if ((ui_->value_stack->currentWidget() == ui_->page_text) || (ui_->value_stack->currentWidget() == ui_->page_empty)) {
     QWidget *page = nullptr;
-    if (op == SmartPlaylistSearchTerm::Op_Empty || op == SmartPlaylistSearchTerm::Op_NotEmpty) {
+    if (op == SmartPlaylistSearchTerm::Operator::Empty || op == SmartPlaylistSearchTerm::Operator::NotEmpty) {
       page = ui_->page_empty;
     }
     else {
@@ -228,10 +219,10 @@ void SmartPlaylistSearchTermWidget::OpChanged(int idx) {
       (ui_->value_stack->currentWidget() == ui_->page_date_relative)
       ) {
     QWidget *page = nullptr;
-    if (op == SmartPlaylistSearchTerm::Op_NumericDate || op == SmartPlaylistSearchTerm::Op_NumericDateNot) {
+    if (op == SmartPlaylistSearchTerm::Operator::NumericDate || op == SmartPlaylistSearchTerm::Operator::NumericDateNot) {
       page = ui_->page_date_numeric;
     }
-    else if (op == SmartPlaylistSearchTerm::Op_RelativeDate) {
+    else if (op == SmartPlaylistSearchTerm::Operator::RelativeDate) {
       page = ui_->page_date_relative;
     }
     else {
@@ -240,7 +231,7 @@ void SmartPlaylistSearchTermWidget::OpChanged(int idx) {
     ui_->value_stack->setCurrentWidget(page);
   }
 
-  emit Changed();
+  Q_EMIT Changed();
 
 }
 
@@ -256,16 +247,14 @@ void SmartPlaylistSearchTermWidget::SetActive(bool active) {
   ui_->container->setEnabled(active);
 
   if (!active) {
-    overlay_ = new Overlay(this);
+    overlay_ = new SmartPlaylistSearchTermWidgetOverlay(this);
   }
 
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-void SmartPlaylistSearchTermWidget::enterEvent(QEnterEvent*) {
-#else
-void SmartPlaylistSearchTermWidget::enterEvent(QEvent*) {
-#endif
+void SmartPlaylistSearchTermWidget::enterEvent(QEnterEvent *e) {
+
+  Q_UNUSED(e)
 
   if (!overlay_ || !isEnabled()) return;
 
@@ -276,7 +265,9 @@ void SmartPlaylistSearchTermWidget::enterEvent(QEvent*) {
 
 }
 
-void SmartPlaylistSearchTermWidget::leaveEvent(QEvent*) {
+void SmartPlaylistSearchTermWidget::leaveEvent(QEvent *e) {
+
+  Q_UNUSED(e);
 
   if (!overlay_) return;
 
@@ -290,8 +281,9 @@ void SmartPlaylistSearchTermWidget::leaveEvent(QEvent*) {
 void SmartPlaylistSearchTermWidget::resizeEvent(QResizeEvent *e) {
 
   QWidget::resizeEvent(e);
+
   if (overlay_ && overlay_->isVisible()) {
-    QTimer::singleShot(0, this, &SmartPlaylistSearchTermWidget::Grab);
+    QMetaObject::invokeMethod(this, &SmartPlaylistSearchTermWidget::Grab);
   }
 
 }
@@ -300,14 +292,14 @@ void SmartPlaylistSearchTermWidget::showEvent(QShowEvent *e) {
 
   QWidget::showEvent(e);
   if (overlay_) {
-    QTimer::singleShot(0, this, &SmartPlaylistSearchTermWidget::Grab);
+    QMetaObject::invokeMethod(this, &SmartPlaylistSearchTermWidget::Grab);
   }
 
 }
 
 void SmartPlaylistSearchTermWidget::Grab() { overlay_->Grab(); }
 
-void SmartPlaylistSearchTermWidget::set_overlay_opacity(float opacity) {
+void SmartPlaylistSearchTermWidget::set_overlay_opacity(const float opacity) {
   if (overlay_) overlay_->SetOpacity(opacity);
 }
 
@@ -317,48 +309,48 @@ float SmartPlaylistSearchTermWidget::overlay_opacity() const {
 
 void SmartPlaylistSearchTermWidget::SetTerm(const SmartPlaylistSearchTerm &term) {
 
-  ui_->field->setCurrentIndex(ui_->field->findData(term.field_));
-  ui_->op->setCurrentIndex(ui_->op->findData(term.operator_));
+  ui_->field->setCurrentIndex(ui_->field->findData(QVariant::fromValue(term.field_)));
+  ui_->op->setCurrentIndex(ui_->op->findData(QVariant::fromValue(term.operator_)));
 
   // The value depends on the data type
   switch (SmartPlaylistSearchTerm::TypeOf(term.field_)) {
-    case SmartPlaylistSearchTerm::Type_Text:
+    case SmartPlaylistSearchTerm::Type::Text:
       if (ui_->value_stack->currentWidget() == ui_->page_empty) {
-        ui_->value_text->setText("");
+        ui_->value_text->setText(""_L1);
       }
       else {
         ui_->value_text->setText(term.value_.toString());
       }
       break;
 
-    case SmartPlaylistSearchTerm::Type_Number:
+    case SmartPlaylistSearchTerm::Type::Number:
       ui_->value_number->setValue(term.value_.toInt());
       break;
 
-    case SmartPlaylistSearchTerm::Type_Date:
+    case SmartPlaylistSearchTerm::Type::Date:
       if (ui_->value_stack->currentWidget() == ui_->page_date_numeric) {
         ui_->value_date_numeric->setValue(term.value_.toInt());
-        ui_->date_type->setCurrentIndex(term.date_);
+        ui_->date_type->setCurrentIndex(ui_->date_type->findData(QVariant::fromValue(term.datetype_)));
       }
       else if (ui_->value_stack->currentWidget() == ui_->page_date_relative) {
         ui_->value_date_numeric1->setValue(term.value_.toInt());
         ui_->value_date_numeric2->setValue(term.second_value_.toInt());
-        ui_->date_type_relative->setCurrentIndex(term.date_);
+        ui_->date_type_relative->setCurrentIndex(ui_->date_type_relative->findData(QVariant::fromValue(term.datetype_)));
       }
       else if (ui_->value_stack->currentWidget() == ui_->page_date) {
         ui_->value_date->setDateTime(QDateTime::fromSecsSinceEpoch(term.value_.toInt()));
       }
       break;
 
-    case SmartPlaylistSearchTerm::Type_Time:
+    case SmartPlaylistSearchTerm::Type::Time:
       ui_->value_time->setTime(QTime(0, 0).addSecs(term.value_.toInt()));
       break;
 
-    case SmartPlaylistSearchTerm::Type_Rating:
+    case SmartPlaylistSearchTerm::Type::Rating:
       ui_->value_rating->set_rating(term.value_.toFloat());
       break;
 
-    case SmartPlaylistSearchTerm::Type_Invalid:
+    case SmartPlaylistSearchTerm::Type::Invalid:
       break;
   }
 
@@ -366,12 +358,12 @@ void SmartPlaylistSearchTermWidget::SetTerm(const SmartPlaylistSearchTerm &term)
 
 SmartPlaylistSearchTerm SmartPlaylistSearchTermWidget::Term() const {
 
-  const int field = ui_->field->itemData(ui_->field->currentIndex()).toInt();
-  const int op = ui_->op->itemData(ui_->op->currentIndex()).toInt();
+  const SmartPlaylistSearchTerm::Field field = ui_->field->currentData().value<SmartPlaylistSearchTerm::Field>();
+  const SmartPlaylistSearchTerm::Operator op = ui_->op->currentData().value<SmartPlaylistSearchTerm::Operator>();
 
   SmartPlaylistSearchTerm ret;
-  ret.field_ = static_cast<SmartPlaylistSearchTerm::Field>(field);
-  ret.operator_ = static_cast<SmartPlaylistSearchTerm::Operator>(op);
+  ret.field_ = field;
+  ret.operator_ = op;
 
   // The value depends on the data type
   const QWidget *value_page = ui_->value_stack->currentWidget();
@@ -379,7 +371,7 @@ SmartPlaylistSearchTerm SmartPlaylistSearchTermWidget::Term() const {
     ret.value_ = ui_->value_text->text();
   }
   else if (value_page == ui_->page_empty) {
-    ret.value_ = "";
+    ret.value_ = ""_L1;
   }
   else if (value_page == ui_->page_number) {
     ret.value_ = ui_->value_number->value();
@@ -391,11 +383,11 @@ SmartPlaylistSearchTerm SmartPlaylistSearchTermWidget::Term() const {
     ret.value_ = QTime(0, 0).secsTo(ui_->value_time->time());
   }
   else if (value_page == ui_->page_date_numeric) {
-    ret.date_ = static_cast<SmartPlaylistSearchTerm::DateType>(ui_->date_type->currentIndex());
+    ret.datetype_ = ui_->date_type->currentData().value<SmartPlaylistSearchTerm::DateType>();
     ret.value_ = ui_->value_date_numeric->value();
   }
   else if (value_page == ui_->page_date_relative) {
-    ret.date_ = static_cast<SmartPlaylistSearchTerm::DateType>(ui_->date_type_relative->currentIndex());
+    ret.datetype_ = ui_->date_type_relative->currentData().value<SmartPlaylistSearchTerm::DateType>();
     ret.value_ = ui_->value_date_numeric1->value();
     ret.second_value_ = ui_->value_date_numeric2->value();
   }
@@ -416,96 +408,9 @@ void SmartPlaylistSearchTermWidget::RelativeValueChanged() {
   }
   // Explain the user why he can't proceed
   if (ui_->value_date_numeric1->value() >= ui_->value_date_numeric2->value()) {
-    QMessageBox::warning(this, "Strawberry", tr("The second value must be greater than the first one!"));
+    QMessageBox::warning(this, u"Strawberry"_s, tr("The second value must be greater than the first one!"));
   }
   // Emit the signal in any case, so the Next button will be disabled
-  emit Changed();
+  Q_EMIT Changed();
 
-}
-
-SmartPlaylistSearchTermWidget::Overlay::Overlay(SmartPlaylistSearchTermWidget *parent)
-    : QWidget(parent),
-      parent_(parent),
-      opacity_(0.0),
-      text_(tr("Add search term")),
-      icon_(IconLoader::Load("list-add").pixmap(kIconSize)) {
-
-  raise();
-  setFocusPolicy(Qt::TabFocus);
-
-}
-
-void SmartPlaylistSearchTermWidget::Overlay::SetOpacity(const float opacity) {
-
-  opacity_ = opacity;
-  update();
-
-}
-
-void SmartPlaylistSearchTermWidget::Overlay::Grab() {
-
-  hide();
-
-  // Take a "screenshot" of the window
-  QPixmap pixmap = parent_->grab();
-  QImage image = pixmap.toImage();
-
-  // Blur it
-  QImage blurred(image.size(), QImage::Format_ARGB32_Premultiplied);
-  blurred.fill(Qt::transparent);
-
-  QPainter blur_painter(&blurred);
-  qt_blurImage(&blur_painter, image, 10.0, true, false);
-  blur_painter.end();
-
-  pixmap_ = QPixmap::fromImage(blurred);
-
-  resize(parent_->size());
-  show();
-  update();
-
-}
-
-void SmartPlaylistSearchTermWidget::Overlay::paintEvent(QPaintEvent*) {
-
-  QPainter p(this);
-
-  // Background
-  p.fillRect(rect(), palette().window());
-
-  // Blurred parent widget
-  p.setOpacity(0.25 + opacity_ * 0.25);
-  p.drawPixmap(0, 0, pixmap_);
-
-  // Draw a frame
-  p.setOpacity(1.0);
-  p.setPen(palette().color(QPalette::Mid));
-  p.setRenderHint(QPainter::Antialiasing);
-  p.drawRoundedRect(rect(), 5, 5);
-
-  // Geometry
-
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-  const QSize contents_size(kIconSize + kSpacing + fontMetrics().horizontalAdvance(text_), qMax(kIconSize, fontMetrics().height()));
-#else
-  const QSize contents_size(kIconSize + kSpacing + fontMetrics().width(text_), qMax(kIconSize, fontMetrics().height()));
-#endif
-
-  const QRect contents(QPoint((width() - contents_size.width()) / 2, (height() - contents_size.height()) / 2), contents_size);
-  const QRect icon(contents.topLeft(), QSize(kIconSize, kIconSize));
-  const QRect text(icon.right() + kSpacing, icon.top(), contents.width() - kSpacing - kIconSize, contents.height());
-
-  // Icon and text
-  p.setPen(palette().color(QPalette::Text));
-  p.drawPixmap(icon, icon_);
-  p.drawText(text, Qt::TextDontClip | Qt::AlignVCenter, text_);  // NOLINT(bugprone-suspicious-enum-usage)
-
-}
-
-void SmartPlaylistSearchTermWidget::Overlay::mouseReleaseEvent(QMouseEvent*) {
-  emit parent_->Clicked();
-}
-
-void SmartPlaylistSearchTermWidget::Overlay::keyReleaseEvent(QKeyEvent *e) {
-  if (e->key() == Qt::Key_Space) emit parent_->Clicked();
 }

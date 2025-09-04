@@ -24,7 +24,6 @@
 
 #include "config.h"
 
-#include <QtGlobal>
 #include <QObject>
 #include <QNetworkAccessManager>
 #include <QNetworkRequest>
@@ -39,7 +38,7 @@ class NetworkAccessManager : public QNetworkAccessManager {
   explicit NetworkAccessManager(QObject *parent = nullptr);
 
  protected:
-  QNetworkReply *createRequest(Operation op, const QNetworkRequest &request, QIODevice *outgoingData) override;
+  QNetworkReply *createRequest(Operation op, const QNetworkRequest &network_request, QIODevice *outgoing_data) override;
 };
 
 #endif  // NETWORKACCESSMANAGER_H

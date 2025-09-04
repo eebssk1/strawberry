@@ -17,11 +17,13 @@
  *
  */
 
+#include <memory>
+
 #include <QObject>
 #include <QSortFilterProxyModel>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/application.h"
 #include "core/database.h"
 #include "core/networkaccessmanager.h"
 #include "radioservices.h"
@@ -32,18 +34,24 @@
 #include "somafmservice.h"
 #include "radioparadiseservice.h"
 
-RadioServices::RadioServices(Application *app, QObject *parent)
+using std::make_shared;
+
+RadioServices::RadioServices(const SharedPtr<TaskManager> task_manager,
+                             const SharedPtr<NetworkAccessManager> network,
+                             const SharedPtr<Database> database,
+                             const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                             QObject *parent)
     : QObject(parent),
-      network_(new NetworkAccessManager(this)),
+      network_(network),
       backend_(nullptr),
-      model_(new RadioModel(app, this)),
+      model_(new RadioModel(albumcover_loader, SharedPtr<RadioServices>(this))),
       sort_model_(new QSortFilterProxyModel(this)),
       channels_refresh_(false) {
 
-  backend_ = new RadioBackend(app->database());
-  app->MoveToThread(backend_, app->database()->thread());
+  backend_ = make_shared<RadioBackend>(database);
+  backend_->moveToThread(database->thread());
 
-  QObject::connect(backend_, &RadioBackend::NewChannels, this, &RadioServices::GotChannelsFromBackend);
+  QObject::connect(&*backend_, &RadioBackend::NewChannels, this, &RadioServices::GotChannelsFromBackend);
 
   sort_model_->setSourceModel(model_);
   sort_model_->setSortRole(RadioModel::Role_SortText);
@@ -51,14 +59,8 @@ RadioServices::RadioServices(Application *app, QObject *parent)
   sort_model_->setSortLocaleAware(true);
   sort_model_->sort(0);
 
-  AddService(new SomaFMService(app, network_, this));
-  AddService(new RadioParadiseService(app, network_, this));
-
-}
-
-RadioServices::~RadioServices() {
-
-  backend_->deleteLater();
+  AddService(new SomaFMService(task_manager, network_, this));
+  AddService(new RadioParadiseService(task_manager, network_, this));
 
 }
 
@@ -97,7 +99,7 @@ RadioService *RadioServices::ServiceBySource(const Song::Source source) const {
 
 void RadioServices::ReloadSettings() {
 
-  QList<RadioService*> services = services_.values();
+  const QList<RadioService*> services = services_.values();
   for (RadioService *service : services) {
     service->ReloadSettings();
   }
@@ -117,7 +119,7 @@ void RadioServices::RefreshChannels() {
   model_->Reset();
   backend_->DeleteChannelsAsync();
 
-  QList<RadioService*> services = services_.values();
+  const QList<RadioService*> services = services_.values();
   for (RadioService *service : services) {
     service->GetChannels();
   }

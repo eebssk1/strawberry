@@ -28,40 +28,37 @@
 #include <QRegularExpression>
 #include <QTextStream>
 
-#include "utilities/timeconstants.h"
-#include "settings/playlistsettingspage.h"
+#include "includes/shared_ptr.h"
+#include "constants/timeconstants.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 #include "plsparser.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 class CollectionBackendInterface;
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-constexpr auto qt_endl = Qt::endl;
-#else
-constexpr auto qt_endl = endl;
-#endif
+PLSParser::PLSParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}
 
-PLSParser::PLSParser(CollectionBackendInterface *collection, QObject *parent)
-    : ParserBase(collection, parent) {}
-
-SongList PLSParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_search) const {
+ParserBase::LoadResult PLSParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
   QMap<int, Song> songs;
-  QRegularExpression n_re("\\d+$");
+  static const QRegularExpression n_re(u"\\d+$"_s);
 
   while (!device->atEnd()) {
     QString line = QString::fromUtf8(device->readLine()).trimmed();
-    qint64 equals = line.indexOf('=');
+    qint64 equals = line.indexOf(u'=');
     QString key = line.left(equals).toLower();
     QString value = line.mid(equals + 1);
 
     QRegularExpressionMatch re_match = n_re.match(key);
     int n = re_match.captured(0).toInt();
 
-    if (key.startsWith("file")) {
-      Song song = LoadSong(value, 0, dir, collection_search);
+    if (key.startsWith("file"_L1)) {
+      Song song = LoadSong(value, 0, 0, dir, collection_lookup);
 
       // Use the title and length we've already loaded if any
       if (!songs[n].title().isEmpty()) song.set_title(songs[n].title());
@@ -71,10 +68,10 @@ SongList PLSParser::Load(QIODevice *device, const QString &playlist_path, const 
 
       songs[n] = song;
     }
-    else if (key.startsWith("title")) {
+    else if (key.startsWith("title"_L1)) {
       songs[n].set_title(value);
     }
-    else if (key.startsWith("length")) {
+    else if (key.startsWith("length"_L1)) {
       qint64 seconds = value.toLongLong();
       if (seconds > 0) {
         songs[n].set_length_nanosec(seconds * kNsecPerSec);
@@ -86,18 +83,20 @@ SongList PLSParser::Load(QIODevice *device, const QString &playlist_path, const 
 
 }
 
-void PLSParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type) const {
+void PLSParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
 
   QTextStream s(device);
-  s << "[playlist]" << qt_endl;
-  s << "Version=2" << qt_endl;
-  s << "NumberOfEntries=" << songs.count() << qt_endl;
+  s << "[playlist]" << Qt::endl;
+  s << "Version=2" << Qt::endl;
+  s << "NumberOfEntries=" << songs.count() << Qt::endl;
 
   int n = 1;
   for (const Song &song : songs) {
-    s << "File" << n << "=" << URLOrFilename(song.url(), dir, path_type) << qt_endl;
-    s << "Title" << n << "=" << song.title() << qt_endl;
-    s << "Length" << n << "=" << song.length_nanosec() / kNsecPerSec << qt_endl;
+    s << "File" << n << "=" << URLOrFilename(song.url(), dir, path_type) << Qt::endl;
+    s << "Title" << n << "=" << song.title() << Qt::endl;
+    s << "Length" << n << "=" << song.length_nanosec() / kNsecPerSec << Qt::endl;
     ++n;
   }
 

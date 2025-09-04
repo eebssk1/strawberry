@@ -33,6 +33,7 @@
 
 #include "core/iconloader.h"
 #include "core/logging.h"
+#include "core/settings.h"
 
 #include "settingsdialog.h"
 #include "settingspage.h"
@@ -41,12 +42,17 @@
 #  include "moodbar/moodbarrenderer.h"
 #endif
 
+#include "constants/moodbarsettings.h"
 #include "moodbarsettingspage.h"
 #include "ui_moodbarsettingspage.h"
 
-const char *MoodbarSettingsPage::kSettingsGroup = "Moodbar";
-const int MoodbarSettingsPage::kMoodbarPreviewWidth = 150;
-const int MoodbarSettingsPage::kMoodbarPreviewHeight = 18;
+using namespace Qt::Literals::StringLiterals;
+using namespace MoodbarSettings;
+
+namespace {
+constexpr int kMoodbarPreviewWidth = 150;
+constexpr int kMoodbarPreviewHeight = 18;
+}
 
 MoodbarSettingsPage::MoodbarSettingsPage(SettingsDialog *dialog, QWidget *parent)
     : SettingsPage(dialog, parent),
@@ -54,7 +60,7 @@ MoodbarSettingsPage::MoodbarSettingsPage(SettingsDialog *dialog, QWidget *parent
       initialized_(false) {
 
   ui_->setupUi(this);
-  setWindowIcon(IconLoader::Load("moodbar", true, 0, 32));
+  setWindowIcon(IconLoader::Load(u"moodbar"_s, true, 0, 32));
 
   MoodbarSettingsPage::Load();
 
@@ -64,30 +70,30 @@ MoodbarSettingsPage::~MoodbarSettingsPage() { delete ui_; }
 
 void MoodbarSettingsPage::Load() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  ui_->moodbar_enabled->setChecked(s.value("enabled", false).toBool());
-  ui_->moodbar_show->setChecked(s.value("show", false).toBool());
-  ui_->moodbar_style->setCurrentIndex(s.value("style", 0).toInt());
-  ui_->moodbar_save->setChecked(s.value("save", false).toBool());
+  ui_->moodbar_enabled->setChecked(s.value(kEnabled, false).toBool());
+  ui_->moodbar_show->setChecked(s.value(kShow, false).toBool());
+  ui_->moodbar_style->setCurrentIndex(s.value(kStyle, 0).toInt());
+  ui_->moodbar_save->setChecked(s.value(kSave, false).toBool());
   s.endGroup();
 
   InitMoodbarPreviews();
 
   Init(ui_->layout_moodbarsettingspage->parentWidget());
 
-  if (!QSettings().childGroups().contains(kSettingsGroup)) set_changed();
+  if (!Settings().childGroups().contains(QLatin1String(kSettingsGroup))) set_changed();
 
 }
 
 void MoodbarSettingsPage::Save() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  s.setValue("enabled", ui_->moodbar_enabled->isChecked());
-  s.setValue("show", ui_->moodbar_show->isChecked());
-  s.setValue("style", ui_->moodbar_style->currentIndex());
-  s.setValue("save", ui_->moodbar_save->isChecked());
+  s.setValue(kEnabled, ui_->moodbar_enabled->isChecked());
+  s.setValue(kShow, ui_->moodbar_show->isChecked());
+  s.setValue(kStyle, ui_->moodbar_style->currentIndex());
+  s.setValue(kSave, ui_->moodbar_save->isChecked());
   s.endGroup();
 }
 
@@ -102,7 +108,7 @@ void MoodbarSettingsPage::InitMoodbarPreviews() {
   ui_->moodbar_style->setIconSize(preview_size);
 
   // Read the sample data
-  QFile file(":/mood/sample.mood");
+  QFile file(u":/mood/sample.mood"_s);
   if (!file.open(QIODevice::ReadOnly)) {
     qLog(Warning) << "Failed to open moodbar sample file" << file.fileName() << "for reading:" << file.errorString();
     return;
@@ -111,9 +117,9 @@ void MoodbarSettingsPage::InitMoodbarPreviews() {
   file.close();
 
   // Render and set each preview
-  for (int i = 0; i < MoodbarRenderer::StyleCount; ++i) {
+  for (int i = 0; i < static_cast<int>(Style::StyleCount); ++i) {
 
-    const MoodbarRenderer::MoodbarStyle style = static_cast<MoodbarRenderer::MoodbarStyle>(i);
+    const Style style = static_cast<Style>(i);
     const ColorVector colors = MoodbarRenderer::Colors(file_data, style, palette());
 
     QPixmap pixmap(preview_size);

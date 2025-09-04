@@ -34,6 +34,8 @@
 
 #include "filemanagerutils.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 namespace Utilities {
 
 #if defined(Q_OS_UNIX) && !defined(Q_OS_MACOS)
@@ -43,31 +45,28 @@ void OpenInFileManager(const QString &path, const QUrl &url) {
   if (!url.isLocalFile()) return;
 
   QProcess proc;
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-  proc.startCommand("xdg-mime query default inode/directory");
-#else
-  proc.start("xdg-mime", QStringList() << "query" << "default" << "inode/directory");
-#endif
+  proc.startCommand(u"xdg-mime query default inode/directory"_s);
   proc.waitForFinished();
-  QString desktop_file = proc.readLine().simplified();
-  QStringList data_dirs = QString(qgetenv("XDG_DATA_DIRS")).split(":");
+  QString desktop_file = QString::fromUtf8(proc.readLine()).simplified();
+  QString xdg_data_dirs = QString::fromUtf8(qgetenv("XDG_DATA_DIRS"));
+  if (xdg_data_dirs.isEmpty()) {
+    xdg_data_dirs = "/usr/local/share/:/usr/share/"_L1;
+  }
+  const QStringList data_dirs = xdg_data_dirs.split(u':');
 
   QString command;
   QStringList command_params;
   for (const QString &data_dir : data_dirs) {
-    QString desktop_file_path = QString("%1/applications/%2").arg(data_dir, desktop_file);
+    QString desktop_file_path = QStringLiteral("%1/applications/%2").arg(data_dir, desktop_file);
     if (!QFile::exists(desktop_file_path)) continue;
     QSettings setting(desktop_file_path, QSettings::IniFormat);
-    setting.beginGroup("Desktop Entry");
-    if (setting.contains("Exec")) {
-      QString cmd = setting.value("Exec").toString();
+    setting.beginGroup(u"Desktop Entry"_s);
+    if (setting.contains("Exec"_L1)) {
+      QString cmd = setting.value(u"Exec"_s).toString();
       if (cmd.isEmpty()) break;
-      cmd = cmd.remove(QRegularExpression("[%][a-zA-Z]*( |$)", QRegularExpression::CaseInsensitiveOption));
-#  if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-      command_params = cmd.split(' ', Qt::SkipEmptyParts);
-#  else
-      command_params = cmd.split(' ', QString::SkipEmptyParts);
-#  endif
+      static const QRegularExpression regex(u"[%][a-zA-Z]*( |$)"_s, QRegularExpression::CaseInsensitiveOption);
+      cmd = cmd.remove(regex);
+      command_params = cmd.split(u' ', Qt::SkipEmptyParts);
       command = command_params.first();
       command_params.removeFirst();
     }
@@ -75,23 +74,23 @@ void OpenInFileManager(const QString &path, const QUrl &url) {
     if (!command.isEmpty()) break;
   }
 
-  if (command.startsWith("/usr/bin/")) {
-    command = command.split("/").last();
+  if (command.startsWith("/usr/bin/"_L1)) {
+    command = command.split(u'/').last();
   }
 
-  if (command.isEmpty() || command == "exo-open") {
+  if (command.isEmpty() || command == "exo-open"_L1) {
     QDesktopServices::openUrl(QUrl::fromLocalFile(path));
   }
-  else if (command.startsWith("nautilus")) {
-    proc.startDetached(command, QStringList() << command_params << "--select" << url.toLocalFile());
+  else if (command.startsWith("nautilus"_L1) ||
+           command.startsWith("dolphin"_L1) ||
+           command.startsWith("konqueror"_L1) ||
+           command.startsWith("kfmclient"_L1)) {
+    proc.startDetached(command, QStringList() << command_params << u"--select"_s << url.toLocalFile());
   }
-  else if (command.startsWith("dolphin") || command.startsWith("konqueror") || command.startsWith("kfmclient")) {
-    proc.startDetached(command, QStringList() << command_params << "--select" << "--new-window" << url.toLocalFile());
+  else if (command.startsWith("caja"_L1)) {
+    proc.startDetached(command, QStringList() << command_params << u"--no-desktop"_s << path);
   }
-  else if (command.startsWith("caja")) {
-    proc.startDetached(command, QStringList() << command_params << "--no-desktop" << path);
-  }
-  else if (command.startsWith("pcmanfm") || command.startsWith("thunar") || command.startsWith("spacefm")) {
+  else if (command.startsWith("pcmanfm"_L1) || command.startsWith("thunar"_L1) || command.startsWith("spacefm"_L1)) {
     proc.startDetached(command, QStringList() << command_params << path);
   }
   else {
@@ -104,14 +103,14 @@ void OpenInFileManager(const QString &path, const QUrl &url) {
 #ifdef Q_OS_MACOS
 // Better than openUrl(dirname(path)) - also highlights file at path
 void RevealFileInFinder(const QString &path) {
-  QProcess::execute("/usr/bin/open", QStringList() << "-R" << path);
+  QProcess::execute(u"/usr/bin/open"_s, QStringList() << u"-R"_s << path);
 }
 #endif  // Q_OS_MACOS
 
-#ifdef Q_OS_WIN
+#ifdef Q_OS_WIN32
 void ShowFileInExplorer(const QString &path);
 void ShowFileInExplorer(const QString &path) {
-  QProcess::execute("explorer.exe", QStringList() << "/select," << QDir::toNativeSeparators(path));
+  QProcess::execute(u"explorer.exe"_s, QStringList() << u"/select,"_s << QDir::toNativeSeparators(path));
 }
 #endif
 
@@ -164,4 +163,4 @@ void OpenInFileBrowser(const QList<QUrl> &urls) {
 
 }
 
-}
+}  // namespace Utilities

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2021-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,11 +26,11 @@
 
 #include "sqlquery.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 void SqlQuery::BindValue(const QString &placeholder, const QVariant &value) {
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   bound_values_.insert(placeholder, value);
-#endif
 
   bindValue(placeholder, value);
 
@@ -38,13 +38,13 @@ void SqlQuery::BindValue(const QString &placeholder, const QVariant &value) {
 
 void SqlQuery::BindStringValue(const QString &placeholder, const QString &value) {
 
-  BindValue(placeholder, value.isNull() ? "" : value);
+  BindValue(placeholder, value.isNull() ? ""_L1 : value);
 
 }
 
 void SqlQuery::BindUrlValue(const QString &placeholder, const QUrl &value) {
 
-  BindValue(placeholder, value.isValid() ? value.toString(QUrl::FullyEncoded) : "");
+  BindValue(placeholder, value.isValid() ? value.toString(QUrl::FullyEncoded) : ""_L1);
 
 }
 
@@ -72,6 +72,12 @@ void SqlQuery::BindFloatValue(const QString &placeholder, const float value) {
 
 }
 
+void SqlQuery::BindDoubleOrNullValue(const QString &placeholder, const std::optional<double> value) {
+
+  BindValue(placeholder, value.has_value() ? *value : QVariant());
+
+}
+
 void SqlQuery::BindBoolValue(const QString &placeholder, const bool value) {
 
   BindValue(placeholder, value ? 1 : 0);
@@ -89,18 +95,10 @@ bool SqlQuery::Exec() {
   bool success = exec();
   last_query_ = executedQuery();
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   for (QMap<QString, QVariant>::const_iterator it = bound_values_.constBegin(); it != bound_values_.constEnd(); ++it) {
     last_query_.replace(it.key(), it.value().toString());
   }
   bound_values_.clear();
-#else
-  QMapIterator<QString, QVariant> it(boundValues());
-  while (it.hasNext()) {
-    it.next();
-    last_query_.replace(it.key(), it.value().toString());
-  }
-#endif
 
   return success;
 

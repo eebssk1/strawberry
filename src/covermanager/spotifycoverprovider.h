@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,73 +22,41 @@
 
 #include "config.h"
 
-#include <QObject>
-#include <QPair>
-#include <QSet>
-#include <QList>
 #include <QVariant>
-#include <QByteArray>
 #include <QString>
-#include <QSslError>
-#include <QJsonValue>
-#include <QJsonObject>
-#include <QTimer>
 
+#include "includes/shared_ptr.h"
 #include "jsoncoverprovider.h"
 
 class QNetworkReply;
-class Application;
 class NetworkAccessManager;
-class LocalRedirectServer;
+class SpotifyService;
+
+using SpotifyServicePtr = SharedPtr<SpotifyService>;
 
 class SpotifyCoverProvider : public JsonCoverProvider {
   Q_OBJECT
 
  public:
-  explicit SpotifyCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent = nullptr);
-  ~SpotifyCoverProvider() override;
+  explicit SpotifyCoverProvider(const SpotifyServicePtr service, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
+
+  virtual bool authenticated() const override;
+  virtual bool use_authorization_header() const override;
+  virtual QByteArray authorization_header() const override;
 
   bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
   void CancelSearch(const int id) override;
+  void ClearSession() override;
 
-  void Authenticate() override;
-  void Deauthenticate() override;
-  bool IsAuthenticated() const override { return !access_token_.isEmpty(); }
-
- private slots:
-  void HandleLoginSSLErrors(const QList<QSslError> &ssl_errors);
-  void RedirectArrived();
-  void AccessTokenRequestFinished(QNetworkReply *reply);
+ private Q_SLOTS:
   void HandleSearchReply(QNetworkReply *reply, const int id, const QString &extract);
-  void RequestNewAccessToken() { RequestAccessToken(); }
 
  private:
-  QByteArray GetReplyData(QNetworkReply *reply);
-  void AuthError(const QString &error = QString(), const QVariant &debug = QVariant());
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
-  void RequestAccessToken(const QString &code = QString(), const QUrl &redirect_url = QUrl());
 
  private:
-  static const char *kSettingsGroup;
-  static const char *kClientIDB64;
-  static const char *kClientSecretB64;
-  static const char *kOAuthAuthorizeUrl;
-  static const char *kOAuthAccessTokenUrl;
-  static const char *kOAuthRedirectUrl;
-  static const char *kApiUrl;
-  static const int kLimit;
-
-  LocalRedirectServer *server_;
-  QStringList login_errors_;
-  QString code_verifier_;
-  QString code_challenge_;
-  QString access_token_;
-  QString refresh_token_;
-  quint64 expires_in_;
-  quint64 login_time_;
-  QTimer refresh_login_timer_;
-  QList<QNetworkReply*> replies_;
-
+  const SpotifyServicePtr service_;
 };
 
 #endif  // SPOTIFYCOVERPROVIDER_H

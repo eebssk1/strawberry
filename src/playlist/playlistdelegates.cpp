@@ -71,17 +71,21 @@
 #include "playlist/playlist.h"
 #include "playlistdelegates.h"
 
-const int QueuedItemDelegate::kQueueBoxBorder = 1;
-const int QueuedItemDelegate::kQueueBoxCornerRadius = 3;
-const int QueuedItemDelegate::kQueueBoxLength = 30;
-const QRgb QueuedItemDelegate::kQueueBoxGradientColor1 = qRgb(102, 150, 227);
-const QRgb QueuedItemDelegate::kQueueBoxGradientColor2 = qRgb(77, 121, 200);
-const int QueuedItemDelegate::kQueueOpacitySteps = 10;
-const float QueuedItemDelegate::kQueueOpacityLowerBound = 0.4F;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kQueueBoxBorder = 1;
+constexpr int kQueueBoxCornerRadius = 3;
+constexpr int kQueueBoxLength = 30;
+constexpr QRgb kQueueBoxGradientColor1 = qRgb(102, 150, 227);
+constexpr QRgb kQueueBoxGradientColor2 = qRgb(77, 121, 200);
+constexpr int kQueueOpacitySteps = 10;
+constexpr float kQueueOpacityLowerBound = 0.4F;
+}  // namespace
 
 const int PlaylistDelegateBase::kMinHeight = 19;
 
-QueuedItemDelegate::QueuedItemDelegate(QObject *parent, int indicator_column)
+QueuedItemDelegate::QueuedItemDelegate(QObject *parent, const int indicator_column)
     : QStyledItemDelegate(parent),
       indicator_column_(indicator_column) {}
 
@@ -110,11 +114,7 @@ void QueuedItemDelegate::DrawBox(QPainter *painter, const QRect line_rect, const
   smaller.setBold(true);
 
   if (width == -1) {
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-    width = QFontMetrics(font).horizontalAdvance(text + "  ");
-#else
-    width = QFontMetrics(font).width(text + "  ");
-#endif
+    width = QFontMetrics(font).horizontalAdvance(text + u"  "_s);
   }
 
   QRect rect(line_rect);
@@ -170,28 +170,26 @@ PlaylistDelegateBase::PlaylistDelegateBase(QObject *parent, const QString &suffi
 {
 }
 
-QString PlaylistDelegateBase::displayText(const QVariant &value, const QLocale&) const {
+QString PlaylistDelegateBase::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
 
   QString text;
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   switch (value.metaType().id()) {
-#else
-  switch (static_cast<QMetaType::Type>(value.type())) {
-#endif
-    case QMetaType::Int: {
+    case QMetaType::Int:{
       int v = value.toInt();
       if (v > 0) text = QString::number(v);
       break;
     }
     case QMetaType::Long:
-    case QMetaType::LongLong: {
+    case QMetaType::LongLong:{
       qint64 v = value.toLongLong();
       if (v > 0) text = QString::number(v);
       break;
     }
     case QMetaType::Float:
-    case QMetaType::Double: {
+    case QMetaType::Double:{
       double v = value.toDouble();
       if (v > 0) text = QString::number(v);
       break;
@@ -201,7 +199,7 @@ QString PlaylistDelegateBase::displayText(const QVariant &value, const QLocale&)
       break;
   }
 
-  if (!text.isNull() && !suffix_.isNull()) text += " " + suffix_;
+  if (!text.isNull() && !suffix_.isNull()) text += QLatin1Char(' ') + suffix_;
   return text;
 
 }
@@ -219,7 +217,7 @@ void PlaylistDelegateBase::paint(QPainter *painter, const QStyleOptionViewItem &
   QueuedItemDelegate::paint(painter, Adjusted(option, idx), idx);
 
   // Stop after indicator
-  if (idx.column() == Playlist::Column_Title) {
+  if (idx.column() == static_cast<int>(Playlist::Column::Title)) {
     if (idx.data(Playlist::Role_StopAfter).toBool()) {
       QRect rect(option.rect);
       rect.setRight(rect.right() - queue_indicator_size(idx));
@@ -262,18 +260,18 @@ bool PlaylistDelegateBase::helpEvent(QHelpEvent *event, QAbstractItemView *view,
   QString text = displayText(idx.data(), QLocale::system());
 
   // Special case: we want newlines in the comment tooltip
-  if (idx.column() == Playlist::Column_Comment) {
+  if (idx.column() == static_cast<int>(Playlist::Column::Comment)) {
     text = idx.data(Qt::ToolTipRole).toString().toHtmlEscaped();
-    text.replace("\\r\\n", "<br />");
-    text.replace("\\n", "<br />");
-    text.replace("\r\n", "<br />");
-    text.replace("\n", "<br />");
+    text.replace("\\r\\n"_L1, "<br />"_L1);
+    text.replace("\\n"_L1, "<br />"_L1);
+    text.replace("\r\n"_L1, "<br />"_L1);
+    text.replace("\n"_L1, "<br />"_L1);
   }
 
   if (text.isEmpty() || !event) return false;
 
   switch (event->type()) {
-    case QEvent::ToolTip: {
+    case QEvent::ToolTip:{
       QSize real_text = sizeHint(option, idx);
       QRect displayed_text = view->visualRect(idx);
       bool is_elided = displayed_text.width() < real_text.width();
@@ -301,7 +299,9 @@ bool PlaylistDelegateBase::helpEvent(QHelpEvent *event, QAbstractItemView *view,
 }
 
 
-QString LengthItemDelegate::displayText(const QVariant &value, const QLocale&) const {
+QString LengthItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
 
   bool ok = false;
   qint64 nanoseconds = value.toLongLong(&ok);
@@ -312,7 +312,9 @@ QString LengthItemDelegate::displayText(const QVariant &value, const QLocale&) c
 }
 
 
-QString SizeItemDelegate::displayText(const QVariant &value, const QLocale&) const {
+QString SizeItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
 
   bool ok = false;
   qint64 bytes = value.toLongLong(&ok);
@@ -369,7 +371,7 @@ QWidget *TextItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewI
   return new QLineEdit(parent);
 }
 
-TagCompletionModel::TagCompletionModel(CollectionBackend *backend, const Playlist::Column column, QObject *parent) : QStringListModel(parent) {
+TagCompletionModel::TagCompletionModel(SharedPtr<CollectionBackend> backend, const Playlist::Column column, QObject *parent) : QStringListModel(parent) {
 
   QString col = database_column(column);
   if (!col.isEmpty()) {
@@ -382,30 +384,36 @@ TagCompletionModel::TagCompletionModel(CollectionBackend *backend, const Playlis
 
 }
 
-QString TagCompletionModel::database_column(Playlist::Column column) {
+QString TagCompletionModel::database_column(const Playlist::Column column) {
 
   switch (column) {
-    case Playlist::Column_Artist:       return "artist";
-    case Playlist::Column_Album:        return "album";
-    case Playlist::Column_AlbumArtist:  return "albumartist";
-    case Playlist::Column_Composer:     return "composer";
-    case Playlist::Column_Performer:    return "performer";
-    case Playlist::Column_Grouping:     return "grouping";
-    case Playlist::Column_Genre:        return "genre";
+    case Playlist::Column::Artist:          return u"artist"_s;
+    case Playlist::Column::ArtistSort:      return u"artistsort"_s;
+    case Playlist::Column::Album:           return u"album"_s;
+    case Playlist::Column::AlbumSort:       return u"albumsort"_s;
+    case Playlist::Column::AlbumArtist:     return u"albumartist"_s;
+    case Playlist::Column::AlbumArtistSort: return u"albumartistsort"_s;
+    case Playlist::Column::Composer:        return u"composer"_s;
+    case Playlist::Column::ComposerSort:    return u"composersort"_s;
+    case Playlist::Column::Performer:       return u"performer"_s;
+    case Playlist::Column::PerformerSort:   return u"performersort"_s;
+    case Playlist::Column::Grouping:        return u"grouping"_s;
+    case Playlist::Column::Genre:           return u"genre"_s;
+    case Playlist::Column::TitleSort:       return u"titlesort"_s;
     default:
-      qLog(Warning) << "Unknown column" << column;
+      qLog(Warning) << "Unknown column" << static_cast<int>(column);
       return QString();
   }
 
 }
 
-static TagCompletionModel *InitCompletionModel(CollectionBackend *backend, Playlist::Column column) {
+static TagCompletionModel *InitCompletionModel(SharedPtr<CollectionBackend> backend, Playlist::Column column) {
 
   return new TagCompletionModel(backend, column);
 
 }
 
-TagCompleter::TagCompleter(CollectionBackend *backend, Playlist::Column column, QLineEdit *editor) : QCompleter(editor), editor_(editor) {
+TagCompleter::TagCompleter(SharedPtr<CollectionBackend> backend, const Playlist::Column column, QLineEdit *editor) : QCompleter(editor), editor_(editor) {
 
   QFuture<TagCompletionModel*> future = QtConcurrent::run(&InitCompletionModel, backend, column);
   QFutureWatcher<TagCompletionModel*> *watcher = new QFutureWatcher<TagCompletionModel*>();
@@ -429,7 +437,10 @@ void TagCompleter::ModelReady() {
 
 }
 
-QWidget *TagCompletionItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem&, const QModelIndex&) const {
+QWidget *TagCompletionItemDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &idx) const {
+
+  Q_UNUSED(option)
+  Q_UNUSED(idx)
 
   QLineEdit *editor = new QLineEdit(parent);
   new TagCompleter(backend_, column_, editor);
@@ -438,19 +449,17 @@ QWidget *TagCompletionItemDelegate::createEditor(QWidget *parent, const QStyleOp
 
 }
 
-QString NativeSeparatorsDelegate::displayText(const QVariant &value, const QLocale&) const {
+QString NativeSeparatorsDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
 
   const QString string_value = value.toString();
 
   QUrl url;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   if (value.metaType().id() == QMetaType::QUrl) {
-#else
-  if (value.type() == QVariant::Url) {
-#endif
     url = value.toUrl();
   }
-  else if (string_value.contains("://")) {
+  else if (string_value.contains("://"_L1)) {
     url = QUrl::fromEncoded(string_value.toLatin1());
   }
   else {
@@ -466,22 +475,23 @@ QString NativeSeparatorsDelegate::displayText(const QVariant &value, const QLoca
 
 SongSourceDelegate::SongSourceDelegate(QObject *parent) : PlaylistDelegateBase(parent) {}
 
-QString SongSourceDelegate::displayText(const QVariant &value, const QLocale&) const {
+QString SongSourceDelegate::displayText(const QVariant &value, const QLocale &locale) const {
   Q_UNUSED(value);
+  Q_UNUSED(locale)
   return QString();
 }
 
-QPixmap SongSourceDelegate::LookupPixmap(const Song::Source source, const QSize size) const {
+QPixmap SongSourceDelegate::LookupPixmap(const Song::Source source, const QSize size, const qreal device_pixel_ratio) const {
 
   QPixmap pixmap;
-  QString cache_key = QString("%1-%2x%3").arg(Song::TextForSource(source)).arg(size.width()).arg(size.height());
-  if (QPixmapCache::find(cache_key, &pixmap)) {
+  const QString pixmap_cache_key = QStringLiteral("%1-%2x%3-%4").arg(Song::TextForSource(source)).arg(size.width()).arg(size.height()).arg(device_pixel_ratio);
+  if (QPixmapCache::find(pixmap_cache_key, &pixmap)) {
     return pixmap;
   }
 
   QIcon icon(Song::IconForSource(source));
-  pixmap = icon.pixmap(size.height());
-  QPixmapCache::insert(cache_key, pixmap);
+  pixmap = icon.pixmap(size, device_pixel_ratio);
+  QPixmapCache::insert(pixmap_cache_key, pixmap);
 
   return pixmap;
 
@@ -495,16 +505,11 @@ void SongSourceDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
   QStyleOptionViewItem option_copy(option);
   initStyleOption(&option_copy, idx);
 
-  const Song::Source source = static_cast<Song::Source>(idx.data().toInt());
-  QPixmap pixmap = LookupPixmap(source, option_copy.decorationSize);
-
-  QWidget *parent_widget = qobject_cast<QWidget*>(parent());
-  qreal device_pixel_ratio = parent_widget->devicePixelRatio();
+  const QPixmap pixmap = LookupPixmap(idx.data().value<Song::Source>(), option_copy.decorationSize, qobject_cast<QWidget*>(parent())->devicePixelRatioF());
 
   // Draw the pixmap in the middle of the rectangle
-  QRect draw_rect(QPoint(0, 0), option_copy.decorationSize / device_pixel_ratio);
+  QRect draw_rect(QPoint(0, 0), option_copy.decorationSize);
   draw_rect.moveCenter(option_copy.rect.center());
-
   painter->drawPixmap(draw_rect, pixmap);
 
 }
@@ -535,7 +540,9 @@ QSize RatingItemDelegate::sizeHint(const QStyleOptionViewItem &option, const QMo
 
 }
 
-QString RatingItemDelegate::displayText(const QVariant &value, const QLocale&) const {
+QString RatingItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
 
   if (value.isNull() || value.toFloat() <= 0) return QString();
 
@@ -543,5 +550,29 @@ QString RatingItemDelegate::displayText(const QVariant &value, const QLocale&) c
   const float rating = static_cast<float>(lround(value.toFloat() * RatingPainter::kStarCount * 2)) / 2;
 
   return QString::number(rating, 'f', 1);
+
+}
+
+QString Ebur128LoudnessLUFSItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
+
+  bool ok = false;
+  double v = value.toDouble(&ok);
+
+  if (ok) return Song::Ebur128LoudnessLUFSToText(v);
+  return QString();
+
+}
+
+QString Ebur128LoudnessRangeLUItemDelegate::displayText(const QVariant &value, const QLocale &locale) const {
+
+  Q_UNUSED(locale)
+
+  bool ok = false;
+  double v = value.toDouble(&ok);
+
+  if (ok) return Song::Ebur128LoudnessRangeLUToText(v);
+  return QString();
 
 }

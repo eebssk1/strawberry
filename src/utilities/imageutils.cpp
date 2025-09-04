@@ -17,22 +17,22 @@
  *
  */
 
-#include <QList>
-#include <QBuffer>
+#include <utility>
+
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
-#include <QUrl>
+#include <QBuffer>
 #include <QImage>
 #include <QImageReader>
-#include <QPixmap>
 #include <QPainter>
 #include <QSize>
 
 #include "imageutils.h"
 #include "fileutils.h"
 #include "mimeutils.h"
-#include "core/tagreaderclient.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 QStringList ImageUtils::kSupportedImageMimeTypes;
 QStringList ImageUtils::kSupportedImageFormats;
@@ -40,8 +40,9 @@ QStringList ImageUtils::kSupportedImageFormats;
 QStringList ImageUtils::SupportedImageMimeTypes() {
 
   if (kSupportedImageMimeTypes.isEmpty()) {
-    for (const QByteArray &mimetype : QImageReader::supportedMimeTypes()) {
-      kSupportedImageMimeTypes << mimetype;
+    const QList<QByteArray> supported_mimetypes = QImageReader::supportedMimeTypes();
+    for (const QByteArray &mimetype : supported_mimetypes) {
+      kSupportedImageMimeTypes << QString::fromUtf8(mimetype);
     }
   }
 
@@ -52,55 +53,13 @@ QStringList ImageUtils::SupportedImageMimeTypes() {
 QStringList ImageUtils::SupportedImageFormats() {
 
   if (kSupportedImageFormats.isEmpty()) {
-    for (const QByteArray &filetype : QImageReader::supportedImageFormats()) {
-      kSupportedImageFormats << filetype;
+    const QList<QByteArray> image_formats = QImageReader::supportedImageFormats();
+    for (const QByteArray &filetype : image_formats) {
+      kSupportedImageFormats << QString::fromUtf8(filetype);
     }
   }
 
   return kSupportedImageFormats;
-
-}
-
-QList<QByteArray> ImageUtils::ImageFormatsForMimeType(const QByteArray &mimetype) {
-
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 12, 0))
-  return QImageReader::imageFormatsForMimeType(mimetype);
-#else
-  if (mimetype == "image/bmp") return QList<QByteArray>() << "BMP";
-  else if (mimetype == "image/gif") return QList<QByteArray>() << "GIF";
-  else if (mimetype == "image/jpeg") return QList<QByteArray>() << "JPG";
-  else if (mimetype == "image/png") return QList<QByteArray>() << "PNG";
-  else return QList<QByteArray>();
-#endif
-
-}
-
-QPixmap ImageUtils::TryLoadPixmap(const QUrl &art_automatic, const QUrl &art_manual, const QUrl &url) {
-
-  QPixmap ret;
-
-  if (!art_manual.path().isEmpty()) {
-    if (art_manual.path() == Song::kManuallyUnsetCover) return ret;
-    else if (art_manual.isLocalFile()) {
-      ret.load(art_manual.toLocalFile());
-    }
-    else if (art_manual.scheme().isEmpty()) {
-      ret.load(art_manual.path());
-    }
-  }
-  if (ret.isNull() && !art_automatic.path().isEmpty()) {
-    if (art_automatic.path() == Song::kEmbeddedCover && !url.isEmpty() && url.isLocalFile()) {
-      ret = QPixmap::fromImage(TagReaderClient::Instance()->LoadEmbeddedArtAsImageBlocking(url.toLocalFile()));
-    }
-    else if (art_automatic.isLocalFile()) {
-      ret.load(art_automatic.toLocalFile());
-    }
-    else if (art_automatic.scheme().isEmpty()) {
-      ret.load(art_automatic.path());
-    }
-  }
-
-  return ret;
 
 }
 
@@ -124,13 +83,14 @@ QByteArray ImageUtils::FileToJpegData(const QString &filename) {
   if (filename.isEmpty()) return QByteArray();
 
   QByteArray image_data = Utilities::ReadDataFromFile(filename);
-  if (Utilities::MimeTypeFromData(image_data) == "image/jpeg") return image_data;
-  else {
-    QImage image;
-    if (image.loadFromData(image_data)) {
-      if (!image.isNull()) {
-        image_data = SaveImageToJpegData(image);
-      }
+  if (Utilities::MimeTypeFromData(image_data) == u"image/jpeg"_s) {
+    return image_data;
+  }
+
+  QImage image;
+  if (image.loadFromData(image_data)) {
+    if (!image.isNull()) {
+      image_data = SaveImageToJpegData(image);
     }
   }
 
@@ -138,72 +98,51 @@ QByteArray ImageUtils::FileToJpegData(const QString &filename) {
 
 }
 
-QImage ImageUtils::ScaleAndPad(const QImage &image, const bool scale, const bool pad, const int desired_height) {
+QImage ImageUtils::ScaleImage(const QImage &image, const QSize desired_size, const qreal device_pixel_ratio, const bool pad) {
 
-  if (image.isNull()) return image;
-
-  // Scale the image down
-  QImage image_scaled;
-  if (scale) {
-    image_scaled = image.scaled(QSize(desired_height, desired_height), Qt::KeepAspectRatio, Qt::SmoothTransformation);
-  }
-  else {
-    image_scaled = image;
+  if (image.isNull() || (image.width() == desired_size.width() && image.height() == desired_size.height())) {
+    return image;
   }
 
-  // Pad the image to height x height
-  if (pad) {
-    QImage image_padded(desired_height, desired_height, QImage::Format_ARGB32);
+  QSize scale_size(static_cast<int>(desired_size.width() * device_pixel_ratio), static_cast<int>(desired_size.height() * device_pixel_ratio));
+
+  // Scale the image
+  QImage image_scaled = image.scaled(scale_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+
+  // Pad the image
+  if (pad && image_scaled.width() != image_scaled.height()) {
+    QImage image_padded(scale_size, QImage::Format_ARGB32);
     image_padded.fill(0);
 
     QPainter p(&image_padded);
-    p.drawImage((desired_height - image_scaled.width()) / 2, (desired_height - image_scaled.height()) / 2, image_scaled);
+    p.drawImage((image_padded.width() - image_scaled.width()) / 2, (image_padded.height() - image_scaled.height()) / 2, image_scaled);
     p.end();
 
     image_scaled = image_padded;
   }
 
+  image_scaled.setDevicePixelRatio(device_pixel_ratio);
+
   return image_scaled;
 
 }
 
-QImage ImageUtils::CreateThumbnail(const QImage &image, const bool pad, const QSize size) {
+QImage ImageUtils::GenerateNoCoverImage(const QSize size, const qreal device_pixel_ratio) {
 
-  if (image.isNull()) return image;
-
-  QImage image_thumbnail;
-  if (pad) {
-    image_thumbnail = image.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
-    QImage image_padded(size, QImage::Format_ARGB32_Premultiplied);
-    image_padded.fill(0);
-
-    QPainter p(&image_padded);
-    p.drawImage((image_padded.width() - image_thumbnail.width()) / 2, (image_padded.height() - image_thumbnail.height()) / 2, image_thumbnail);
-    p.end();
-
-    image_thumbnail = image_padded;
-  }
-  else {
-    image_thumbnail = image.scaledToHeight(size.height(), Qt::SmoothTransformation);
-  }
-
-  return image_thumbnail;
-
-}
-
-QImage ImageUtils::GenerateNoCoverImage(const QSize size) {
-
-  QImage image(":/pictures/cdcase.png");
+  QImage image(u":/pictures/cdcase.png"_s);
+  QSize scale_size(static_cast<int>(size.width() * device_pixel_ratio), static_cast<int>(size.height() * device_pixel_ratio));
 
   // Get a square version of the nocover image with some transparency:
-  QImage image_scaled = image.scaled(size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
+  QImage image_scaled = image.scaled(scale_size, Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
-  QImage image_square(size, QImage::Format_ARGB32);
+  QImage image_square(scale_size, QImage::Format_ARGB32);
   image_square.fill(0);
   QPainter p(&image_square);
   p.setOpacity(0.4);
-  p.drawImage((size.width() - image_scaled.width()) / 2, (size.height() - image_scaled.height()) / 2, image_scaled);
+  p.drawImage((image_square.width() - image_scaled.width()) / 2, (image_square.height() - image_scaled.height()) / 2, image_scaled);
   p.end();
+
+  image_square.setDevicePixelRatio(device_pixel_ratio);
 
   return image_square;
 

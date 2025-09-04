@@ -33,8 +33,10 @@
 #include "globalshortcutsbackend.h"
 #include "globalshortcut.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 GlobalShortcutsBackendX11::GlobalShortcutsBackendX11(GlobalShortcutsManager *manager, QObject *parent)
-    : GlobalShortcutsBackend(manager, GlobalShortcutsBackend::Type_X11, parent),
+    : GlobalShortcutsBackend(manager, GlobalShortcutsBackend::Type::X11, parent),
       gshortcut_init_(nullptr) {}
 
 GlobalShortcutsBackendX11::~GlobalShortcutsBackendX11() { GlobalShortcutsBackendX11::DoUnregister(); }
@@ -45,7 +47,7 @@ bool GlobalShortcutsBackendX11::IsAvailable() const {
 
 bool GlobalShortcutsBackendX11::IsX11Available() {
 
-  return QApplication::platformName() == "xcb";
+  return QApplication::platformName() == "xcb"_L1;
 
 }
 
@@ -55,7 +57,7 @@ bool GlobalShortcutsBackendX11::DoRegister() {
 
   if (!gshortcut_init_) gshortcut_init_ = new GlobalShortcut(this);
 
-  QList<GlobalShortcutsManager::Shortcut> shortcuts = manager_->shortcuts().values();
+  const QList<GlobalShortcutsManager::Shortcut> shortcuts = manager_->shortcuts().values();
   for (const GlobalShortcutsManager::Shortcut &shortcut : shortcuts) {
     AddShortcut(shortcut.action);
   }

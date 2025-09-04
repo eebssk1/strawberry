@@ -80,11 +80,11 @@ class PlaylistListModel : public QStandardItemModel {
   // QStandardItemModel
   bool setData(const QModelIndex &idx, const QVariant &value, int role) override;
 
- signals:
-  void PlaylistPathChanged(int id, QString new_path);
-  void PlaylistRenamed(int id, QString new_name);
+ Q_SIGNALS:
+  void PlaylistPathChanged(const int id, const QString &new_path);
+  void PlaylistRenamed(const int id, const QString &new_name);
 
- private slots:
+ private Q_SLOTS:
   void RowsChanged(const QModelIndex &begin, const QModelIndex &end);
   void RowsAboutToBeRemoved(const QModelIndex &parent, const int start, const int end);
   void RowsInserted(const QModelIndex &parent, const int start, const int end);

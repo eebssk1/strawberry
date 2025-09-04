@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -33,10 +33,12 @@
 #include <QString>
 #include <QStringList>
 
-class QNetworkAccessManager;
+#include "includes/shared_ptr.h"
+
 class QNetworkReply;
 class QTimer;
 class QXmlStreamReader;
+class NetworkAccessManager;
 class NetworkTimeouts;
 
 class MusicBrainzClient : public QObject {
@@ -50,7 +52,7 @@ class MusicBrainzClient : public QObject {
  public:
   // The second argument allows for specifying a custom network access manager.
   // It is used in tests. The ownership of network is not transferred.
-  explicit MusicBrainzClient(QObject *parent = nullptr, QNetworkAccessManager *network = nullptr);
+  explicit MusicBrainzClient(SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
   ~MusicBrainzClient() override;
 
   struct Result {
@@ -99,13 +101,13 @@ class MusicBrainzClient : public QObject {
   // Cancels all requests.  Finished() will never be emitted for any pending requests.
   void CancelAll();
 
- signals:
-  // Finished signal emitted when fechting songs tags
-  void Finished(int id, MusicBrainzClient::ResultList result, QString error = QString());
+ Q_SIGNALS:
+  // Finished signal emitted when feching songs tags
+  void Finished(const int id, const MusicBrainzClient::ResultList &result, const QString &error = QString());
   // Finished signal emitted when fechting album's songs tags using DiscId
-  void DiscIdFinished(QString artist, QString album, MusicBrainzClient::ResultList result, QString error = QString());
+  void DiscIdFinished(const QString &artist, const QString &album, const MusicBrainzClient::ResultList &result, const QString &error = QString());
 
- private slots:
+ private Q_SLOTS:
   void FlushRequests();
   // id identifies the track, and request_number means it's the 'request_number'th request for this track
   void RequestFinished(QNetworkReply *reply, const int id, const int request_number);
@@ -124,22 +126,22 @@ class MusicBrainzClient : public QObject {
   };
 
   // Used as parameter for UniqueResults
-  enum UniqueResultsSortOption {
+  enum class UniqueResultsSortOption {
     SortResults = 0,
     KeepOriginalOrder
   };
 
   struct Release {
 
-    enum Status {
-      Status_Unknown = 0,
-      Status_PseudoRelease,
-      Status_Bootleg,
-      Status_Promotional,
-      Status_Official
+    enum class Status {
+      Unknown = 0,
+      PseudoRelease,
+      Bootleg,
+      Promotional,
+      Official
     };
 
-    Release() : track_(0), year_(0), status_(Status_Unknown) {}
+    Release() : track_(0), year_(0), status_(Status::Unknown) {}
 
     Result CopyAndMergeInto(const Result &orig) const {
       Result ret(orig);
@@ -150,20 +152,20 @@ class MusicBrainzClient : public QObject {
     }
 
     void SetStatusFromString(const QString &s) {
-      if (s.compare("Official", Qt::CaseInsensitive) == 0) {
-        status_ = Status_Official;
+      if (s.compare(QLatin1String("Official"), Qt::CaseInsensitive) == 0) {
+        status_ = Status::Official;
       }
-      else if (s.compare("Promotion", Qt::CaseInsensitive) == 0) {
-        status_ = Status_Promotional;
+      else if (s.compare(QLatin1String("Promotion"), Qt::CaseInsensitive) == 0) {
+        status_ = Status::Promotional;
       }
-      else if (s.compare("Bootleg", Qt::CaseInsensitive) == 0) {
-        status_ = Status_Bootleg;
+      else if (s.compare(QLatin1String("Bootleg"), Qt::CaseInsensitive) == 0) {
+        status_ = Status::Bootleg;
       }
-      else if (s.compare("Pseudo-release", Qt::CaseInsensitive) == 0) {
-        status_ = Status_PseudoRelease;
+      else if (s.compare(QLatin1String("Pseudo-release"), Qt::CaseInsensitive) == 0) {
+        status_ = Status::PseudoRelease;
       }
       else {
-        status_ = Status_Unknown;
+        status_ = Status::Unknown;
       }
     }
 
@@ -196,19 +198,11 @@ class MusicBrainzClient : public QObject {
   static ResultList ParseTrack(QXmlStreamReader *reader);
   static void ParseArtist(QXmlStreamReader *reader, QString *artist);
   static Release ParseRelease(QXmlStreamReader *reader);
-  static ResultList UniqueResults(const ResultList &results, UniqueResultsSortOption opt = SortResults);
+  static ResultList UniqueResults(const ResultList &results, UniqueResultsSortOption opt = UniqueResultsSortOption::SortResults);
   static void Error(const QString &error, const QVariant &debug = QVariant());
 
  private:
-
-  static const char *kTrackUrl;
-  static const char *kDiscUrl;
-  static const char *kDateRegex;
-  static const int kRequestsDelay;
-  static const int kDefaultTimeout;
-  static const int kMaxRequestPerTrack;
-
-  QNetworkAccessManager *network_;
+  SharedPtr<NetworkAccessManager> network_;
   NetworkTimeouts *timeouts_;
   QMultiMap<int, Request> requests_pending_;
   QMultiMap<int, QNetworkReply*> requests_;
@@ -218,11 +212,7 @@ class MusicBrainzClient : public QObject {
 
 };
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 inline size_t qHash(const MusicBrainzClient::Result &result) {
-#else
-inline uint qHash(const MusicBrainzClient::Result &result) {
-#endif
   return qHash(result.album_) ^ qHash(result.artist_) ^ result.duration_msec_ ^ qHash(result.title_) ^ result.track_ ^ result.year_;
 }
 

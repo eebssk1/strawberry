@@ -29,17 +29,20 @@
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 
+#include "includes/shared_ptr.h"
 #include "utilities/xmlutils.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 #include "xmlparser.h"
 #include "asxparser.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 class CollectionBackendInterface;
 
-ASXParser::ASXParser(CollectionBackendInterface *collection, QObject *parent)
-    : XMLParser(collection, parent) {}
+ASXParser::ASXParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : XMLParser(tagreader_client, collection_backend, parent) {}
 
-SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_search) const {
+ParserBase::LoadResult ASXParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
@@ -47,14 +50,15 @@ SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const 
   QByteArray data = device->readAll();
 
   // Some playlists have unescaped & characters in URLs :(
-  QRegularExpression ex("(href\\s*=\\s*\")([^\"]+)\"", QRegularExpression::CaseInsensitiveOption);
+  static const QRegularExpression ex(u"(href\\s*=\\s*\")([^\"]+)\""_s, QRegularExpression::CaseInsensitiveOption);
   qint64 index = 0;
-  for (QRegularExpressionMatch re_match = ex.match(data, index); re_match.hasMatch(); re_match = ex.match(data, index)) {
+  for (QRegularExpressionMatch re_match = ex.match(QString::fromUtf8(data), index); re_match.hasMatch(); re_match = ex.match(QString::fromUtf8(data), index)) {
     index = re_match.capturedStart();
     QString url = re_match.captured(2);
-    url.replace(QRegularExpression("&(?!amp;|quot;|apos;|lt;|gt;)"), "&amp;");
+    static const QRegularExpression regex_html_enities(u"&(?!amp;|quot;|apos;|lt;|gt;)"_s);
+    url.replace(regex_html_enities, u"&amp;"_s);
 
-    QByteArray replacement = QString(re_match.captured(1) + url + "\"").toLocal8Bit();
+    QByteArray replacement = QStringLiteral("%1%2\"").arg(re_match.captured(1), url).toLocal8Bit();
     data.replace(re_match.captured(0).toLocal8Bit(), replacement);
     index += replacement.length();
   }
@@ -63,14 +67,14 @@ SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const 
   if (!buffer.open(QIODevice::ReadOnly)) return SongList();
 
   QXmlStreamReader reader(&buffer);
-  if (!Utilities::ParseUntilElementCI(&reader, "asx")) {
+  if (!Utilities::ParseUntilElementCI(&reader, u"asx"_s)) {
     buffer.close();
     return SongList();
   }
 
   SongList ret;
-  while (!reader.atEnd() && Utilities::ParseUntilElementCI(&reader, "entry")) {
-    Song song = ParseTrack(&reader, dir, collection_search);
+  while (!reader.atEnd() && Utilities::ParseUntilElementCI(&reader, u"entry"_s)) {
+    Song song = ParseTrack(&reader, dir, collection_lookup);
     if (song.is_valid()) {
       ret << song;
     }
@@ -82,7 +86,7 @@ SongList ASXParser::Load(QIODevice *device, const QString &playlist_path, const 
 
 }
 
-Song ASXParser::ParseTrack(QXmlStreamReader *reader, const QDir &dir, const bool collection_search) const {
+Song ASXParser::ParseTrack(QXmlStreamReader *reader, const QDir &dir, const bool collection_lookup) const {
 
   QString title, artist, album, ref;
 
@@ -90,22 +94,22 @@ Song ASXParser::ParseTrack(QXmlStreamReader *reader, const QDir &dir, const bool
     QXmlStreamReader::TokenType type = reader->readNext();
 
     switch (type) {
-      case QXmlStreamReader::StartElement: {
-        QString name = reader->name().toString().toLower();
-        if (name == "ref") {
-          ref = reader->attributes().value("href").toString();
+      case QXmlStreamReader::StartElement:{
+        const QString name = reader->name().toString().toLower();
+        if (name == "ref"_L1) {
+          ref = reader->attributes().value("href"_L1).toString();
         }
-        else if (name == "title") {
+        else if (name == "title"_L1) {
           title = reader->readElementText();
         }
-        else if (name == "author") {
+        else if (name == "author"_L1) {
           artist = reader->readElementText();
         }
         break;
       }
-      case QXmlStreamReader::EndElement: {
-        QString name = reader->name().toString().toLower();
-        if (name == "entry") {
+      case QXmlStreamReader::EndElement:{
+        const QString name = reader->name().toString().toLower();
+        if (name == "entry"_L1) {
           goto return_song;
         }
         break;
@@ -116,10 +120,10 @@ Song ASXParser::ParseTrack(QXmlStreamReader *reader, const QDir &dir, const bool
   }
 
 return_song:
-  Song song = LoadSong(ref, 0, dir, collection_search);
+  Song song = LoadSong(ref, 0, 0, dir, collection_lookup);
 
   // Override metadata with what was in the playlist
-  if (song.source() != Song::Source_Collection) {
+  if (song.source() != Song::Source::Collection) {
     if (!title.isEmpty()) song.set_title(title);
     if (!artist.isEmpty()) song.set_artist(artist);
     if (!album.isEmpty()) song.set_album(album);
@@ -129,24 +133,28 @@ return_song:
 
 }
 
-void ASXParser::Save(const SongList &songs, QIODevice *device, const QDir&, const PlaylistSettingsPage::PathType) const {
+void ASXParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
+  Q_UNUSED(dir)
+  Q_UNUSED(path_type)
 
   QXmlStreamWriter writer(device);
   writer.setAutoFormatting(true);
   writer.setAutoFormattingIndent(2);
   writer.writeStartDocument();
   {
-    StreamElement asx("asx", &writer);
-    writer.writeAttribute("version", "3.0");
+    StreamElement asx(u"asx"_s, &writer);
+    writer.writeAttribute("version"_L1, "3.0"_L1);
     for (const Song &song : songs) {
-      StreamElement entry("entry", &writer);
-      writer.writeTextElement("title", song.title());
+      StreamElement entry(u"entry"_s, &writer);
+      writer.writeTextElement("title"_L1, song.title());
       {
-        StreamElement ref("ref", &writer);
-        writer.writeAttribute("href", song.url().toString());
+        StreamElement ref(u"ref"_s, &writer);
+        writer.writeAttribute("href"_L1, song.url().toString());
       }
       if (!song.artist().isEmpty()) {
-        writer.writeTextElement("author", song.artist());
+        writer.writeTextElement("author"_L1, song.artist());
       }
     }
   }

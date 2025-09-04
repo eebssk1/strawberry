@@ -20,10 +20,14 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QtGlobal>
 #include <QString>
 
 #include "coversearchstatistics.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 CoverSearchStatistics::CoverSearchStatistics()
     : network_requests_made_(0),
@@ -39,11 +43,11 @@ CoverSearchStatistics &CoverSearchStatistics::operator+=(const CoverSearchStatis
   bytes_transferred_ += other.bytes_transferred_;
 
   QStringList keys = other.chosen_images_by_provider_.keys();
-  for (const QString &key : keys) {
+  for (const QString &key : std::as_const(keys)) {
     chosen_images_by_provider_[key] += other.chosen_images_by_provider_[key];
   }
   keys = other.total_images_by_provider_.keys();
-  for (const QString &key : keys) {
+  for (const QString &key : std::as_const(keys)) {
     total_images_by_provider_[key] += other.total_images_by_provider_[key];
   }
 
@@ -60,9 +64,9 @@ CoverSearchStatistics &CoverSearchStatistics::operator+=(const CoverSearchStatis
 QString CoverSearchStatistics::AverageDimensions() const {
 
   if (chosen_images_ == 0) {
-    return "0x0";
+    return u"0x0"_s;
   }
 
-  return QString::number(chosen_width_ / chosen_images_) + "x" + QString::number(chosen_height_ / chosen_images_);
+  return QString::number(chosen_width_ / chosen_images_) + QLatin1Char('x') + QString::number(chosen_height_ / chosen_images_);
 
 }

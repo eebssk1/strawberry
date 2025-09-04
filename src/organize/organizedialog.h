@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QDialog>
@@ -37,6 +35,8 @@
 #include <QUrl>
 #include <QtEvents>
 
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "organize.h"
 #include "organizeformat.h"
@@ -56,7 +56,12 @@ class OrganizeDialog : public QDialog {
   Q_OBJECT
 
  public:
-  explicit OrganizeDialog(TaskManager *task_manager, CollectionBackend *backend = nullptr, QWidget *parentwindow = nullptr, QWidget *parent = nullptr);
+  explicit OrganizeDialog(const SharedPtr<TaskManager> task_manager,
+                          const SharedPtr<TagReaderClient> tagreader_client,
+                          const SharedPtr<CollectionBackend> collection_backend = nullptr,
+                          QWidget *parentwindow = nullptr,
+                          QWidget *parent = nullptr);
+
   ~OrganizeDialog() override;
 
   void SetDestinationModel(QAbstractItemModel *model, const bool devices = false);
@@ -74,8 +79,8 @@ class OrganizeDialog : public QDialog {
   void SetPlaylist(const QString &playlist);
 
  protected:
-  void showEvent(QShowEvent*) override;
-  void closeEvent(QCloseEvent*) override;
+  void showEvent(QShowEvent *e) override;
+  void closeEvent(QCloseEvent *e) override;
 
  private:
   void LoadGeometry();
@@ -83,17 +88,17 @@ class OrganizeDialog : public QDialog {
   void LoadSettings();
   void AdjustSize();
 
-  static SongList LoadSongsBlocking(const QStringList &filenames);
+  SongList LoadSongsBlocking(const QStringList &filenames) const;
   void SetLoadingSongs(const bool loading);
 
- signals:
-  void FileCopied(int);
+ Q_SIGNALS:
+  void FileCopied(const int);
 
- public slots:
+ public Q_SLOTS:
   void accept() override;
   void reject() override;
 
- private slots:
+ private Q_SLOTS:
   void SaveSettings();
   void RestoreDefaults();
 
@@ -105,13 +110,12 @@ class OrganizeDialog : public QDialog {
   void AllowExtASCII(const bool checked);
 
  private:
-  static const char kSettingsGroup[];
-  static const char kDefaultFormat[];
-
   QWidget *parentwindow_;
   Ui_OrganizeDialog *ui_;
-  TaskManager *task_manager_;
-  CollectionBackend *backend_;
+
+  const SharedPtr<TaskManager> task_manager_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<CollectionBackend> collection_backend_;
 
   OrganizeFormat format_;
 
@@ -121,10 +125,9 @@ class OrganizeDialog : public QDialog {
   quint64 total_size_;
   QString playlist_;
 
-  std::unique_ptr<OrganizeErrorDialog> error_dialog_;
+  ScopedPtr<OrganizeErrorDialog> error_dialog_;
 
   bool devices_;
-
 };
 
 #endif  // ORGANISEDIALOG_H

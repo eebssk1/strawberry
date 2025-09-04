@@ -44,6 +44,9 @@ class PlaylistView;
 
 class Ui_PlaylistContainer;
 
+#include "includes/shared_ptr.h"
+#include "core/settings.h"
+
 class PlaylistContainer : public QWidget {
   Q_OBJECT
 
@@ -51,10 +54,8 @@ class PlaylistContainer : public QWidget {
   explicit PlaylistContainer(QWidget *parent = nullptr);
   ~PlaylistContainer() override;
 
-  static const char *kSettingsGroup;
-
   void SetActions(QAction *new_playlist, QAction *load_playlist, QAction *save_playlist, QAction *clear_playlist, QAction *next_playlist, QAction *previous_playlist, QAction *save_all_playlists);
-  void SetManager(PlaylistManager *manager);
+  void SetManager(SharedPtr<PlaylistManager> manager);
   void ReloadSettings();
 
   bool SearchFieldHasFocus() const;
@@ -64,10 +65,7 @@ class PlaylistContainer : public QWidget {
 
   bool eventFilter(QObject *objectWatched, QEvent *event) override;
 
- signals:
-  void TabChanged(int id);
-  void Rename(int id, QString new_name);
-
+ Q_SIGNALS:
   void UndoRedoActionsChanged(QAction *undo, QAction *redo);
   void ViewSelectionModelChanged();
 
@@ -75,7 +73,7 @@ class PlaylistContainer : public QWidget {
   // QWidget
   void resizeEvent(QResizeEvent*) override;
 
- private slots:
+ private Q_SLOTS:
   void NewPlaylist();
   void LoadPlaylist();
   void SaveCurrentPlaylist() { SavePlaylist(-1); }
@@ -103,7 +101,7 @@ class PlaylistContainer : public QWidget {
 
   void UpdateNoMatchesLabel();
 
- public slots:
+ public Q_SLOTS:
   void ActivePlaying();
   void ActivePaused();
   void ActiveStopped();
@@ -113,17 +111,14 @@ class PlaylistContainer : public QWidget {
   void RepositionNoMatchesLabel(bool force = false);
 
  private:
-  static const int kFilterDelayMs;
-  static const int kFilterDelayPlaylistSizeThreshold;
-
   Ui_PlaylistContainer *ui_;
 
-  PlaylistManager *manager_;
+  SharedPtr<PlaylistManager> manager_;
   QAction *undo_;
   QAction *redo_;
   Playlist *playlist_;
 
-  QSettings settings_;
+  Settings settings_;
   bool starting_up_;
 
   bool tab_bar_visible_;

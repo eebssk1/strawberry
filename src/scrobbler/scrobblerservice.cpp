@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,45 +19,31 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
 #include <QString>
-#include <QByteArray>
-#include <QJsonDocument>
-#include <QJsonObject>
 
 #include "scrobblerservice.h"
+#include "scrobblersettingsservice.h"
 
-ScrobblerService::ScrobblerService(const QString &name, Application *app, QObject *parent) : QObject(parent), name_(name) {
+#include "core/song.h"
 
-  Q_UNUSED(app);
+ScrobblerService::ScrobblerService(const QString &name, const SharedPtr<NetworkAccessManager> network, const SharedPtr<ScrobblerSettingsService> settings, QObject *parent) : JsonBaseRequest(network, parent), name_(name), settings_(settings) {}
+
+QString ScrobblerService::StripAlbum(const QString &album) const {
+
+  if (settings_->strip_remastered()) {
+    return Song::AlbumRemoveDiscMisc(album);
+  }
+
+  return Song::AlbumRemoveDisc(album);;
 
 }
 
-QJsonObject ScrobblerService::ExtractJsonObj(const QByteArray &data, const bool ignore_empty) {
+QString ScrobblerService::StripTitle(const QString &title) const {
 
-  QJsonParseError error;
-  QJsonDocument json_doc = QJsonDocument::fromJson(data, &error);
-
-  if (error.error != QJsonParseError::NoError) {
-    Error("Reply from server missing Json data.", data);
-    return QJsonObject();
-  }
-  if (json_doc.isEmpty()) {
-    Error("Received empty Json document.", json_doc);
-    return QJsonObject();
-  }
-  if (!json_doc.isObject()) {
-    Error("Json document is not an object.", json_doc);
-    return QJsonObject();
-  }
-  QJsonObject json_obj = json_doc.object();
-  if (json_obj.isEmpty()) {
-    if (!ignore_empty)
-      Error("Received empty Json object.", json_doc);
-    return QJsonObject();
+  if (settings_->strip_remastered()) {
+    return Song::TitleRemoveMisc(title);
   }
 
-  return json_obj;
+  return title;
 
 }

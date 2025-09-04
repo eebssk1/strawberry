@@ -48,21 +48,13 @@ class QPainter;
 class QModelIndex;
 class QKeyEvent;
 
-class Application;
+class AlbumCoverLoader;
 class Ui_AlbumCoverSearcher;
 
 class SizeOverlayDelegate : public QStyledItemDelegate {
   Q_OBJECT
 
  public:
-  static const int kMargin;
-  static const int kPaddingX;
-  static const int kPaddingY;
-  static const qreal kBorder;
-  static const qreal kFontPointSize;
-  static const int kBorderAlpha;
-  static const int kBackgroundAlpha;
-
   explicit SizeOverlayDelegate(QObject *parent = nullptr);
 
   void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &idx) const override;
@@ -73,7 +65,7 @@ class AlbumCoverSearcher : public QDialog {
   Q_OBJECT
 
  public:
-  explicit AlbumCoverSearcher(const QIcon &no_cover_icon, Application *app, QWidget *parent);
+  explicit AlbumCoverSearcher(const QIcon &no_cover_icon, const SharedPtr<AlbumCoverLoader> albumcover_loader, QWidget *parent);
   ~AlbumCoverSearcher() override;
 
   enum Role {
@@ -83,7 +75,7 @@ class AlbumCoverSearcher : public QDialog {
     Role_ImageData,
     Role_Image,
     Role_ImageDimensions,
-    Role_ImageSize,
+    Role_ImageSize
   };
 
   void Init(AlbumCoverFetcher *fetcher);
@@ -93,7 +85,7 @@ class AlbumCoverSearcher : public QDialog {
  protected:
   void keyPressEvent(QKeyEvent*) override;
 
- private slots:
+ private Q_SLOTS:
   void Search();
   void SearchFinished(const quint64 id, const CoverProviderSearchResults &results);
   void AlbumCoverLoaded(const quint64 id, const AlbumCoverLoaderResult &result);
@@ -103,11 +95,10 @@ class AlbumCoverSearcher : public QDialog {
  private:
   Ui_AlbumCoverSearcher *ui_;
 
-  Application *app_;
+  const SharedPtr<AlbumCoverLoader> albumcover_loader_;
   QStandardItemModel *model_;
 
   QIcon no_cover_icon_;
-  AlbumCoverLoaderOptions options_;
   AlbumCoverFetcher *fetcher_;
 
   quint64 id_;

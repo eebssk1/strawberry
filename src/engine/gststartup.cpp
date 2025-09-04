@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,55 +25,26 @@
 #include <gst/gst.h>
 #include <gst/pbutils/pbutils.h>
 
-#include <QObject>
-#include <QMetaObject>
 #include <QCoreApplication>
-#include <QStandardPaths>
-#include <QtConcurrent>
 #include <QString>
 #include <QDir>
 #include <QFile>
-#include <QAbstractEventDispatcher>
 
 #include "core/logging.h"
+#include "core/standardpaths.h"
 #include "utilities/envutils.h"
 
 #ifdef HAVE_MOODBAR
-#  include "ext/gstmoodbar/gstmoodbarplugin.h"
+#  include "gstfastspectrumplugin.h"
 #endif
 
 #include "gststartup.h"
 
-GThread *GstStartup::kGThread = nullptr;
+using namespace Qt::Literals::StringLiterals;
 
-gpointer GstStartup::GLibMainLoopThreadFunc(gpointer) {
+namespace GstStartup {
 
-  qLog(Info) << "Creating GLib main event loop.";
-
-  GMainLoop *gloop = g_main_loop_new(nullptr, false);
-  g_main_loop_run(gloop);
-  g_main_loop_unref(gloop);
-
-  return nullptr;
-
-}
-
-GstStartup::GstStartup(QObject *parent) : QObject(parent) {
-
-  initializing_ = QtConcurrent::run(&GstStartup::InitializeGStreamer);
-
-  const QMetaObject *mo = QAbstractEventDispatcher::instance(qApp->thread())->metaObject();
-  if (mo && strcmp(mo->className(), "QEventDispatcherGlib") != 0 && strcmp(mo->superClass()->className(), "QEventDispatcherGlib") != 0) {
-    kGThread = g_thread_new(nullptr, GstStartup::GLibMainLoopThreadFunc, nullptr);
-  }
-
-}
-
-GstStartup::~GstStartup() {
-  if (kGThread) g_thread_unref(kGThread);
-}
-
-void GstStartup::InitializeGStreamer() {
+void Initialize() {
 
   SetEnvironment();
 
@@ -81,50 +52,62 @@ void GstStartup::InitializeGStreamer() {
   gst_pb_utils_init();
 
 #ifdef HAVE_MOODBAR
-  gstfastspectrum_register_static();
+  gst_strawberry_fastspectrum_register_static();
 #endif
 
 #ifdef Q_OS_WIN32
-  // Use directsoundsink by default because of buggy wasapi plugin.
+  // Use directsoundsink as the default sink on Windows.
+  // wasapisink does not support device switching and wasapi2sink has issues, see #1227.
   GstRegistry *reg = gst_registry_get();
   if (reg) {
-    GstPluginFeature *directsoundsink = gst_registry_lookup_feature(reg, "directsoundsink");
-    GstPluginFeature *wasapisink = gst_registry_lookup_feature(reg, "wasapisink");
-    if (directsoundsink && wasapisink) {
+    if (GstPluginFeature *directsoundsink = gst_registry_lookup_feature(reg, "directsoundsink")) {
       gst_plugin_feature_set_rank(directsoundsink, GST_RANK_PRIMARY);
-      gst_plugin_feature_set_rank(wasapisink, GST_RANK_SECONDARY);
+      gst_object_unref(directsoundsink);
     }
-    if (directsoundsink) gst_object_unref(directsoundsink);
-    if (wasapisink) gst_object_unref(wasapisink);
+    if (GstPluginFeature *wasapisink = gst_registry_lookup_feature(reg, "wasapisink")) {
+      gst_plugin_feature_set_rank(wasapisink, GST_RANK_SECONDARY);
+      gst_object_unref(wasapisink);
+    }
+    if (GstPluginFeature *wasapi2sink = gst_registry_lookup_feature(reg, "wasapi2sink")) {
+      gst_plugin_feature_set_rank(wasapi2sink, GST_RANK_SECONDARY);
+      gst_object_unref(wasapi2sink);
+    }
   }
 #endif
 
 }
 
-void GstStartup::SetEnvironment() {
+void SetEnvironment() {
 
 #ifdef USE_BUNDLE
 
-  QString app_path = QCoreApplication::applicationDirPath();
-  QString bundle_path = app_path + "/" + USE_BUNDLE_DIR;
+  const QString app_path = QCoreApplication::applicationDirPath();
 
-  QString gio_module_path;
-  QString gst_plugin_scanner;
-  QString gst_plugin_path;
-  QString libsoup_library_path;
-
-#  if defined(Q_OS_WIN32) || defined(Q_OS_MACOS)
-  gio_module_path = bundle_path + "/gio-modules";
-#  endif
-#  if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
-  gst_plugin_scanner = bundle_path + "/gst-plugin-scanner";
-  gst_plugin_path = bundle_path + "/gstreamer";
-#  endif
-#  if defined(Q_OS_WIN32)
-  gst_plugin_path = bundle_path + "/gstreamer-plugins";
-#  endif
+  // Set plugin root path
+  QString plugin_root_path;
 #  if defined(Q_OS_MACOS)
-  libsoup_library_path = app_path + "/../Frameworks/libsoup-3.0.0.dylib";
+  plugin_root_path = QDir::cleanPath(app_path + "/../PlugIns"_L1);
+#  elif defined(Q_OS_UNIX)
+  plugin_root_path = QDir::cleanPath(app_path + "/../plugins"_L1);
+#  elif defined(Q_OS_WIN32)
+  plugin_root_path = app_path;
+#  endif
+
+  // Set GIO module path
+  const QString gio_module_path = plugin_root_path + "/gio-modules"_L1;
+
+  // Set GStreamer plugin scanner path
+  QString gst_plugin_scanner;
+#  if defined(Q_OS_UNIX)
+  gst_plugin_scanner = plugin_root_path + "/gst-plugin-scanner"_L1;
+#  endif
+
+  // Set GStreamer plugin path
+  QString gst_plugin_path;
+#  if defined(Q_OS_WIN32)
+  gst_plugin_path = plugin_root_path + "/gstreamer-plugins"_L1;
+#  else
+  gst_plugin_path = plugin_root_path + "/gstreamer"_L1;
 #  endif
 
   if (!gio_module_path.isEmpty()) {
@@ -133,7 +116,7 @@ void GstStartup::SetEnvironment() {
       Utilities::SetEnv("GIO_EXTRA_MODULES", gio_module_path);
     }
     else {
-      qLog(Debug) << "GIO module path does not exist:" << gio_module_path;
+      qLog(Error) << "GIO module path" << gio_module_path << "does not exist.";
     }
   }
 
@@ -143,7 +126,7 @@ void GstStartup::SetEnvironment() {
       Utilities::SetEnv("GST_PLUGIN_SCANNER", gst_plugin_scanner);
     }
     else {
-      qLog(Debug) << "GStreamer plugin scanner does not exist:" << gst_plugin_scanner;
+      qLog(Error) << "GStreamer plugin scanner" << gst_plugin_scanner << "does not exist.";
     }
   }
 
@@ -155,26 +138,18 @@ void GstStartup::SetEnvironment() {
       Utilities::SetEnv("GST_PLUGIN_SYSTEM_PATH", gst_plugin_path);
     }
     else {
-      qLog(Debug) << "GStreamer plugin path does not exist:" << gst_plugin_path;
-    }
-  }
-
-  if (!libsoup_library_path.isEmpty()) {
-    if (QFile::exists(libsoup_library_path)) {
-      Utilities::SetEnv("LIBSOUP3_LIBRARY_PATH", libsoup_library_path);
-    }
-    else {
-      qLog(Debug) << "libsoup path does not exist:" << libsoup_library_path;
+      qLog(Error) << "GStreamer plugin path" << gst_plugin_path << "does not exist.";
     }
   }
 
 #endif  // USE_BUNDLE
 
-
 #if defined(Q_OS_WIN32) || defined(Q_OS_MACOS)
-  QString gst_registry_filename = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + QString("/gst-registry-%1-bin").arg(QCoreApplication::applicationVersion());
+  QString gst_registry_filename = StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + QStringLiteral("/gst-registry-%1-bin").arg(QCoreApplication::applicationVersion());
   qLog(Debug) << "Setting GStreamer registry file to" << gst_registry_filename;
   Utilities::SetEnv("GST_REGISTRY", gst_registry_filename);
 #endif
 
 }
+
+}  // namespace GstStartup

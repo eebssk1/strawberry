@@ -48,8 +48,9 @@
 #include <QMessageBox>
 #include <QtEvents>
 
+#include "includes/shared_ptr.h"
+#include "includes/scoped_ptr.h"
 #include "core/iconloader.h"
-#include "core/application.h"
 #include "core/deletefiles.h"
 #include "core/mergedproxymodel.h"
 #include "core/mimedata.h"
@@ -60,11 +61,14 @@
 #include "collection/collectiondirectorymodel.h"
 #include "collection/collectionmodel.h"
 #include "collection/collectionitemdelegate.h"
-#include "connecteddevice.h"
 #include "devicelister.h"
+#include "connecteddevice.h"
 #include "devicemanager.h"
 #include "deviceproperties.h"
 #include "deviceview.h"
+
+using namespace Qt::Literals::StringLiterals;
+using std::make_unique;
 
 const int DeviceItemDelegate::kIconPadding = 6;
 
@@ -124,23 +128,23 @@ void DeviceItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
   }
   else {
     switch (state) {
-      case DeviceManager::State_Remembered:
+      case DeviceManager::State::Remembered:
         status_text = tr("Not connected");
         break;
 
-      case DeviceManager::State_NotMounted:
+      case DeviceManager::State::NotMounted:
         status_text = tr("Not mounted - double click to mount");
         break;
 
-      case DeviceManager::State_NotConnected:
+      case DeviceManager::State::NotConnected:
         status_text = tr("Double click to open");
         break;
 
-      case DeviceManager::State_Connected: {
+      case DeviceManager::State::Connected:{
         QVariant song_count = idx.data(DeviceManager::Role_SongCount);
         if (song_count.isValid()) {
           int count = song_count.toInt();
-          status_text = tr("%1 song%2").arg(count).arg(count == 1 ? "" : "s");
+          status_text = tr("%1 song%2").arg(count).arg(count == 1 ? ""_L1 : "s"_L1);
         }
         else {
           status_text = idx.data(DeviceManager::Role_MountPath).toString();
@@ -171,7 +175,6 @@ void DeviceItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &op
 
 DeviceView::DeviceView(QWidget *parent)
     : AutoExpandingTreeView(parent),
-      app_(nullptr),
       merged_model_(nullptr),
       sort_model_(nullptr),
       properties_dialog_(new DeviceProperties),
@@ -198,16 +201,20 @@ DeviceView::DeviceView(QWidget *parent)
 
 DeviceView::~DeviceView() = default;
 
-void DeviceView::SetApplication(Application *app) {
+void DeviceView::Init(const SharedPtr<TaskManager> task_manager,
+                      const SharedPtr<TagReaderClient> tagreader_client,
+                      const SharedPtr<DeviceManager> device_manager,
+                      CollectionDirectoryModel *collection_directory_model) {
 
-  Q_ASSERT(app_ == nullptr);
-  app_ = app;
+  task_manager_ = task_manager;
+  tagreader_client_ = tagreader_client;
+  device_manager_ = device_manager;
 
-  QObject::connect(app_->device_manager(), &DeviceManager::DeviceConnected, this, &DeviceView::DeviceConnected);
-  QObject::connect(app_->device_manager(), &DeviceManager::DeviceDisconnected, this, &DeviceView::DeviceDisconnected);
+  QObject::connect(&*device_manager_, &DeviceManager::DeviceConnected, this, &DeviceView::DeviceConnected);
+  QObject::connect(&*device_manager_, &DeviceManager::DeviceDisconnected, this, &DeviceView::DeviceDisconnected);
 
   sort_model_ = new QSortFilterProxyModel(this);
-  sort_model_->setSourceModel(app_->device_manager());
+  sort_model_->setSourceModel(&*device_manager_);
   sort_model_->setDynamicSortFilter(true);
   sort_model_->setSortCaseSensitivity(Qt::CaseInsensitive);
   sort_model_->sort(0);
@@ -218,10 +225,10 @@ void DeviceView::SetApplication(Application *app) {
 
   QObject::connect(merged_model_, &MergedProxyModel::SubModelReset, this, &AutoExpandingTreeView::RecursivelyExpandSlot);
 
-  properties_dialog_->SetDeviceManager(app_->device_manager());
+  properties_dialog_->Init(device_manager_);
 
-  organize_dialog_ = std::make_unique<OrganizeDialog>(app_->task_manager(), nullptr, this);
-  organize_dialog_->SetDestinationModel(app_->collection_model()->directory_model());
+  organize_dialog_ = make_unique<OrganizeDialog>(task_manager, tagreader_client, nullptr, this);
+  organize_dialog_->SetDestinationModel(collection_directory_model);
 
 }
 
@@ -232,19 +239,19 @@ void DeviceView::contextMenuEvent(QContextMenuEvent *e) {
     collection_menu_ = new QMenu(this);
 
     // Device menu
-    eject_action_ = device_menu_->addAction(IconLoader::Load("media-eject"), tr("Safely remove device"), this, &DeviceView::Unmount);
-    forget_action_ = device_menu_->addAction(IconLoader::Load("list-remove"), tr("Forget device"), this, &DeviceView::Forget);
+    eject_action_ = device_menu_->addAction(IconLoader::Load(u"media-eject"_s), tr("Safely remove device"), this, &DeviceView::Unmount);
+    forget_action_ = device_menu_->addAction(IconLoader::Load(u"list-remove"_s), tr("Forget device"), this, &DeviceView::Forget);
     device_menu_->addSeparator();
-    properties_action_ = device_menu_->addAction(IconLoader::Load("configure"), tr("Device properties..."), this, &DeviceView::Properties);
+    properties_action_ = device_menu_->addAction(IconLoader::Load(u"configure"_s), tr("Device properties..."), this, &DeviceView::Properties);
 
     // Collection menu
-    add_to_playlist_action_ = collection_menu_->addAction(IconLoader::Load("media-playback-start"), tr("Append to current playlist"), this, &DeviceView::AddToPlaylist);
-    load_action_ = collection_menu_->addAction(IconLoader::Load("media-playback-start"), tr("Replace current playlist"), this, &DeviceView::Load);
-    open_in_new_playlist_ = collection_menu_->addAction(IconLoader::Load("document-new"), tr("Open in new playlist"), this, &DeviceView::OpenInNewPlaylist);
+    add_to_playlist_action_ = collection_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Append to current playlist"), this, &DeviceView::AddToPlaylist);
+    load_action_ = collection_menu_->addAction(IconLoader::Load(u"media-playback-start"_s), tr("Replace current playlist"), this, &DeviceView::Load);
+    open_in_new_playlist_ = collection_menu_->addAction(IconLoader::Load(u"document-new"_s), tr("Open in new playlist"), this, &DeviceView::OpenInNewPlaylist);
 
     collection_menu_->addSeparator();
-    organize_action_ = collection_menu_->addAction(IconLoader::Load("edit-copy"), tr("Copy to collection..."), this, &DeviceView::Organize);
-    delete_action_ = collection_menu_->addAction(IconLoader::Load("edit-delete"), tr("Delete from device..."), this, &DeviceView::Delete);
+    organize_action_ = collection_menu_->addAction(IconLoader::Load(u"edit-copy"_s), tr("Copy to collection..."), this, &DeviceView::Organize);
+    delete_action_ = collection_menu_->addAction(IconLoader::Load(u"edit-delete"_s), tr("Delete from device..."), this, &DeviceView::Delete);
   }
 
   menu_index_ = currentIndex();
@@ -253,8 +260,8 @@ void DeviceView::contextMenuEvent(QContextMenuEvent *e) {
   const QModelIndex collection_index = MapToCollection(menu_index_);
 
   if (device_index.isValid()) {
-    const bool is_plugged_in = app_->device_manager()->GetLister(device_index);
-    const bool is_remembered = app_->device_manager()->GetDatabaseId(device_index) != -1;
+    const bool is_plugged_in = device_manager_->GetLister(device_index);
+    const bool is_remembered = device_manager_->GetDatabaseId(device_index) != -1;
 
     forget_action_->setEnabled(is_remembered);
     eject_action_->setEnabled(is_plugged_in);
@@ -266,7 +273,7 @@ void DeviceView::contextMenuEvent(QContextMenuEvent *e) {
 
     bool is_filesystem_device = false;
     if (parent_device_index.isValid()) {
-      std::shared_ptr<ConnectedDevice> device = app_->device_manager()->GetConnectedDevice(parent_device_index);
+      SharedPtr<ConnectedDevice> device = device_manager_->GetConnectedDevice(parent_device_index);
       if (device && !device->LocalPath().isEmpty()) is_filesystem_device = true;
     }
 
@@ -305,21 +312,21 @@ QModelIndex DeviceView::MapToCollection(const QModelIndex &merged_model_index) c
 
 void DeviceView::Connect() {
   QModelIndex device_idx = MapToDevice(menu_index_);
-  app_->device_manager()->data(device_idx, MusicStorage::Role_StorageForceConnect);
+  device_manager_->data(device_idx, MusicStorage::Role_StorageForceConnect);
 }
 
 void DeviceView::DeviceConnected(const QModelIndex &idx) {
 
   if (!idx.isValid()) return;
 
-  std::shared_ptr<ConnectedDevice> device = app_->device_manager()->GetConnectedDevice(idx);
+  SharedPtr<ConnectedDevice> device = device_manager_->GetConnectedDevice(idx);
   if (!device) return;
 
   QModelIndex sort_idx = sort_model_->mapFromSource(idx);
   if (!sort_idx.isValid()) return;
 
-  QSortFilterProxyModel *sort_model = new QSortFilterProxyModel(device->model());
-  sort_model->setSourceModel(device->model());
+  QSortFilterProxyModel *sort_model = new QSortFilterProxyModel(device->collection_model());
+  sort_model->setSourceModel(device->collection_model());
   sort_model->setSortRole(CollectionModel::Role_SortText);
   sort_model->setDynamicSortFilter(true);
   sort_model->sort(0);
@@ -337,9 +344,9 @@ void DeviceView::DeviceDisconnected(const QModelIndex &idx) {
 void DeviceView::Forget() {
 
   QModelIndex device_idx = MapToDevice(menu_index_);
-  QString unique_id = app_->device_manager()->data(device_idx, DeviceManager::Role_UniqueId).toString();
-  if (app_->device_manager()->GetLister(device_idx) && app_->device_manager()->GetLister(device_idx)->AskForScan(unique_id)) {
-    std::unique_ptr<QMessageBox> dialog(new QMessageBox(
+  QString unique_id = device_manager_->data(device_idx, DeviceManager::Role_UniqueId).toString();
+  if (device_manager_->GetLister(device_idx) && device_manager_->GetLister(device_idx)->AskForScan(unique_id)) {
+    ScopedPtr<QMessageBox> dialog(new QMessageBox(
         QMessageBox::Question, tr("Forget device"),
         tr("Forgetting a device will remove it from this list and Strawberry will have to rescan all the songs again next time you connect it."),
         QMessageBox::Cancel, this));
@@ -349,7 +356,7 @@ void DeviceView::Forget() {
     if (dialog->clickedButton() != forget) return;
   }
 
-  app_->device_manager()->Forget(device_idx);
+  device_manager_->Forget(device_idx);
 
 }
 
@@ -364,7 +371,7 @@ void DeviceView::mouseDoubleClickEvent(QMouseEvent *e) {
   QModelIndex merged_index = indexAt(e->pos());
   QModelIndex device_index = MapToDevice(merged_index);
   if (device_index.isValid()) {
-    if (!app_->device_manager()->GetConnectedDevice(device_index)) {
+    if (!device_manager_->GetConnectedDevice(device_index)) {
       menu_index_ = merged_index;
       Connect();
     }
@@ -374,7 +381,7 @@ void DeviceView::mouseDoubleClickEvent(QMouseEvent *e) {
 
 SongList DeviceView::GetSelectedSongs() const {
 
-  QModelIndexList selected_merged_indexes = selectionModel()->selectedRows();
+  const QModelIndexList selected_merged_indexes = selectionModel()->selectedRows();
   SongList songs;
   for (const QModelIndex &merged_index : selected_merged_indexes) {
     QModelIndex collection_index = MapToCollection(merged_index);
@@ -395,12 +402,12 @@ void DeviceView::Load() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->clear_first_ = true;
   }
-  emit AddToPlaylistSignal(q_mimedata);
+  Q_EMIT AddToPlaylistSignal(q_mimedata);
 
 }
 
 void DeviceView::AddToPlaylist() {
-  emit AddToPlaylistSignal(model()->mimeData(selectedIndexes()));
+  Q_EMIT AddToPlaylistSignal(model()->mimeData(selectedIndexes()));
 }
 
 void DeviceView::OpenInNewPlaylist() {
@@ -409,7 +416,7 @@ void DeviceView::OpenInNewPlaylist() {
   if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
     mimedata->open_in_new_playlist_ = true;
   }
-  emit AddToPlaylistSignal(q_mimedata);
+  Q_EMIT AddToPlaylistSignal(q_mimedata);
 
 }
 
@@ -427,9 +434,9 @@ void DeviceView::Delete() {
     return;
   }
 
-  std::shared_ptr<MusicStorage> storage = device_index.data(MusicStorage::Role_Storage).value<std::shared_ptr<MusicStorage>>();
+  SharedPtr<MusicStorage> storage = device_index.data(MusicStorage::Role_Storage).value<SharedPtr<MusicStorage>>();
 
-  DeleteFiles *delete_files = new DeleteFiles(app_->task_manager(), storage, false);
+  DeleteFiles *delete_files = new DeleteFiles(task_manager_, storage, false);
   QObject::connect(delete_files, &DeleteFiles::Finished, this, &DeviceView::DeleteFinished);
   delete_files->Start(GetSelectedSongs());
 
@@ -452,7 +459,7 @@ void DeviceView::Organize() {
 
 void DeviceView::Unmount() {
   QModelIndex device_idx = MapToDevice(menu_index_);
-  app_->device_manager()->Unmount(device_idx);
+  device_manager_->Unmount(device_idx);
 }
 
 void DeviceView::DeleteFinished(const SongList &songs_with_errors) {
@@ -460,7 +467,7 @@ void DeviceView::DeleteFinished(const SongList &songs_with_errors) {
   if (songs_with_errors.isEmpty()) return;
 
   OrganizeErrorDialog *dialog = new OrganizeErrorDialog(this);
-  dialog->Show(OrganizeErrorDialog::Type_Delete, songs_with_errors);
+  dialog->Show(OrganizeErrorDialog::OperationType::Delete, songs_with_errors);
   // It deletes itself when the user closes it
 
 }

@@ -32,7 +32,6 @@
 
 class QMenu;
 class QAction;
-class QEvent;
 class QContextMenuEvent;
 class QEnterEvent;
 
@@ -46,18 +45,14 @@ class PlaylistHeader : public StretchHeaderView {
 
   // QWidget
   void contextMenuEvent(QContextMenuEvent *e) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   void enterEvent(QEnterEvent*) override;
-#else
-  void enterEvent(QEvent*) override;
-#endif
 
- signals:
-  void SectionVisibilityChanged(int logical, bool visible);
+ Q_SIGNALS:
+  void SectionVisibilityChanged(const int logical_index, const bool visible);
   void MouseEntered();
-  void SectionRatingLockStatusChanged(bool);
+  void SectionRatingLockStatusChanged(const bool);
 
- private slots:
+ private Q_SLOTS:
   void HideCurrent();
   void ToggleVisible(const int section);
   void ResetColumns();
@@ -65,7 +60,7 @@ class PlaylistHeader : public StretchHeaderView {
   void ToggleRatingEditStatus();
 
  private:
-  void AddColumnAction(int index);
+  void AddColumnAction(const int index);
 
  private:
   PlaylistView *view_;

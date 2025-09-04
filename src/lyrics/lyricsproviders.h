@@ -29,6 +29,9 @@
 #include <QMap>
 #include <QString>
 #include <QAtomicInt>
+#include <QThread>
+
+#include "includes/shared_ptr.h"
 
 class NetworkAccessManager;
 class LyricsProvider;
@@ -40,6 +43,8 @@ class LyricsProviders : public QObject {
   explicit LyricsProviders(QObject *parent = nullptr);
   ~LyricsProviders() override;
 
+  SharedPtr<NetworkAccessManager> network() const { return network_; }
+
   void ReloadSettings();
   LyricsProvider *ProviderByName(const QString &name) const;
 
@@ -49,9 +54,7 @@ class LyricsProviders : public QObject {
   bool HasAnyProviders() const { return !lyrics_providers_.isEmpty(); }
   int NextId();
 
-  NetworkAccessManager *network() const { return network_; }
-
- private slots:
+ private Q_SLOTS:
   void ProviderDestroyed();
 
  private:
@@ -59,7 +62,8 @@ class LyricsProviders : public QObject {
 
   static int NextOrderId;
 
-  NetworkAccessManager *network_;
+  QThread *thread_;
+  const SharedPtr<NetworkAccessManager> network_;
 
   QMap<LyricsProvider*, QString> lyrics_providers_;
   QList<LyricsProvider*> ordered_providers_;

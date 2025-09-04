@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2012, Martin Björklund <mbj4668@gmail.com>
- * Copyright 2016-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2016-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,8 +24,6 @@
 #include <memory>
 #include <algorithm>
 
-#include <QtGlobal>
-#include <QObject>
 #include <QByteArray>
 #include <QPair>
 #include <QVariant>
@@ -40,8 +38,9 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QJsonArray>
+#include <QScopeGuard>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/networkaccessmanager.h"
 #include "utilities/cryptutils.h"
@@ -49,13 +48,18 @@
 #include "jsoncoverprovider.h"
 #include "discogscoverprovider.h"
 
-const char *DiscogsCoverProvider::kUrlSearch = "https://api.discogs.com/database/search";
-const char *DiscogsCoverProvider::kAccessKeyB64 = "dGh6ZnljUGJlZ1NEeXBuSFFxSVk=";
-const char *DiscogsCoverProvider::kSecretKeyB64 = "ZkFIcmlaSER4aHhRSlF2U3d0bm5ZVmdxeXFLWUl0UXI=";
-const int DiscogsCoverProvider::kRequestsDelay = 1000;
+using namespace Qt::Literals::StringLiterals;
+using std::make_shared;
 
-DiscogsCoverProvider::DiscogsCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent)
-    : JsonCoverProvider("Discogs", false, false, 0.0, false, false, app, network, parent),
+namespace {
+constexpr char kUrlSearch[] = "https://api.discogs.com/database/search";
+constexpr char kAccessKeyB64[] = "dGh6ZnljUGJlZ1NEeXBuSFFxSVk=";
+constexpr char kSecretKeyB64[] = "ZkFIcmlaSER4aHhRSlF2U3d0bm5ZVmdxeXFLWUl0UXI=";
+constexpr int kRequestsDelay = 1000;
+}  // namespace
+
+DiscogsCoverProvider::DiscogsCoverProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : JsonCoverProvider(u"Discogs"_s, false, false, 0.0, false, false, network, parent),
       timer_flush_requests_(new QTimer(this)) {
 
   timer_flush_requests_->setInterval(kRequestsDelay);
@@ -86,7 +90,7 @@ bool DiscogsCoverProvider::StartSearch(const QString &artist, const QString &alb
 
   if (artist.isEmpty() || album.isEmpty()) return false;
 
-  std::shared_ptr<DiscogsCoverSearchContext> search = std::make_shared<DiscogsCoverSearchContext>(id, artist, album);
+  SharedPtr<DiscogsCoverSearchContext> search = make_shared<DiscogsCoverSearchContext>(id, artist, album);
 
   requests_search_.insert(search->id, search);
   queue_search_requests_.enqueue(search);
@@ -121,101 +125,108 @@ void DiscogsCoverProvider::FlushRequests() {
 
 }
 
-void DiscogsCoverProvider::SendSearchRequest(std::shared_ptr<DiscogsCoverSearchContext> search) {
+void DiscogsCoverProvider::SendSearchRequest(SharedPtr<DiscogsCoverSearchContext> search) {
 
-  ParamList params = ParamList() << Param("format", "album")
-                                 << Param("artist", search->artist.toLower())
-                                 << Param("release_title", search->album.toLower());
+  ParamList params = ParamList() << Param(u"format"_s, u"album"_s)
+                                 << Param(u"artist"_s, search->artist.toLower())
+                                 << Param(u"release_title"_s, search->album.toLower());
 
   switch (search->type) {
-    case DiscogsCoverType_Master:
-      params << Param("type", "master");
+    case DiscogsCoverType::Master:
+      params << Param(u"type"_s, u"master"_s);
       break;
-    case DiscogsCoverType_Release:
-      params << Param("type", "release");
+    case DiscogsCoverType::Release:
+      params << Param(u"type"_s, u"release"_s);
       break;
   }
 
-  QNetworkReply *reply = CreateRequest(QUrl(kUrlSearch), params);
+  QNetworkReply *reply = CreateRequest(QUrl(QString::fromLatin1(kUrlSearch)), params);
   QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, search]() { HandleSearchReply(reply, search->id); });
 
 }
 
-QNetworkReply *DiscogsCoverProvider::CreateRequest(QUrl url, const ParamList &params_provided) {
+QNetworkReply *DiscogsCoverProvider::CreateRequest(const QUrl &url, const ParamList &params) {
 
-  ParamList params = ParamList() << Param("key", QByteArray::fromBase64(kAccessKeyB64))
-                                 << Param("secret", QByteArray::fromBase64(kSecretKeyB64))
-                                 << params_provided;
+  const ParamList request_params = ParamList() << Param(u"key"_s, QString::fromLatin1(QByteArray::fromBase64(kAccessKeyB64)))
+                                               << Param(u"secret"_s, QString::fromLatin1(QByteArray::fromBase64(kSecretKeyB64)))
+                                               << params;
 
   QUrlQuery url_query;
   QStringList query_items;
 
   // Encode the arguments
   using EncodedParam = QPair<QByteArray, QByteArray>;
-  for (const Param &param : params) {
-    EncodedParam encoded_param(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
-    query_items << QString(encoded_param.first + "=" + encoded_param.second);
-    url_query.addQueryItem(encoded_param.first, encoded_param.second);
+  for (const Param &param : request_params) {
+    const EncodedParam encoded_param(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
+    query_items << QString::fromLatin1(encoded_param.first) + QLatin1Char('=') + QString::fromLatin1(encoded_param.second);
+    url_query.addQueryItem(QString::fromLatin1(encoded_param.first), QString::fromLatin1(encoded_param.second));
   }
-  url.setQuery(url_query);
+
+  QUrl request_url(url);
+  request_url.setQuery(url_query);
 
   // Sign the request
-  const QByteArray data_to_sign = QString("GET\n%1\n%2\n%3").arg(url.host(), url.path(), query_items.join("&")).toUtf8();
+  const QByteArray data_to_sign = QStringLiteral("GET\n%1\n%2\n%3").arg(request_url.host(), request_url.path(), query_items.join(u'&')).toUtf8();
   const QByteArray signature(Utilities::HmacSha256(QByteArray::fromBase64(kSecretKeyB64), data_to_sign));
 
   // Add the signature to the request
-  url_query.addQueryItem("Signature", QUrl::toPercentEncoding(signature.toBase64()));
+  url_query.addQueryItem(u"Signature"_s, QString::fromLatin1(QUrl::toPercentEncoding(QString::fromLatin1(signature.toBase64()))));
 
-  QNetworkRequest req(url);
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  QNetworkReply *reply = network_->get(req);
+  QNetworkRequest network_request(request_url);
+  network_request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+  QNetworkReply *reply = network_->get(network_request);
   replies_ << reply;
 
-  qLog(Debug) << "Discogs: Sending request" << url;
+  qLog(Debug) << "Discogs: Sending request" << request_url;
 
   return reply;
 
 }
 
-QByteArray DiscogsCoverProvider::GetReplyData(QNetworkReply *reply) {
+JsonBaseRequest::JsonObjectResult DiscogsCoverProvider::ParseJsonObject(QNetworkReply *reply) {
 
-  QByteArray data;
-
-  if (reply->error() == QNetworkReply::NoError && reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() == 200) {
-    data = reply->readAll();
+  if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
+    return ReplyDataResult(ErrorCode::NetworkError, QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
   }
-  else {
-    if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
-      // This is a network error, there is nothing more to do.
-      QString error = QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-      Error(error);
+
+  JsonObjectResult result(ErrorCode::Success);
+  result.network_error = reply->error();
+  if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).isValid()) {
+    result.http_status_code = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+  }
+
+  const QByteArray data = reply->readAll();
+  if (!data.isEmpty()) {
+    QJsonParseError json_parse_error;
+    const QJsonDocument json_document = QJsonDocument::fromJson(data, &json_parse_error);
+    if (json_parse_error.error == QJsonParseError::NoError) {
+      const QJsonObject json_object = json_document.object();
+      if (json_object.contains("message"_L1)) {
+        result.error_code = ErrorCode::APIError;
+        result.error_message = json_object["message"_L1].toString();
+      }
+      else {
+        result.json_object = json_document.object();
+      }
     }
     else {
-      // See if there is Json data containing "message" - then use that instead.
-      data = reply->readAll();
-      QString error;
-      QJsonParseError json_error;
-      QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-      if (json_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
-        QJsonObject json_obj = json_doc.object();
-        if (json_obj.contains("message")) {
-          error = json_obj["message"].toString();
-        }
-      }
-      if (error.isEmpty()) {
-        if (reply->error() != QNetworkReply::NoError) {
-          error = QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
-        }
-        else {
-          error = QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
-        }
-      }
-      Error(error);
+      result.error_code = ErrorCode::ParseError;
+      result.error_message = json_parse_error.errorString();
     }
-    return QByteArray();
   }
 
-  return data;
+  if (result.error_code != ErrorCode::APIError) {
+    if (reply->error() != QNetworkReply::NoError) {
+      result.error_code = ErrorCode::NetworkError;
+      result.error_message = QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
+    }
+    else if (result.http_status_code != 200) {
+      result.error_code = ErrorCode::HttpError;
+      result.error_message = QStringLiteral("Received HTTP code %1").arg(result.http_status_code);
+    }
+  }
+
+  return result;
 
 }
 
@@ -227,62 +238,59 @@ void DiscogsCoverProvider::HandleSearchReply(QNetworkReply *reply, const int id)
   reply->deleteLater();
 
   if (!requests_search_.contains(id)) return;
-  std::shared_ptr<DiscogsCoverSearchContext> search = requests_search_.value(id);
+  SharedPtr<DiscogsCoverSearchContext> search = requests_search_.value(id);
 
-  QByteArray data = GetReplyData(reply);
-  if (data.isEmpty()) {
-    EndSearch(search);
+  const QScopeGuard end_search = qScopeGuard([this, search]() { EndSearch(search); });
+
+  const JsonObjectResult json_object_result = ParseJsonObject(reply);
+  if (!json_object_result.success()) {
+    Error(json_object_result.error_message);
     return;
   }
 
-  QJsonObject json_obj = ExtractJsonObj(data);
-  if (json_obj.isEmpty()) {
-    EndSearch(search);
+  const QJsonObject &json_object = json_object_result.json_object;
+  if (json_object.isEmpty()) {
     return;
   }
 
   QJsonValue value_results;
-  if (json_obj.contains("results")) {
-    value_results = json_obj["results"];
+  if (json_object.contains("results"_L1)) {
+    value_results = json_object["results"_L1];
   }
-  else if (json_obj.contains("message")) {
-    QString message = json_obj["message"].toString();
-    Error(QString("%1").arg(message));
-    EndSearch(search);
+  else if (json_object.contains("message"_L1)) {
+    Error(json_object["message"_L1].toString());
     return;
   }
   else {
-    Error("Json object is missing results.", json_obj);
-    EndSearch(search);
+    Error(u"Json object is missing results."_s, json_object);
     return;
   }
 
   if (!value_results.isArray()) {
-    Error("Missing results array.", value_results);
-    EndSearch(search);
+    Error(u"Missing results array."_s, value_results);
     return;
   }
 
-  QJsonArray array_results = value_results.toArray();
-  for (QJsonValueRef value_result : array_results) {
+  const QJsonArray array_results = value_results.toArray();
+  for (const QJsonValue &value_result : array_results) {
 
     if (!value_result.isObject()) {
-      Error("Invalid Json reply, results value is not a object.");
+      Error(u"Invalid Json reply, results value is not a object."_s);
       continue;
     }
-    QJsonObject obj_result = value_result.toObject();
-    if (!obj_result.contains("id") || !obj_result.contains("title") || !obj_result.contains("resource_url")) {
-      Error("Invalid Json reply, results value object is missing ID, title or resource_url.", obj_result);
+    const QJsonObject object_result = value_result.toObject();
+    if (!object_result.contains("id"_L1) || !object_result.contains("title"_L1) || !object_result.contains("resource_url"_L1)) {
+      Error(QStringLiteral("Invalid Json reply, results value object is missing ID, title or resource_url."), object_result);
       continue;
     }
-    quint64 release_id = obj_result["id"].toInt();
-    QUrl resource_url(obj_result["resource_url"].toString());
-    QString title = obj_result["title"].toString();
+    const quint64 release_id = static_cast<quint64>(object_result["id"_L1].toInt());
+    const QUrl resource_url(object_result["resource_url"_L1].toString());
+    QString title = object_result["title"_L1].toString();
 
-    if (title.contains(" - ")) {
-      QStringList title_splitted = title.split(" - ");
+    if (title.contains(" - "_L1)) {
+      QStringList title_splitted = title.split(u" - "_s);
       if (title_splitted.count() == 2) {
-        QString artist = title_splitted.first();
+        const QString artist = title_splitted.first();
         title = title_splitted.last();
         if (artist.compare(search->artist, Qt::CaseInsensitive) != 0 && title.compare(search->album, Qt::CaseInsensitive) != 0) continue;
       }
@@ -295,19 +303,14 @@ void DiscogsCoverProvider::HandleSearchReply(QNetworkReply *reply, const int id)
     StartReleaseRequest(search, release_id, resource_url);
   }
 
-  if (search->requests_release_.count() == 0) {
-    if (search->type == DiscogsCoverType_Master) {
-      search->type = DiscogsCoverType_Release;
-      queue_search_requests_.enqueue(search);
-    }
-    else {
-      EndSearch(search);
-    }
+  if (search->requests_release_.count() == 0 && search->type == DiscogsCoverType::Master) {
+    search->type = DiscogsCoverType::Release;
+    queue_search_requests_.enqueue(search);
   }
 
 }
 
-void DiscogsCoverProvider::StartReleaseRequest(std::shared_ptr<DiscogsCoverSearchContext> search, const quint64 release_id, const QUrl &url) {
+void DiscogsCoverProvider::StartReleaseRequest(SharedPtr<DiscogsCoverSearchContext> search, const quint64 release_id, const QUrl &url) {
 
   DiscogsCoverReleaseContext release(search->id, release_id, url);
   search->requests_release_.insert(release_id, release);
@@ -334,127 +337,119 @@ void DiscogsCoverProvider::HandleReleaseReply(QNetworkReply *reply, const int se
   reply->deleteLater();
 
   if (!requests_search_.contains(search_id)) return;
-  std::shared_ptr<DiscogsCoverSearchContext> search = requests_search_.value(search_id);
+  SharedPtr<DiscogsCoverSearchContext> search = requests_search_.value(search_id);
 
   if (!search->requests_release_.contains(release_id)) return;
   const DiscogsCoverReleaseContext &release = search->requests_release_.value(release_id);
 
-  QByteArray data = GetReplyData(reply);
-  if (data.isEmpty()) {
-    EndSearch(search, release.id);
+  const QScopeGuard end_search = qScopeGuard([this, search, release]() { EndSearch(search, release.id); });
+
+  const JsonObjectResult json_object_result = ParseJsonObject(reply);
+  if (!json_object_result.success()) {
+    Error(json_object_result.error_message);
     return;
   }
 
-  QJsonObject json_obj = ExtractJsonObj(data);
-  if (json_obj.isEmpty()) {
-    EndSearch(search, release.id);
+  const QJsonObject &json_object = json_object_result.json_object;
+  if (json_object.isEmpty()) {
     return;
   }
 
-  if (!json_obj.contains("artists") || !json_obj.contains("title")) {
-    Error("Json reply object is missing artists or title.", json_obj);
-    EndSearch(search, release.id);
+  if (!json_object.contains("artists"_L1) || !json_object.contains("title"_L1)) {
+    Error(u"Json reply object is missing artists or title."_s, json_object);
     return;
   }
 
-  if (!json_obj.contains("images")) {
-    EndSearch(search, release.id);
+  if (!json_object.contains("images"_L1)) {
     return;
   }
 
-  QJsonValue value_artists = json_obj["artists"];
+  const QJsonValue value_artists = json_object["artists"_L1];
   if (!value_artists.isArray()) {
-    Error("Json reply object artists is not a array.", value_artists);
-    EndSearch(search, release.id);
+    Error(u"Json reply object artists is not a array."_s, value_artists);
     return;
   }
-  QJsonArray array_artists = value_artists.toArray();
+  const QJsonArray array_artists = value_artists.toArray();
   int i = 0;
   QString artist;
-  for (const QJsonValueRef value_artist : array_artists) {
+  for (const QJsonValue &value_artist : array_artists) {
     if (!value_artist.isObject()) {
-      Error("Invalid Json reply, atists array value is not a object.");
+      Error(u"Invalid Json reply, atists array value is not a object."_s);
       continue;
     }
-    QJsonObject obj_artist = value_artist.toObject();
-    if (!obj_artist.contains("name")) {
-      Error("Invalid Json reply, artists array value object is missing name.", obj_artist);
+    const QJsonObject object_artist = value_artist.toObject();
+    if (!object_artist.contains("name"_L1)) {
+      Error(u"Invalid Json reply, artists array value object is missing name."_s, object_artist);
       continue;
     }
-    artist = obj_artist["name"].toString();
+    artist = object_artist["name"_L1].toString();
     ++i;
     if (artist == search->artist) break;
   }
 
   if (artist.isEmpty()) {
-    EndSearch(search, release.id);
     return;
   }
-  if (i > 1 && artist != search->artist) artist = "Various artists";
+  if (i > 1 && artist != search->artist) artist = "Various artists"_L1;
 
-  QString album = json_obj["title"].toString();
+  const QString album = json_object["title"_L1].toString();
   if (artist != search->artist && album != search->album) {
-    EndSearch(search, release.id);
     return;
   }
 
-  QJsonValue value_images = json_obj["images"];
+  const QJsonValue value_images = json_object["images"_L1];
   if (!value_images.isArray()) {
-    Error("Json images is not an array.");
-    EndSearch(search, release.id);
+    Error(u"Json images is not an array."_s);
     return;
   }
-  QJsonArray array_images = value_images.toArray();
+  const QJsonArray array_images = value_images.toArray();
 
   if (array_images.isEmpty()) {
-    Error("Invalid Json reply, images array is empty.");
-    EndSearch(search, release.id);
+    Error(u"Invalid Json reply, images array is empty."_s);
     return;
   }
 
-  for (const QJsonValueRef value_image : array_images) {
+  for (const QJsonValue &value_image : array_images) {
 
     if (!value_image.isObject()) {
-      Error("Invalid Json reply, images array value is not an object.");
+      Error(u"Invalid Json reply, images array value is not an object."_s);
       continue;
     }
-    QJsonObject obj_image = value_image.toObject();
-    if (!obj_image.contains("type") || !obj_image.contains("resource_url") || !obj_image.contains("width") || !obj_image.contains("height")) {
-      Error("Invalid Json reply, images array value object is missing type, resource_url, width or height.", obj_image);
+    const QJsonObject obj_image = value_image.toObject();
+    if (!obj_image.contains("type"_L1) || !obj_image.contains("resource_url"_L1) || !obj_image.contains("width"_L1) || !obj_image.contains("height"_L1)) {
+      Error(u"Invalid Json reply, images array value object is missing type, resource_url, width or height."_s, obj_image);
       continue;
     }
-    QString type = obj_image["type"].toString();
-    if (type != "primary") {
+    const QString type = obj_image["type"_L1].toString();
+    if (type != "primary"_L1) {
       continue;
     }
-    int width = obj_image["width"].toInt();
-    int height = obj_image["height"].toInt();
+    const int width = obj_image["width"_L1].toInt();
+    const int height = obj_image["height"_L1].toInt();
     if (width < 300 || height < 300) continue;
     const float aspect_score = static_cast<float>(1.0) - static_cast<float>(std::max(width, height) - std::min(width, height)) / static_cast<float>(std::max(height, width));
     if (aspect_score < 0.85) continue;
     CoverProviderSearchResult result;
     result.artist = artist;
     result.album = album;
-    result.image_url = QUrl(obj_image["resource_url"].toString());
+    result.image_url = QUrl(obj_image["resource_url"_L1].toString());
     if (result.image_url.isEmpty()) continue;
     search->results.append(result);
   }
 
-  emit SearchResults(search->id, search->results);
+  Q_EMIT SearchResults(search->id, search->results);
   search->results.clear();
-
-  EndSearch(search, release.id);
 
 }
 
-void DiscogsCoverProvider::EndSearch(std::shared_ptr<DiscogsCoverSearchContext> search, const quint64 release_id) {
+void DiscogsCoverProvider::EndSearch(SharedPtr<DiscogsCoverSearchContext> search, const quint64 release_id) {
 
   if (search->requests_release_.contains(release_id)) {
     search->requests_release_.remove(release_id);
   }
   if (search->requests_release_.count() <= 0) {
     requests_search_.remove(search->id);
-    emit SearchFinished(search->id, search->results);
+    Q_EMIT SearchFinished(search->id, search->results);
   }
 
   if (queue_release_requests_.isEmpty() && queue_search_requests_.isEmpty()) {

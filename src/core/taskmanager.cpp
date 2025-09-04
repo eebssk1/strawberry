@@ -30,7 +30,13 @@
 
 #include "taskmanager.h"
 
-TaskManager::TaskManager(QObject *parent) : QObject(parent), next_task_id_(1) {}
+using namespace Qt::Literals::StringLiterals;
+
+TaskManager::TaskManager(QObject *parent) : QObject(parent), next_task_id_(1) {
+
+  setObjectName(QLatin1String(QObject::metaObject()->className()));
+
+}
 
 int TaskManager::StartTask(const QString &name) {
 
@@ -46,7 +52,7 @@ int TaskManager::StartTask(const QString &name) {
     tasks_[t.id] = t;
   }
 
-  emit TasksChanged();
+  Q_EMIT TasksChanged();
   return t.id;
 
 }
@@ -70,12 +76,11 @@ void TaskManager::SetTaskBlocksCollectionScans(const int id) {
     QMutexLocker l(&mutex_);
     if (!tasks_.contains(id)) return;
 
-    Task &t = tasks_[id];
-    t.blocks_collection_scans = true;
+    tasks_[id].blocks_collection_scans = true;
   }
 
-  emit TasksChanged();
-  emit PauseCollectionWatchers();
+  Q_EMIT TasksChanged();
+  Q_EMIT PauseCollectionWatchers();
 
 }
 
@@ -85,12 +90,13 @@ void TaskManager::SetTaskProgress(const int id, const quint64 progress, const qu
     QMutexLocker l(&mutex_);
     if (!tasks_.contains(id)) return;
 
-    Task &t = tasks_[id];
+    Task t = tasks_.value(id);
     t.progress = progress;
     if (max > 0) t.progress_max = max;
+    tasks_[id] = t;
   }
 
-  emit TasksChanged();
+  Q_EMIT TasksChanged();
 }
 
 void TaskManager::IncreaseTaskProgress(const int id, const quint64 progress, const quint64 max) {
@@ -99,12 +105,13 @@ void TaskManager::IncreaseTaskProgress(const int id, const quint64 progress, con
     QMutexLocker l(&mutex_);
     if (!tasks_.contains(id)) return;
 
-    Task &t = tasks_[id];
+    Task t = tasks_.value(id);
     t.progress += progress;
     if (max > 0) t.progress_max = max;
+    tasks_[id] = t;
   }
 
-  emit TasksChanged();
+  Q_EMIT TasksChanged();
 
 }
 
@@ -116,7 +123,7 @@ void TaskManager::SetTaskFinished(const int id) {
     QMutexLocker l(&mutex_);
     if (!tasks_.contains(id)) return;
 
-    if (tasks_[id].blocks_collection_scans) {
+    if (tasks_.value(id).blocks_collection_scans) {
       resume_collection_watchers = true;
       QList<Task> tasks = tasks_.values();
 
@@ -129,8 +136,8 @@ void TaskManager::SetTaskFinished(const int id) {
     tasks_.remove(id);
   }
 
-  emit TasksChanged();
-  if (resume_collection_watchers) emit ResumeCollectionWatchers();
+  Q_EMIT TasksChanged();
+  if (resume_collection_watchers) Q_EMIT ResumeCollectionWatchers();
 
 }
 
@@ -139,7 +146,7 @@ quint64 TaskManager::GetTaskProgress(int id) {
   {
     QMutexLocker l(&mutex_);
     if (!tasks_.contains(id)) return 0;
-    return tasks_[id].progress;
+    return tasks_.value(id).progress;
   }
 
 }

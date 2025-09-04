@@ -51,10 +51,10 @@ class SavedGroupingManager : public QDialog {
 
   static QString GroupByToString(const CollectionModel::GroupBy g);
 
-  signals:
-   void UpdateGroupByActions();
+ Q_SIGNALS:
+  void UpdateGroupByActions();
 
- private slots:
+ private Q_SLOTS:
   void UpdateButtonState();
   void Remove();
 

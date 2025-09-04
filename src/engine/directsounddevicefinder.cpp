@@ -27,17 +27,17 @@
 
 #include <dsound.h>
 
-#include <QList>
 #include <QVariant>
 #include <QString>
 #include <QUuid>
 
 #include "directsounddevicefinder.h"
+#include "enginedevice.h"
 #include "core/logging.h"
 
-DirectSoundDeviceFinder::DirectSoundDeviceFinder() : DeviceFinder("directsound", { "directsound", "dsound", "directsoundsink", "directx", "directx2" }) {}
+DirectSoundDeviceFinder::DirectSoundDeviceFinder() : DeviceFinder(QStringLiteral("directsound"), { QStringLiteral("directsound"), QStringLiteral("dsound"), QStringLiteral("directsoundsink"), QStringLiteral("directx"), QStringLiteral("directx2"), QStringLiteral("waveformsink") }) {}
 
-QList<DeviceFinder::Device> DirectSoundDeviceFinder::ListDevices() {
+EngineDeviceList DirectSoundDeviceFinder::ListDevices() {
   State state;
   DirectSoundEnumerateA(&DirectSoundDeviceFinder::EnumerateCallback, &state);
   return state.devices;
@@ -49,11 +49,11 @@ BOOL CALLBACK DirectSoundDeviceFinder::EnumerateCallback(LPGUID guid, LPCSTR des
 
   State *state = reinterpret_cast<State*>(state_voidptr);
 
-  Device dev;
-  dev.description = QString::fromLocal8Bit(description);
-  if (guid) dev.value = QUuid(*guid).toString();
-  dev.iconname = GuessIconName(dev.description);
-  state->devices.append(dev);
+  EngineDevice device;
+  device.description = QString::fromLocal8Bit(description);
+  if (guid) device.value = QUuid(*guid).toString();
+  device.iconname = device.GuessIconName();
+  state->devices.append(device);
 
   return 1;
 

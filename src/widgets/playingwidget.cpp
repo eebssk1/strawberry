@@ -39,32 +39,34 @@
 #include <QSettings>
 #include <QtEvents>
 
-#include "core/application.h"
+#include "core/settings.h"
 #include "utilities/imageutils.h"
 #include "covermanager/albumcoverchoicecontroller.h"
 #include "playingwidget.h"
 
-const char *PlayingWidget::kSettingsGroup = "PlayingWidget";
+using namespace Qt::Literals::StringLiterals;
+using std::make_unique;
+
+namespace {
+
+constexpr char kSettingsGroup[] = "PlayingWidget";
 
 // Space between the cover and the details in small mode
-const int PlayingWidget::kPadding = 2;
-
-// Width of the transparent to black gradient above and below the text in large mode
-const int PlayingWidget::kGradientHead = 40;
-const int PlayingWidget::kGradientTail = 20;
+constexpr int kPadding = 2;
 
 // Maximum height of the cover in large mode, and offset between the bottom of the cover and bottom of the widget
-const int PlayingWidget::kMaxCoverSize = 260;
-const int PlayingWidget::kBottomOffset = 0;
+constexpr int kMaxCoverSize = 260;
+constexpr int kBottomOffset = 0;
 
 // Border for large mode
-const int PlayingWidget::kTopBorder = 4;
+constexpr int kTopBorder = 4;
+
+}  // namespace
 
 PlayingWidget::PlayingWidget(QWidget *parent)
     : QWidget(parent),
-      app_(nullptr),
       album_cover_choice_controller_(nullptr),
-      mode_(LargeSongDetails),
+      mode_(Mode::LargeSongDetails),
       menu_(new QMenu(this)),
       above_statusbar_action_(nullptr),
       fit_cover_width_action_(nullptr),
@@ -74,6 +76,7 @@ PlayingWidget::PlayingWidget(QWidget *parent)
       active_(false),
       small_ideal_height_(0),
       total_height_(0),
+      desired_height_(0),
       fit_width_(false),
       timeline_show_hide_(new QTimeLine(500, this)),
       timeline_fade_(new QTimeLine(1000, this)),
@@ -84,9 +87,9 @@ PlayingWidget::PlayingWidget(QWidget *parent)
   SetHeight(0);
 
   // Load settings
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  mode_ = Mode(s.value("mode", LargeSongDetails).toInt());
+  mode_ = static_cast<Mode>(s.value("mode", static_cast<int>(Mode::LargeSongDetails)).toInt());
   fit_width_ = s.value("fit_cover_width", false).toBool();
   s.endGroup();
 
@@ -95,8 +98,8 @@ PlayingWidget::PlayingWidget(QWidget *parent)
 
   // Context menu
   QActionGroup *mode_group = new QActionGroup(this);
-  CreateModeAction(SmallSongDetails, tr("Small album cover"), mode_group);
-  CreateModeAction(LargeSongDetails, tr("Large album cover"), mode_group);
+  CreateModeAction(Mode::SmallSongDetails, tr("Small album cover"), mode_group);
+  CreateModeAction(Mode::LargeSongDetails, tr("Large album cover"), mode_group);
   menu_->addActions(mode_group->actions());
 
   fit_cover_width_action_ = menu_->addAction(tr("Fit cover to width"));
@@ -113,21 +116,19 @@ PlayingWidget::PlayingWidget(QWidget *parent)
 
   details_->setUndoRedoEnabled(false);
   // add placeholder text to get the correct height
-  if (mode_ == LargeSongDetails) {
-    details_->setDefaultStyleSheet("p { font-size: small; font-weight: bold; }");
-    details_->setHtml(QString("<p align=center><i></i><br/><br/></p>"));
+  if (mode_ == Mode::LargeSongDetails) {
+    details_->setDefaultStyleSheet(u"p { font-size: small; font-weight: bold; }"_s);
+    details_->setHtml(u"<p align=center><i></i><br/><br/></p>"_s);
   }
 
   UpdateHeight();
 
 }
 
-void PlayingWidget::Init(Application *app, AlbumCoverChoiceController *album_cover_choice_controller) {
-
-  app_ = app;
+void PlayingWidget::Init(AlbumCoverChoiceController *album_cover_choice_controller) {
 
   album_cover_choice_controller_ = album_cover_choice_controller;
-  album_cover_choice_controller_->Init(app_);
+
   QList<QAction*> cover_actions = album_cover_choice_controller_->GetAllActions();
   menu_->addActions(cover_actions);
   menu_->addSeparator();
@@ -136,7 +137,7 @@ void PlayingWidget::Init(Application *app, AlbumCoverChoiceController *album_cov
 
   above_statusbar_action_ = menu_->addAction(tr("Show above status bar"));
   above_statusbar_action_->setCheckable(true);
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   above_statusbar_action_->setChecked(s.value("above_status_bar", false).toBool());
   s.endGroup();
@@ -203,7 +204,7 @@ void PlayingWidget::set_ideal_height(const int height) {
 }
 
 QSize PlayingWidget::sizeHint() const {
-  return QSize(cover_loader_options_.desired_height_, total_height_);
+  return QSize(desired_height_, total_height_);
 }
 
 void PlayingWidget::CreateModeAction(const Mode mode, const QString &text, QActionGroup *group) {
@@ -216,19 +217,19 @@ void PlayingWidget::CreateModeAction(const Mode mode, const QString &text, QActi
 
 }
 
-void PlayingWidget::SetMode(const int mode) {
+void PlayingWidget::SetMode(const Mode mode) {
 
   mode_ = static_cast<Mode>(mode);
 
-  fit_cover_width_action_->setEnabled(mode_ != SmallSongDetails);
+  fit_cover_width_action_->setEnabled(mode_ != Mode::SmallSongDetails);
 
   UpdateHeight();
   UpdateDetailsText();
   update();
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  s.setValue("mode", mode_);
+  s.setValue("mode", static_cast<int>(mode_));
   s.endGroup();
 
 }
@@ -239,7 +240,7 @@ void PlayingWidget::FitCoverWidth(const bool fit) {
   UpdateHeight();
   update();
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   s.setValue("fit_cover_width", fit_width_);
   s.endGroup();
@@ -248,12 +249,12 @@ void PlayingWidget::FitCoverWidth(const bool fit) {
 
 void PlayingWidget::ShowAboveStatusBar(const bool above) {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   s.setValue("above_status_bar", above);
   s.endGroup();
 
-  emit ShowAboveStatusBarChanged(above);
+  Q_EMIT ShowAboveStatusBarChanged(above);
 
 }
 
@@ -303,9 +304,16 @@ void PlayingWidget::SetImage(const QImage &image) {
 
   if (enabled_ && visible_ && active_) {
     // Cache the current pixmap so we can fade between them
-    QSize psize(size());
-    if (size().height() <= 0) psize.setHeight(total_height_);
+    QSize psize;
+    psize.setWidth(static_cast<int>(size().width() * devicePixelRatioF()));
+    if (size().height() > 0) {
+      psize.setHeight(static_cast<int>(size().height() * devicePixelRatioF()));
+    }
+    else {
+      psize.setHeight(static_cast<int>(total_height_ * devicePixelRatioF()));
+    }
     pixmap_previous_track_ = QPixmap(psize);
+    pixmap_previous_track_.setDevicePixelRatio(devicePixelRatioF());
     pixmap_previous_track_.fill(palette().window().color());
     pixmap_previous_track_opacity_ = 1.0;
     QPainter p(&pixmap_previous_track_);
@@ -333,7 +341,7 @@ void PlayingWidget::SetImage(const QImage &image) {
 
 void PlayingWidget::ScaleCover() {
 
-  QImage image = ImageUtils::ScaleAndPad(image_original_, cover_loader_options_.scale_output_image_, cover_loader_options_.pad_output_image_, cover_loader_options_.desired_height_);
+  QImage image = ImageUtils::ScaleImage(image_original_, QSize(desired_height_, desired_height_), devicePixelRatioF(), true);
   if (image.isNull()) pixmap_cover_ = QPixmap();
   else pixmap_cover_ = QPixmap::fromImage(image);
   update();
@@ -362,14 +370,14 @@ void PlayingWidget::SetHeight(int height) {
 void PlayingWidget::UpdateHeight() {
 
   switch (mode_) {
-    case SmallSongDetails:
-      cover_loader_options_.desired_height_ = small_ideal_height_;
+    case Mode::SmallSongDetails:
+      desired_height_ = small_ideal_height_;
       total_height_ = small_ideal_height_;
       break;
-    case LargeSongDetails:
-      if (fit_width_) cover_loader_options_.desired_height_ = width();
-      else cover_loader_options_.desired_height_ = qMin(kMaxCoverSize, width());
-      total_height_ = kTopBorder + cover_loader_options_.desired_height_ + kBottomOffset + static_cast<int>(details_->size().height());
+    case Mode::LargeSongDetails:
+      if (fit_width_) desired_height_ = width();
+      else desired_height_ = qMin(kMaxCoverSize, width());
+      total_height_ = kTopBorder + desired_height_ + kBottomOffset + static_cast<int>(details_->size().height());
       break;
   }
 
@@ -392,25 +400,25 @@ void PlayingWidget::UpdateHeight() {
 void PlayingWidget::UpdateDetailsText() {
 
   QString html;
-  details_->setDefaultStyleSheet("p { font-size: small; font-weight: bold; }");
+  details_->setDefaultStyleSheet(u"p { font-size: small; font-weight: bold; }"_s);
   switch (mode_) {
-    case SmallSongDetails:
+    case Mode::SmallSongDetails:
       details_->setTextWidth(-1);
-      html += "<p>";
+      html += "<p>"_L1;
       break;
-    case LargeSongDetails:
-      details_->setTextWidth(cover_loader_options_.desired_height_);
-      html += "<p align=center>";
+    case Mode::LargeSongDetails:
+      details_->setTextWidth(desired_height_);
+      html += "<p align=center>"_L1;
       break;
   }
 
-  html += QString("%1<br/>%2<br/>%3").arg(song_.PrettyTitle().toHtmlEscaped(), song_.artist().toHtmlEscaped(), song_.album().toHtmlEscaped());
-  html += "</p>";
+  html += QStringLiteral("%1<br/>%2<br/>%3").arg(song_.PrettyTitle().toHtmlEscaped(), song_.artist().toHtmlEscaped(), song_.album().toHtmlEscaped());
+  html += "</p>"_L1;
 
   details_->setHtml(html);
 
   // if something spans multiple lines the height needs to change
-  if (mode_ == LargeSongDetails) UpdateHeight();
+  if (mode_ == Mode::LargeSongDetails) UpdateHeight();
 
   update();
 
@@ -437,7 +445,7 @@ void PlayingWidget::DrawContents(QPainter *p) {
   p->setRenderHint(QPainter::SmoothPixmapTransform);
 
   switch (mode_) {
-    case SmallSongDetails:
+    case Mode::SmallSongDetails:
       // Draw the cover
       p->drawPixmap(0, 0, small_ideal_height_, small_ideal_height_, pixmap_cover_);
       if (downloading_covers_) {
@@ -450,11 +458,11 @@ void PlayingWidget::DrawContents(QPainter *p) {
       p->translate(-small_ideal_height_ - kPadding, 0);
       break;
 
-    case LargeSongDetails:
+    case Mode::LargeSongDetails:
       // Work out how high the text is going to be
       const int text_height = static_cast<int>(details_->size().height());
       const int cover_size = fit_width_ ? width() : qMin(kMaxCoverSize, width());
-      const int x_offset = (width() - cover_loader_options_.desired_height_) / 2;
+      const int x_offset = (width() - desired_height_) / 2;
 
       // Draw the cover
       p->drawPixmap(x_offset, kTopBorder, cover_size, cover_size, pixmap_cover_);
@@ -491,7 +499,7 @@ void PlayingWidget::resizeEvent(QResizeEvent *e) {
 
   //if (visible_ && e->oldSize() != e->size()) {
   if (e->oldSize() != e->size()) {
-    if (mode_ == LargeSongDetails) {
+    if (mode_ == Mode::LargeSongDetails) {
       UpdateHeight();
       UpdateDetailsText();
     }
@@ -537,8 +545,8 @@ void PlayingWidget::SearchCoverInProgress() {
   downloading_covers_ = true;
 
   // Show a spinner animation
-  spinner_animation_ = std::make_unique<QMovie>(":/pictures/spinner.gif", QByteArray(), this);
-  QObject::connect(spinner_animation_.get(), &QMovie::updated, this, &PlayingWidget::Update);
+  spinner_animation_ = make_unique<QMovie>(u":/pictures/spinner.gif"_s, QByteArray(), this);
+  QObject::connect(&*spinner_animation_, &QMovie::updated, this, &PlayingWidget::Update);
   spinner_animation_->start();
   update();
 

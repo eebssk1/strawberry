@@ -1,20 +1,28 @@
-name: build
-on: [push, pull_request]
+name: Build
+on:
+  push:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  release:
+    types: [published]
 
 jobs:
 
-  build_debian:
+  build-debian:
     name: Build Debian
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        debian_version: [ 'buster', 'bullseye', 'bookworm' ]
+        debian_version: [ 'bookworm', 'trixie', 'forky' ]
     container:
       image: debian:${{matrix.debian_version}}
     steps:
-      - name: Update repositories
-        run: apt update
+      - name: Update packages
+        run: apt update -y
+      - name: Upgrade packages
+        run: apt upgrade -y
       - name: Install packages
         env:
           DEBIAN_FRONTEND: noninteractive
@@ -22,7 +30,6 @@ jobs:
             apt install -y
             build-essential
             dh-make
-            ssh
             git
             make
             cmake
@@ -30,16 +37,11 @@ jobs:
             g++
             pkg-config
             fakeroot
-            gettext
             lsb-release
-            libglib2.0-dev
             dpkg-dev
-            libdbus-1-dev
+            libglib2.0-dev
             libboost-dev
-            libprotobuf-dev
-            protobuf-compiler
             libsqlite3-dev
-            libgnutls28-dev
             libasound2-dev
             libpulse-dev
             libtag1-dev
@@ -49,135 +51,77 @@ jobs:
             gstreamer1.0-alsa
             gstreamer1.0-pulseaudio
             libchromaprint-dev
+            libebur128-dev
             libfftw3-dev
             libcdio-dev
             libmtp-dev
             libgpod-dev
-      - name: Install Qt 5
-        if: matrix.debian_version == 'buster' || matrix.debian_version == 'bullseye'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: >
-            apt install -y
-            qtbase5-dev
-            qtbase5-dev-tools
-            qttools5-dev
-            qttools5-dev-tools
-            libqt5x11extras5-dev
-      - name: Install Qt 6
-        if: matrix.debian_version != 'buster' && matrix.debian_version != 'bullseye'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: >
-            apt install -y
+            libxkbcommon-dev
+            libsparsehash-dev
             qt6-base-dev
+            qt6-base-private-dev
             qt6-base-dev-tools
             qt6-tools-dev
             qt6-tools-dev-tools
             qt6-l10n-tools
-      - uses: actions/checkout@v3
+            rapidjson-dev
+      - name: Install KDSingleApplication
+        if: matrix.debian_version != 'bookworm'
+        run: apt install -y libkdsingleapplication-qt6-dev
+      - name: Build and install KDSingleApplication
+        if: matrix.debian_version == 'bookworm'
+        run: |
+          git clone --depth 1 --recurse-submodules https://github.com/KDAB/KDSingleApplication
+          cd KDSingleApplication
+          cmake -S . -B build -DCMAKE_BUILD_TYPE="Release" -DBUILD_SHARED_LIBS=OFF -DBUILD_STATIC_LIBS=ON -DKDSingleApplication_STATIC=ON
+          cmake --build build --config Release --parallel 4
+          cmake --install build
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          submodules: recursive
       - name: Add safe git directory
         run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
       - name: Create Build Environment
         run: cmake -E make_directory build
       - name: Configure CMake
-        working-directory: build
-        run: cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_WERROR=ON
+      - name: Delete build directory
+        run: rm -rf build
       - name: make deb
-        run: dpkg-buildpackage -b -d -uc -us -nc -j2
-
-
-  build_ubuntu:
-    name: Build Ubuntu
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        ubuntu_version: [ 'focal', 'jammy', 'kinetic' ]
-    container:
-      image: ubuntu:${{matrix.ubuntu_version}}
-    steps:
-      - name: Install packages
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: >
-            apt-get update && apt-get install -y
-            build-essential
-            dh-make
-            ssh
-            git
-            make
-            cmake
-            pkg-config
-            gcc
-            g++
-            fakeroot
-            wget
-            curl
-            gettext
-            lsb-release
-            dpkg-dev
-            libglib2.0-dev
-            libboost-dev
-            libdbus-1-dev
-            libprotobuf-dev
-            protobuf-compiler
-            libsqlite3-dev
-            libgnutls28-dev
-            libasound2-dev
-            libpulse-dev
-            libtag1-dev
-            libicu-dev
-            libgstreamer1.0-dev
-            libgstreamer-plugins-base1.0-dev
-            libgstreamer-plugins-good1.0-dev
-            gstreamer1.0-alsa
-            gstreamer1.0-pulseaudio
-            libchromaprint-dev
-            libfftw3-dev
-            libcdio-dev
-            libmtp-dev
-            libgpod-dev
-      - name: Install Qt 5
-        if: matrix.ubuntu_version == 'bionic' || matrix.ubuntu_version == 'focal'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: apt-get update && apt-get install -y qtbase5-dev qtbase5-dev-tools qttools5-dev qttools5-dev-tools libqt5x11extras5-dev
-      - name: Install Qt 6
-        if: matrix.ubuntu_version != 'bionic' && matrix.ubuntu_version != 'focal'
-        env:
-          DEBIAN_FRONTEND: noninteractive
-        run: apt-get update && apt-get install -y qt6-base-dev qt6-base-dev-tools qt6-tools-dev qt6-tools-dev-tools qt6-l10n-tools
-      - uses: actions/checkout@v3
+        run: dpkg-buildpackage -b -d -uc -us -nc -j4
+      - name: Copy deb
+        run: cp ../*.deb .
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0
-      - name: Add safe git directory
-        run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
-      - name: Create Build Environment
-        run: cmake -E make_directory build
-      - name: Configure CMake
-        working-directory: build
-        run: cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_WERROR=ON
-      - name: make deb
-        run: dpkg-buildpackage -b -d -uc -us -nc -j2
-
+          name: debian-${{matrix.debian_version}}
+          path: |
+            *.deb
 
   build-windows-mingw:
     name: Build Windows MinGW
+    if: github.repository != 'strawberrymusicplayer/strawberry-private' && github.ref != 'refs/heads/l10n_master'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         arch: [ 'i686', 'x86_64' ]
-        build_type: [ 'release' ]
+        buildtype: [ 'debug', 'release' ]
     container:
-      image: jonaski/strawberry-mxe-${{matrix.arch}}
+      image: jonaski/strawberry-mxe-${{matrix.arch}}-${{matrix.buildtype}}
     steps:
-      - uses: actions/checkout@v3
+
+      - name: Set cmake buildtype
+        shell: bash
+        run: echo "cmake_buildtype=$(echo ${{matrix.buildtype}} | sed 's/.*/\u&/')" >> $GITHUB_ENV
+
+      - name: Checkout
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
+          submodules: recursive
 
       - name: Add safe git directory
         run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
@@ -188,36 +132,27 @@ jobs:
       - name: Link MXE directory
         run: ln -s /strawberry-mxe ~/mxe-shared
 
-      - name: Set ENABLE_WIN32_CONSOLE (debug)
-        if: matrix.build_type == 'debug'
-        run: echo "win32_console=ON" >> $GITHUB_ENV
-
-      - name: Set ENABLE_WIN32_CONSOLE (release)
-        if: matrix.build_type == 'release'
-        run: echo "win32_console=OFF" >> $GITHUB_ENV
-
       - name: Run CMake
         env:
           PKG_CONFIG_PATH: /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/lib/pkgconfig
-        working-directory: build
         run: >
-          cmake ..
+          cmake
+          -S .
+          -B build
           -DCMAKE_TOOLCHAIN_FILE="../cmake/Toolchain-${{matrix.arch}}-w64-mingw32-shared.cmake"
-          -DCMAKE_BUILD_TYPE="${{matrix.build_type}}"
+          -DCMAKE_BUILD_TYPE="${{env.cmake_buildtype}}"
           -DCMAKE_PREFIX_PATH="/strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6"
-          -DBUILD_WITH_QT6=ON
-          -DBUILD_WERROR=OFF
+          -DBUILD_WERROR=ON
           -DARCH="${{matrix.arch}}"
-          -DENABLE_WIN32_CONSOLE=${{env.win32_console}}
-          -DENABLE_DBUS=OFF
-          -DENABLE_LIBGPOD=OFF
-          -DENABLE_LIBMTP=OFF
+          -DENABLE_WIN32_CONSOLE=$(test "${{matrix.buildtype}}" = "debug" && echo "ON" || echo "OFF")
+          -DENABLE_GIO=OFF
           -DENABLE_AUDIOCD=OFF
-          -DProtobuf_PROTOC_EXECUTABLE="/strawberry-mxe/usr/x86_64-pc-linux-gnu/bin/protoc"
+          -DENABLE_MTP=OFF
+          -DENABLE_GPOD=OFF
+          -DENABLE_SPOTIFY=OFF
 
       - name: Run Make
-        working-directory: build
-        run: cmake --build . --config Release --parallel $(nproc)
+        run: cmake --build build --config "${{env.cmake_buildtype}}" --parallel $(nproc)
 
       - name: Create directories
         working-directory: build
@@ -233,7 +168,7 @@ jobs:
 
       - name: Copy Qt styles
         working-directory: build
-        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6/plugins/styles/qwindowsvistastyle.dll ${GITHUB_WORKSPACE}/build/styles/
+        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6/plugins/styles/qmodernwindowsstyle.dll ${GITHUB_WORKSPACE}/build/styles/
 
       - name: Copy Qt TLS plugins
         working-directory: build
@@ -253,7 +188,12 @@ jobs:
 
       - name: Copy extra binaries
         working-directory: build
-        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/bin/{sqlite3.exe,gst-launch-1.0.exe,gst-discoverer-1.0.exe,libsoup-3.0-0.dll,libnghttp2.dll} .
+        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/bin/{sqlite3.exe,gst-launch-1.0.exe,gst-play-1.0.exe,gst-discoverer-1.0.exe,libsoup-3.0-0.dll,libnghttp2.dll} .
+
+      - name: Copy extra binaries (debug)
+        if: matrix.buildtype == 'debug'
+        working-directory: build
+        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/bin/{gdb.exe,libreadline8.dll} .
 
       - name: Copy dependencies
         working-directory: build
@@ -271,307 +211,61 @@ jobs:
           -R /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared
 
       - name: Strip binaries
-        if: matrix.build_type == 'release'
+        if: matrix.buildtype == 'release'
         working-directory: build
         run: find . -type f \( -iname \*.dll -o -iname \*.exe \) -exec /strawberry-mxe/usr/bin/${{matrix.arch}}-w64-mingw32.shared-strip {} \;
 
+      - name: Strip gdb.exe
+        if: matrix.buildtype == 'debug'
+        working-directory: build
+        run: /strawberry-mxe/usr/bin/${{matrix.arch}}-w64-mingw32.shared-strip gdb.exe
+
       - name: Copy nsis files
         working-directory: build
-        run: cp ${GITHUB_WORKSPACE}/dist/windows/*.nsi ${GITHUB_WORKSPACE}/dist/windows/*.nsh ${GITHUB_WORKSPACE}/dist/windows/*.ico .
+        run: cp ${GITHUB_WORKSPACE}/dist/windows/*.nsh ${GITHUB_WORKSPACE}/dist/windows/*.ico .
 
       - name: Copy COPYING license file
         working-directory: build
         run: cp ${GITHUB_WORKSPACE}/COPYING .
 
+      - name: List files
+        working-directory: build
+        run: ls
+
+      - name: Check that all files are included in nsi
+        shell: bash
+        working-directory: build
+        run: |
+          files_missing=
+          for i in $(ls -1 *.dll *.exe); do
+            nsi_file_entry=$(grep -i "^\s\+File\s\+\"$i\"$" strawberry.nsi || true)
+            if [ "${nsi_file_entry}" = "" ]; then
+              echo "File ${i} is missing File entry."
+            fi
+            nsi_file_delete_entry=$(grep -i "^\s\+Delete\s\+\"\$INSTDIR\\\\$i\"$" strawberry.nsi || true)
+            if [ "${nsi_file_delete_entry}" = "" ] ; then
+              echo "File ${i} is missing Delete entry."
+            fi
+            if [ "${nsi_file_entry}" = "" ] || [ "${nsi_file_delete_entry}" = "" ] ; then
+              if [ "${files_missing}" = "" ]; then
+                files_missing="${i}"
+              else
+                files_missing="${files_missing} $i"
+              fi
+            fi
+          done
+          if ! [ "${files_missing}" = "" ]; then
+            echo "Files missing in nsi: ${files_missing}"
+            exit 1
+          fi
+
       - name: Build Windows installer
         working-directory: build
         run: makensis strawberry.nsi
-        
-      - uses: actions/upload-artifact@v3
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
         with:
-          name: upload-windows-mingw-${{matrix.build_type}}
-          path: build/StrawberrySetup*.exe
-
-
-  build-windows-msvc:
-    name: Build Windows MSVC
-    runs-on: windows-2019
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ 'x86', 'x86_64' ]
-        build_type: [ 'release' ]
-    steps:
-
-      - uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: ${{matrix.arch}}
-          toolset: 14.29
-
-      - uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
-
-      - name: Delete conflicting files
-        shell: bash
-        run: |
-          rm -f /c/programdata/chocolatey/bin/{addr2line.exe,ar.exe,as.exe,c++.exe,c++filt.exe,cc1.exe,cc1plus.exe,cpp.exe,g++.exe,gcc-ar.exe,gcc-nm.exe,gcc-ranlib.exe,gcc.exe,gdb.exe,gfortran.exe,ld.bfd.exe,ld.exe,ld.gold.exe,nm.exe,ranlib.exe,readelf.exe,windres.exe,x86_64-w64-mingw32-c++.exe,x86_64-w64-mingw32-g++.exe,x86_64-w64-mingw32-gcc-8.1.0.exe,x86_64-w64-mingw32-gcc-ar.exe,x86_64-w64-mingw32-gcc-nm.exe,x86_64-w64-mingw32-gcc-ranlib.exe,x86_64-w64-mingw32-gcc.exe,x86_64-w64-mingw32-gfortran.exe}
-          rm -f /c/strawberry/c/bin/{addr2line.exe,ar.exe,as.exe,c++.exe,c++filt.exe,cpp.exe,g++.exe,gcc-ar.exe,gcc-nm.exe,gcc-ranlib.exe,gcc.exe,ld.exe,nm.exe,ranlib.exe,readelf.exe,widl.exe,windmc.exe,windres.exe,x86_64-w64-mingw32-c++.exe,x86_64-w64-mingw32-g++.exe,x86_64-w64-mingw32-gcc-8.3.0.exe,x86_64-w64-mingw32-gcc-ar.exe,x86_64-w64-mingw32-gcc-nm.exe,x86_64-w64-mingw32-gcc-ranlib.exe,x86_64-w64-mingw32-gcc.exe,x86_64-w64-mingw32-gfortran.exe}
-
-      - name: Get latest MSVC dependencies
-        shell: bash
-        run: |
-          msvc_deps_version=$(curl -s 'https://github.com/strawberrymusicplayer/strawberry-msvc-dependencies/releases' | sed -n 's,.*releases/tag/\([^"&;]*\)".*,\1,p' | head -1)
-          echo "msvc_deps_version=${msvc_deps_version}" >> $GITHUB_ENV
-
-      - name: Download Windows MSVC dependencies
-        uses: suisei-cn/actions-download-file@v1
-        with:
-          url: "Windows MSVC dependencies [this](https://github.com/strawberrymusicplayer/strawberry-msvc-dependencies/releases/download/${{env.msvc_deps_version}}/strawberry-msvc-${{matrix.arch}}-${{matrix.build_type}}.tar.xz)!"
-          target: downloads/
-          auto-match: true
-
-      - name: Download LockedList plugin for NSIS
-        uses: suisei-cn/actions-download-file@v1
-        with:
-          url: "LockedList [this](https://nsis.sourceforge.io/mediawiki/images/d/d3/LockedList.zip)!"
-          target: downloads/
-          auto-match: true
-
-      - name: Extract NSIS LockedList plugin
-        run: 7z x -o"${{github.workspace}}/NSIS_Plugins" "${{github.workspace}}/downloads/LockedList.zip"
-
-      - name: Download Registry plugin for NSIS
-        uses: suisei-cn/actions-download-file@v1
-        with:
-          url: "Registry [this](https://nsis.sourceforge.io/mediawiki/images/4/47/Registry.zip)!"
-          target: downloads/
-          auto-match: true
-
-      - name: Extract NSIS Registry plugin
-        run: 7z x -o"${{github.workspace}}/NSIS_Plugins" "${{github.workspace}}/downloads/Registry.zip"
-
-      - name: Download Inetc plugin for NSIS
-        uses: suisei-cn/actions-download-file@v1
-        with:
-          url: "Inetc [this](https://nsis.sourceforge.io/mediawiki/images/c/c9/Inetc.zip)!"
-          target: downloads/
-          auto-match: true
-
-      - name: Extract NSIS Inetc plugin
-        run: 7z x -o"${{github.workspace}}/NSIS_Plugins" "${{github.workspace}}/downloads/Inetc.zip"
-
-      - name: Install NSIS plugins
-        run: |
-          copy "${{github.workspace}}/NSIS_Plugins/Plugins/LockedList64.dll" "C:/Program Files (x86)/NSIS/Plugins/"
-          copy "${{github.workspace}}/NSIS_Plugins/Plugins/x86-unicode/LockedList.dll" "C:/Program Files (x86)/NSIS/Plugins/x86-unicode/"
-          copy "${{github.workspace}}/NSIS_Plugins/Desktop/Plugin/registry.dll" "C:/Program Files (x86)/NSIS/Plugins/"
-          copy "${{github.workspace}}/NSIS_Plugins/Desktop/Plugin/registry.dll" "C:/Program Files (x86)/NSIS/Plugins/x86-unicode/"
-          copy "${{github.workspace}}/NSIS_Plugins/Plugins/x86-unicode/INetC.dll" "C:/Program Files (x86)/NSIS/Plugins/x86-unicode/"
-
-      - name: Extract Windows MSVC dependencies
-        shell: bash
-        run: |
-          tar -xf /d/a/strawberry/strawberry//downloads/strawberry-msvc-${{matrix.arch}}-${{matrix.build_type}}.tar.xz
-          mv strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}} /c/
-
-      - name: Update PATH
-        run: echo "c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
-
-      - name: Add safe git directory
-        shell: bash
-        run: git config --global --add safe.directory ${GITHUB_WORKSPACE}
-
-      - name: Create Build Environment
-        run: cmake -E make_directory build
-
-      - name: Set ENABLE_WIN32_CONSOLE (debug)
-        if: matrix.build_type == 'debug'
-        shell: bash
-        run: echo "win32_console=ON" >> $GITHUB_ENV
-
-      - name: Set ENABLE_WIN32_CONSOLE (release)
-        if: matrix.build_type == 'release'
-        shell: bash
-        run: echo "win32_console=OFF" >> $GITHUB_ENV
-
-      - name: Run CMake
-        working-directory: build
-        run: >
-          cmake ..
-          -G "Ninja"
-          -DCMAKE_BUILD_TYPE="${{matrix.build_type}}"
-          -DCMAKE_PREFIX_PATH="c:/strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}/lib/cmake"
-          -DBUILD_WITH_QT6=ON
-          -DBUILD_WERROR=OFF
-          -DARCH="${{matrix.arch}}"
-          -DENABLE_WIN32_CONSOLE=${{env.win32_console}}
-          -DUSE_TAGLIB=ON
-          -DPKG_CONFIG_EXECUTABLE="c:/strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}/bin/pkg-config.exe"
-          -DICU_ROOT="c:/strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}"
-
-      - name: Run Make
-        env:
-          CL: "/MP"
-        working-directory: build
-        run: cmake --build . --config ${{matrix.build_type}} --parallel 4
-
-      - name: list files
-        working-directory: build
-        run: dir
-
-      - name: Copy extra binaries
-        working-directory: build
-        run: |
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\libssl-3*.dll
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\libcrypto-3*.dll
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\soup-3.0-0.dll
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\gst-launch-1.0.exe
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\gst-discoverer-1.0.exe
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\bin\sqlite3.exe
-
-      - name: Create directories
-        working-directory: build
-        run: |
-          mkdir gio-modules
-          mkdir platforms
-          mkdir styles
-          mkdir tls
-          mkdir sqldrivers
-          mkdir imageformats
-          mkdir gstreamer-plugins
-          mkdir nsisplugins
-
-      - name: Copy GIO modules
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gio\modules\*.dll .\gio-modules\
-
-      - name: Copy Qt platform plugins
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\plugins\platforms\qwindows*.dll .\platforms\
-
-      - name: Copy Qt styles
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\plugins\styles\qwindowsvistastyle*.dll .\styles\
-
-      - name: Copy Qt TLS plugins
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\plugins\tls\*.dll .\tls\
-
-      - name: Copy Qt SQL drivers
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\plugins\sqldrivers\qsqlite*.dll .\sqldrivers\
-
-      - name: Copy Qt imageformats plugins
-        working-directory: build
-        run: copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\plugins\imageformats\*.dll .\imageformats\
-
-      - name: Copy gstreamer plugins
-        working-directory: build
-        run: |
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaes.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaiff.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstapetag.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstapp.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstasf.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstasfmux.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudioconvert.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudiofx.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudiomixer.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudioparsers.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudiorate.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudioresample.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstaudiotestsrc.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstautodetect.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstbs2b.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstcoreelements.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstdash.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstdirectsound.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstequalizer.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstfaac.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstfaad.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstfdkaac.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstflac.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstgio.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstgme.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsthls.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsticydemux.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstid3demux.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstid3tag.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstisomp4.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstlame.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstlibav.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstmpg123.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstmusepack.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstogg.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstopenmpt.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstopus.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstopusparse.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstpbtypes.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstplayback.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstreplaygain.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstrtp.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstrtsp.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstsoup.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstspectrum.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstspeex.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsttaglib.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsttcp.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsttwolame.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gsttypefindfunctions.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstudp.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstvolume.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstvorbis.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstwasapi.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstwavenc.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstwavpack.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstwavparse.dll .\gstreamer-plugins\
-          copy c:\strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}\lib\gstreamer-1.0\gstxingmux.dll .\gstreamer-plugins\
-
-      - name: Download copydlldeps.sh
-        shell: bash
-        working-directory: build
-        run: curl -O -L https://raw.githubusercontent.com/strawberrymusicplayer/strawberry-mxe/master/tools/copydlldeps.sh
-
-      - name: Copy dependencies
-        shell: bash
-        working-directory: build
-        run: >
-          ./copydlldeps.sh
-          -c
-          -d .
-          -F .
-          -F ./platforms
-          -F ./styles
-          -F ./tls
-          -F ./sqldrivers
-          -F ./imageformats
-          -F ./gio-modules
-          -F ./gstreamer-plugins
-          -R /c/strawberry_msvc_${{matrix.arch}}_${{matrix.build_type}}/bin
-
-      - name: Copy nsis files
-        working-directory: build
-        run: |
-          copy ..\dist\windows\*.nsi .
-          copy ..\dist\windows\*.nsh .
-          copy ..\dist\windows\*.ico .
-
-      - name: Copy COPYING license file
-        working-directory: build
-        run: copy ..\COPYING .
-
-      - name: list files
-        working-directory: build
-        run: dir
-
-      - name: Create nsis installer
-        working-directory: build
-        run: makensis strawberry.nsi
-
-      - uses: actions/upload-artifact@v3
-        with:
-          name: upload-windows
-          path: build/StrawberrySetup*.exe
-
-
+          name: win-${{matrix.arch}}-${{matrix.buildtype}}
+          path: |
+            build/strawberry.exe

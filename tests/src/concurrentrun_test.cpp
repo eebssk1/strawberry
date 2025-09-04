@@ -1,8 +1,8 @@
 #include <functional>
 
-#include <gtest/gtest.h>
+#include "gtest_include.h"
 
-#include <QtConcurrent>
+#include <QtConcurrentRun>
 #include <QThreadPool>
 #include <QEventLoop>
 #include <QFutureWatcher>

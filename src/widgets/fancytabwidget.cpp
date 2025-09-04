@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2018, Vikram Ambrose <ambroseworks@gmail.com>
- * Copyright 2018, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,441 +19,53 @@
  *
  */
 
-#include <algorithm>
 #include <utility>
 #include <chrono>
 
 #include <QtGlobal>
 #include <QObject>
-#include <QApplication>
-#include <QTabBar>
 #include <QWidget>
 #include <QTimer>
-#include <QList>
-#include <QMap>
-#include <QHash>
 #include <QVariant>
 #include <QString>
 #include <QIcon>
 #include <QPainter>
 #include <QStylePainter>
 #include <QColor>
-#include <QRect>
-#include <QFont>
-#include <QFontMetrics>
-#include <QSize>
-#include <QPoint>
-#include <QBrush>
-#include <QPen>
-#include <QTransform>
 #include <QMenu>
 #include <QAction>
 #include <QActionGroup>
-#include <QSettings>
+#include <QPixmap>
 #include <QPixmapCache>
 #include <QLayout>
-#include <QtEvents>
-#include <QStyle>
-#include <QCommonStyle>
-#include <QProxyStyle>
-#include <QStyleOption>
-#include <QStyleOptionComplex>
+#include <QContextMenuEvent>
+#include <QPaintEvent>
 
 #include "fancytabwidget.h"
+#include "fancytabbar.h"
+#include "fancytabdata.h"
+#include "utilities/colorutils.h"
 #include "core/stylehelper.h"
-#include "settings/appearancesettingspage.h"
+#include "core/settings.h"
+#include "constants/appearancesettings.h"
 
 using namespace std::chrono_literals;
-
-const int FancyTabWidget::IconSize_LargeSidebar = 40;
-const int FancyTabWidget::IconSize_SmallSidebar = 32;
-const int FancyTabWidget::TabSize_LargeSidebarMinWidth = 70;
-
-class FancyTabBar : public QTabBar {  // clazy:exclude=missing-qobject-macro
-
- private:
-  int mouseHoverTabIndex = -1;
-  QHash<QWidget*, QString> labelCache;
-  QMap<int, QWidget*> spacers;
-
- public:
-  explicit FancyTabBar(QWidget *parent = nullptr) : QTabBar(parent) {
-    setMouseTracking(true);
-  }
-
-  QSize sizeHint() const override {
-
-    FancyTabWidget *tabWidget = qobject_cast<FancyTabWidget*>(parentWidget());
-    if (tabWidget->mode() == FancyTabWidget::Mode_Tabs || tabWidget->mode() == FancyTabWidget::Mode_IconOnlyTabs) {
-      return QTabBar::sizeHint();
-    }
-
-    QSize size;
-    int h = 0;
-    for (int i = 0; i < count(); ++i) {
-      if (tabSizeHint(i).width() > size.width()) size.setWidth(tabSizeHint(i).width());
-      h += tabSizeHint(i).height();
-    }
-    size.setHeight(h);
-
-    return size;
-
-  }
-
-  int width() const {
-    FancyTabWidget *tabWidget = qobject_cast<FancyTabWidget*>(parentWidget());
-    if (tabWidget->mode() == FancyTabWidget::Mode_LargeSidebar || tabWidget->mode() == FancyTabWidget::Mode_SmallSidebar) {
-      int w = 0;
-      for (int i = 0; i < count(); ++i) {
-        if (tabSizeHint(i).width() > w) w = tabSizeHint(i).width();
-      }
-      return w;
-    }
-    else {
-      return QTabBar::width();
-    }
-  }
-
- protected:
-  QSize tabSizeHint(int index) const override {
-
-    FancyTabWidget *tabWidget = qobject_cast<FancyTabWidget*>(parentWidget());
-
-    QSize size;
-    if (tabWidget->mode() == FancyTabWidget::Mode_LargeSidebar) {
-
-      QFont bold_font(font());
-      bold_font.setBold(true);
-      QFontMetrics fm(bold_font);
-
-      // If the text of any tab is wider than the set width then use that instead.
-      int w = std::max(FancyTabWidget::TabSize_LargeSidebarMinWidth, tabWidget->iconsize_largesidebar() + 22);
-      for (int i = 0; i < count(); ++i) {
-        QRect rect = fm.boundingRect(QRect(0, 0, std::max(FancyTabWidget::TabSize_LargeSidebarMinWidth, tabWidget->iconsize_largesidebar() + 22), height()), Qt::TextWordWrap, QTabBar::tabText(i));
-        rect.setWidth(rect.width() + 10);
-        if (rect.width() > w) w = rect.width();
-      }
-
-      QRect rect = fm.boundingRect(QRect(0, 0, w, height()), Qt::TextWordWrap, QTabBar::tabText(index));
-      size = QSize(w, tabWidget->iconsize_largesidebar() + rect.height() + 10);
-    }
-    else if (tabWidget->mode() == FancyTabWidget::Mode_SmallSidebar) {
-
-      QFont bold_font(font());
-      bold_font.setBold(true);
-      QFontMetrics fm(bold_font);
-
-      QRect rect = fm.boundingRect(QRect(0, 0, 100, tabWidget->height()), Qt::AlignHCenter, QTabBar::tabText(index));
-      int w = std::max(tabWidget->iconsize_smallsidebar(), rect.height()) + 15;
-      int h = tabWidget->iconsize_smallsidebar() + rect.width() + 20;
-      size = QSize(w, h);
-    }
-    else {
-      size = QTabBar::tabSizeHint(index);
-    }
-
-    return size;
-
-  }
-
-  void leaveEvent(QEvent *event) override {
-    Q_UNUSED(event);
-    mouseHoverTabIndex = -1;
-    update();
-  }
-
-  void mouseMoveEvent(QMouseEvent *event) override {
-
-    QPoint pos = event->pos();
-
-    mouseHoverTabIndex = tabAt(pos);
-    if (mouseHoverTabIndex > -1) {
-      update();
-    }
-    QTabBar::mouseMoveEvent(event);
-
-  }
-
-  void paintEvent(QPaintEvent *pe) override {
-
-    FancyTabWidget *tabWidget = qobject_cast<FancyTabWidget*>(parentWidget());
-
-    bool verticalTextTabs = false;
-
-    if (tabWidget->mode() == FancyTabWidget::Mode_SmallSidebar) {
-      verticalTextTabs = true;
-    }
-
-    // if LargeSidebar, restore spacers
-    if (tabWidget->mode() == FancyTabWidget::Mode_LargeSidebar && spacers.count() > 0) {
-      QList<int> keys = spacers.keys();
-      for (const int index : keys) {
-        tabWidget->insertTab(index, spacers[index], QIcon(), QString());
-        tabWidget->setTabEnabled(index, false);
-      }
-      spacers.clear();
-    }
-    else if (tabWidget->mode() != FancyTabWidget::Mode_LargeSidebar) {
-      // traverse in the opposite order to save indices of spacers
-      for (int i = count() - 1; i >= 0; --i) {
-        // spacers are disabled tabs
-        if (!isTabEnabled(i) && !spacers.contains(i)) {
-          spacers[i] = tabWidget->widget(i);
-          tabWidget->removeTab(i);
-          --i;
-        }
-      }
-    }
-
-    // Restore any label text that was hidden/cached for the IconOnlyTabs mode
-    if (labelCache.count() > 0 && tabWidget->mode() != FancyTabWidget::Mode_IconOnlyTabs) {
-      for (int i = 0; i < count(); ++i) {
-        setTabToolTip(i, "");
-        setTabText(i, labelCache[tabWidget->widget(i)]);
-      }
-      labelCache.clear();
-    }
-    if (tabWidget->mode() != FancyTabWidget::Mode_LargeSidebar && tabWidget->mode() != FancyTabWidget::Mode_SmallSidebar) {
-      // Cache and hide label text for IconOnlyTabs mode
-      if (tabWidget->mode() == FancyTabWidget::Mode_IconOnlyTabs && labelCache.count() == 0) {
-        for (int i = 0; i < count(); ++i) {
-          labelCache[tabWidget->widget(i)] = tabText(i);
-          setTabToolTip(i, tabText(i));
-          setTabText(i, "");
-        }
-      }
-      QTabBar::paintEvent(pe);
-      return;
-    }
-
-    QStylePainter p(this);
-
-    for (int index = 0; index < count(); ++index) {
-      const bool selected = tabWidget->currentIndex() == index;
-      QRect tabrect = tabRect(index);
-      QRect selectionRect = tabrect;
-      if (selected) {
-        // Selection highlight
-        p.save();
-        QLinearGradient grad(selectionRect.topLeft(), selectionRect.topRight());
-        grad.setColorAt(0, QColor(255, 255, 255, 140));
-        grad.setColorAt(1, QColor(255, 255, 255, 210));
-        p.fillRect(selectionRect.adjusted(0,0,0,-1), grad);
-        p.restore();
-
-        // shadow lines
-        p.setPen(QColor(0, 0, 0, 110));
-        p.drawLine(selectionRect.topLeft()    + QPoint(1, -1), selectionRect.topRight()    - QPoint(0, 1));
-        p.drawLine(selectionRect.bottomLeft(), selectionRect.bottomRight());
-        p.setPen(QColor(0, 0, 0, 40));
-        p.drawLine(selectionRect.topLeft(),    selectionRect.bottomLeft());
-
-        // highlights
-        p.setPen(QColor(255, 255, 255, 50));
-        p.drawLine(selectionRect.topLeft()    + QPoint(0, -2), selectionRect.topRight()    - QPoint(0, 2));
-        p.drawLine(selectionRect.bottomLeft() + QPoint(0, 1),  selectionRect.bottomRight() + QPoint(0, 1));
-        p.setPen(QColor(255, 255, 255, 40));
-        p.drawLine(selectionRect.topLeft()    + QPoint(0, 0),  selectionRect.topRight());
-        p.drawLine(selectionRect.topRight()   + QPoint(0, 1),  selectionRect.bottomRight() - QPoint(0, 1));
-        p.drawLine(selectionRect.bottomLeft() + QPoint(0, -1), selectionRect.bottomRight() - QPoint(0, 1));
-
-      }
-
-      // Mouse hover effect
-      if (!selected && index == mouseHoverTabIndex && isTabEnabled(index)) {
-        p.save();
-        QLinearGradient grad(selectionRect.topLeft(),  selectionRect.topRight());
-        grad.setColorAt(0, Qt::transparent);
-        grad.setColorAt(0.5, QColor(255, 255, 255, 40));
-        grad.setColorAt(1, Qt::transparent);
-        p.fillRect(selectionRect, grad);
-        p.setPen(QPen(grad, 1.0));
-        p.drawLine(selectionRect.topLeft(),     selectionRect.topRight());
-        p.drawLine(selectionRect.bottomRight(), selectionRect.bottomLeft());
-        p.restore();
-      }
-
-      // Label (Icon and Text)
-      {
-        p.save();
-        QTransform m;
-        int textFlags = 0;
-        Qt::Alignment iconFlags;
-
-        QRect tabrectText;
-        QRect tabrectLabel;
-
-        if (verticalTextTabs) {
-          m = QTransform::fromTranslate(tabrect.left(), tabrect.bottom());
-          m.rotate(-90);
-          textFlags = Qt::AlignVCenter;
-          iconFlags = Qt::AlignVCenter;
-
-          tabrectLabel = QRect(QPoint(0, 0), m.mapRect(tabrect).size());
-
-          tabrectText = tabrectLabel;
-          tabrectText.translate(tabWidget->iconsize_smallsidebar() + 8, 0);
-        }
-        else {
-          m = QTransform::fromTranslate(tabrect.left(), tabrect.top());
-          textFlags = Qt::AlignHCenter | Qt::AlignBottom | Qt::TextWordWrap;
-          iconFlags = Qt::AlignHCenter | Qt::AlignTop;
-
-          tabrectLabel = QRect(QPoint(0, 0), m.mapRect(tabrect).size());
-
-          tabrectText = tabrectLabel;
-          tabrectText.translate(0, -5);
-        }
-
-        p.setTransform(m);
-
-        QFont boldFont(p.font());
-        boldFont.setBold(true);
-        p.setFont(boldFont);
-
-        // Text drop shadow color
-        p.setPen(selected ? QColor(255, 255, 255, 160) : QColor(0, 0, 0, 110));
-        p.translate(0, 3);
-        p.drawText(tabrectText, textFlags, tabText(index));
-
-        // Text foreground color
-        p.translate(0, -1);
-        p.setPen(selected ? QColor(60, 60, 60) : StyleHelper::panelTextColor());
-        p.drawText(tabrectText, textFlags, tabText(index));
-
-
-        // Draw the icon
-        QRect tabrectIcon;
-        if (verticalTextTabs) {
-          tabrectIcon = tabrectLabel;
-          tabrectIcon.setSize(QSize(tabWidget->iconsize_smallsidebar(), tabWidget->iconsize_smallsidebar()));
-          // Center the icon
-          const int moveRight = (QTabBar::width() - tabWidget->iconsize_smallsidebar()) / 2;
-          tabrectIcon.translate(5, moveRight);
-        }
-        else {
-          tabrectIcon = tabrectLabel;
-          tabrectIcon.setSize(QSize(tabWidget->iconsize_largesidebar(), tabWidget->iconsize_largesidebar()));
-          // Center the icon
-          const int moveRight = (QTabBar::width() - tabWidget->iconsize_largesidebar() - 1) / 2;
-          tabrectIcon.translate(moveRight, 5);
-        }
-        tabIcon(index).paint(&p, tabrectIcon, iconFlags);
-        p.restore();
-      }
-    }
-  }
-
-};
-
-class TabData : public QObject {  // clazy:exclude=missing-qobject-macro
- public:
-  TabData(QWidget *widget_view, const QString &name, const QIcon &icon, const QString &label, const int idx, QWidget *parent)
-      : QObject(parent),
-        widget_view_(widget_view),
-        name_(name), icon_(icon),
-        label_(label),
-        index_(idx),
-        page_(new QWidget()) {
-    // In order to achieve the same effect as the "Bottom Widget" of the old Nokia based FancyTabWidget a VBoxLayout is used on each page
-    QVBoxLayout *layout = new QVBoxLayout(page_);
-    layout->setSpacing(0);
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->addWidget(widget_view_);
-    page_->setLayout(layout);
-  }
-
-  QWidget *widget_view() const { return widget_view_; }
-  QString name() const { return name_; }
-  QIcon icon() const { return icon_; }
-  QString label() const { return label_; }
-  QWidget *page() const { return page_; }
-  int index() const { return index_; }
-
- private:
-  QWidget *widget_view_;
-  QString name_;
-  QIcon icon_;
-  QString label_;
-  int index_;
-  QWidget *page_;
-
-};
-
-// Spacers are just disabled pages
-void FancyTabWidget::addSpacer() {
-
-  QWidget *spacer = new QWidget(this);
-  const int idx = insertTab(count(), spacer, QIcon(), QString());
-  setTabEnabled(idx, false);
-
-}
-
-void FancyTabWidget::setBackgroundPixmap(const QPixmap &pixmap) {
-
-  background_pixmap_ = pixmap;
-  update();
-
-}
-
-void FancyTabWidget::setCurrentIndex(int idx) {
-
-  Q_ASSERT(count() > 0);
-
-  if (idx >= count() || idx < 0) idx = 0;
-
-  QWidget *currentPage = widget(idx);
-  QLayout *layout = currentPage->layout();
-  if (bottom_widget_) layout->addWidget(bottom_widget_);
-  QTabWidget::setCurrentIndex(idx);
-
-}
-
-void FancyTabWidget::currentTabChanged(const int idx) {
-
-  QWidget *currentPage = currentWidget();
-  QLayout *layout = currentPage->layout();
-  if (bottom_widget_) layout->addWidget(bottom_widget_);
-  emit CurrentChanged(idx);
-
-}
-
-// Override QStyle::subElementRect() and use QCommonStyle to fix a problem with the adwaita style.
-// The adwaita style is causing the contents of the tabbar to be stretched from top to bottom with space between icons and text.
-// You can see this on the default Fedora (Gnome) installation.
-
-class FancyTabWidgetProxyStyle : public QProxyStyle {  // clazy:exclude=missing-qobject-macro
-
- public:
-  explicit FancyTabWidgetProxyStyle(QStyle *style) : QProxyStyle(style), common_style_(new QCommonStyle()) {}
-  ~FancyTabWidgetProxyStyle() override { common_style_->deleteLater(); }
-
-  QRect subElementRect(QStyle::SubElement element, const QStyleOption *option, const QWidget *widget = nullptr) const override {
-    if (element == QStyle::SE_TabWidgetTabBar) {
-      QRect proxy_style_rect = QProxyStyle::subElementRect(element, option, widget);
-      // Fix stretched tabbar (adwaita style issue).
-      proxy_style_rect.setHeight(common_style_->subElementRect(element, option, widget).height());
-      return proxy_style_rect;
-    }
-    else {
-      return QProxyStyle::subElementRect(element, option, widget);
-    }
-  }
-
- private:
-  QCommonStyle *common_style_;
-};
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int IconSize_LargeSidebar = 40;
+constexpr int IconSize_SmallSidebar = 32;
+} // namespace
 
 FancyTabWidget::FancyTabWidget(QWidget *parent)
     : QTabWidget(parent),
-      style_(nullptr),
       menu_(nullptr),
-      mode_(Mode_None),
+      mode_(Mode::None),
       bottom_widget_(nullptr),
       bg_color_system_(true),
       bg_gradient_(true),
-      iconsize_smallsidebar_(FancyTabWidget::IconSize_SmallSidebar),
-      iconsize_largesidebar_(FancyTabWidget::IconSize_LargeSidebar) {
+      iconsize_smallsidebar_(IconSize_SmallSidebar),
+      iconsize_largesidebar_(IconSize_LargeSidebar) {
 
   FancyTabBar *tabBar = new FancyTabBar(this);
   setTabBar(tabBar);
@@ -461,54 +73,48 @@ FancyTabWidget::FancyTabWidget(QWidget *parent)
   setMovable(true);
   setElideMode(Qt::ElideNone);
   setUsesScrollButtons(true);
-  if (QApplication::style() && QApplication::style()->objectName().contains(QRegularExpression("^adwaita.*$", QRegularExpression::CaseInsensitiveOption))) {
-    style_ = new FancyTabWidgetProxyStyle(style());
-    setStyle(style_);
-  }
 
-  QObject::connect(tabBar, &FancyTabBar::currentChanged, this, &FancyTabWidget::currentTabChanged);
+  QObject::connect(tabBar, &FancyTabBar::currentChanged, this, &FancyTabWidget::CurrentTabChangedSlot);
 
 }
 
-FancyTabWidget::~FancyTabWidget() {
-  if (style_) style_->deleteLater();
+FancyTabWidget::~FancyTabWidget() = default;
+
+void FancyTabWidget::AddTab(QWidget *widget_view, const QString &name, const QIcon &icon, const QString &label) {
+
+  FancyTabData *tab = new FancyTabData(widget_view, name, icon, label, static_cast<int>(tabs_.count()), this);
+  tabs_.insert(widget_view, tab);
+
 }
 
-void FancyTabWidget::Load(const QString &kSettingsGroup) {
+void FancyTabWidget::LoadSettings(const QString &settings_group) {
 
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
-  QMultiMap <int, TabData*> tabs;
-  for (TabData *tab : std::as_const(tabs_)) {
-    int idx = s.value("tab_" + tab->name(), tab->index()).toInt();
+  Settings s;
+  s.beginGroup(settings_group);
+  QMultiMap <int, FancyTabData*> tabs;
+  for (FancyTabData *tab : std::as_const(tabs_)) {
+    int idx = s.value(u"tab_"_s + tab->name(), tab->index()).toInt();
     while (tabs.contains(idx)) { ++idx; }
     tabs.insert(idx, tab);
   }
   s.endGroup();
 
-  QMultiMap <int, TabData*> ::iterator i;
-  for (i = tabs.begin(); i != tabs.end(); ++i) {
-    TabData *tab = i.value();
-    const int idx = insertTab(i.key(), tab->page(), tab->icon(), tab->label());
-    tabBar()->setTabData(idx, QVariant(tab->name()));
+  for (QMultiMap <int, FancyTabData*> ::iterator it = tabs.begin(); it != tabs.end(); ++it) {
+    (void)InsertTab(it.key(), it.value());
   }
 
 }
 
-int FancyTabWidget::insertTab(const int idx, QWidget *page, const QIcon &icon, const QString &label) {
-  return QTabWidget::insertTab(idx, page, icon, label);
-}
+void FancyTabWidget::SaveSettings(const QString &settings_group) {
 
-void FancyTabWidget::SaveSettings(const QString &kSettingsGroup) {
+  Settings s;
+  s.beginGroup(settings_group);
 
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
-
-  s.setValue("tab_mode", mode_);
+  s.setValue("tab_mode", static_cast<int>(mode_));
   s.setValue("current_tab", currentIndex());
 
-  for (TabData *tab : std::as_const(tabs_)) {
-    QString k = "tab_" + tab->name();
+  for (FancyTabData *tab : std::as_const(tabs_)) {
+    QString k = u"tab_"_s + tab->name();
     int idx = QTabWidget::indexOf(tab->page());
     if (idx < 0) {
       if (s.contains(k)) s.remove(k);
@@ -524,20 +130,20 @@ void FancyTabWidget::SaveSettings(const QString &kSettingsGroup) {
 
 void FancyTabWidget::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  bg_color_system_ = s.value(AppearanceSettingsPage::kTabBarSystemColor, false).toBool();
-  bg_gradient_ = s.value(AppearanceSettingsPage::kTabBarGradient, true).toBool();
-  bg_color_ = AppearanceSettingsPage::DefaultTabbarBgColor();
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  bg_color_system_ = s.value(AppearanceSettings::kTabBarSystemColor, false).toBool();
+  bg_gradient_ = s.value(AppearanceSettings::kTabBarGradient, true).toBool();
+  bg_color_ = DefaultTabbarBgColor();
   if (!bg_color_system_) {
-    bg_color_ = s.value(AppearanceSettingsPage::kTabBarColor, bg_color_).value<QColor>();
+    bg_color_ = s.value(AppearanceSettings::kTabBarColor, bg_color_).value<QColor>();
   }
-  iconsize_smallsidebar_ = s.value(AppearanceSettingsPage::kIconSizeTabbarSmallMode, FancyTabWidget::IconSize_SmallSidebar).toInt();
-  iconsize_largesidebar_ = s.value(AppearanceSettingsPage::kIconSizeTabbarLargeMode, FancyTabWidget::IconSize_LargeSidebar).toInt();
+  iconsize_smallsidebar_ = s.value(AppearanceSettings::kIconSizeTabbarSmallMode, IconSize_SmallSidebar).toInt();
+  iconsize_largesidebar_ = s.value(AppearanceSettings::kIconSizeTabbarLargeMode, IconSize_LargeSidebar).toInt();
   s.endGroup();
 
 #ifndef Q_OS_MACOS
-  if (mode() == FancyTabWidget::Mode_LargeSidebar) {
+  if (mode() == Mode::LargeSidebar) {
     setIconSize(QSize(iconsize_largesidebar_, iconsize_largesidebar_));
   }
   else {
@@ -546,29 +152,85 @@ void FancyTabWidget::ReloadSettings() {
 #endif
 
   update();
-  tabBarUpdateGeometry();
+  TabBarUpdateGeometry();
 
 }
 
-void FancyTabWidget::addBottomWidget(QWidget *widget_view) {
-  bottom_widget_ = widget_view;
+void FancyTabWidget::SetMode(const Mode mode) {
+
+  const Mode previous_mode = mode_;
+
+  mode_ = mode;
+
+  if (mode == Mode::Tabs || mode == Mode::IconOnlyTabs) {
+    setTabPosition(QTabWidget::North);
+  }
+  else {
+    setTabPosition(QTabWidget::West);
+  }
+
+#ifndef Q_OS_MACOS
+  if (mode_ == Mode::LargeSidebar || mode_ == Mode::IconsSidebar) {
+    setIconSize(QSize(iconsize_largesidebar_, iconsize_largesidebar_));
+  }
+  else {
+    setIconSize(QSize(iconsize_smallsidebar_, iconsize_smallsidebar_));
+  }
+#endif
+
+  if ((previous_mode == Mode::IconOnlyTabs || previous_mode == Mode::IconsSidebar) && (mode != Mode::IconOnlyTabs && mode != Mode::IconsSidebar)) {
+    for (int i = 0; i < count(); ++i) {
+      tabBar()->setTabText(i, tabBar()->tabData(i).value<FancyTabData*>()->label());
+      tabBar()->setTabToolTip(i, ""_L1);
+    }
+  }
+  else if ((previous_mode != Mode::IconOnlyTabs && previous_mode != Mode::IconsSidebar) && (mode == Mode::IconOnlyTabs || mode == Mode::IconsSidebar)) {
+    for (int i = 0; i < count(); ++i) {
+      tabBar()->setTabText(i, ""_L1);
+      tabBar()->setTabToolTip(i, tabBar()->tabData(i).value<FancyTabData*>()->label());
+    }
+  }
+
+  tabBar()->updateGeometry();
+  updateGeometry();
+
+  // There appears to be a bug in QTabBar which causes tabSizeHint to be ignored thus the need for this second shot repaint
+  QTimer::singleShot(1ms, this, &FancyTabWidget::TabBarUpdateGeometry);
+
+  Q_EMIT ModeChanged(mode);
+
 }
 
-void FancyTabWidget::AddTab(QWidget *widget_view, const QString &name, const QIcon &icon, const QString &label) {
+int FancyTabWidget::InsertTab(const int preffered_index, FancyTabData *tab) {
 
-  TabData *tab = new TabData(widget_view, name, icon, label, static_cast<int>(tabs_.count()), this);
-  tabs_.insert(widget_view, tab);
+  const int actual_index = InsertTab(preffered_index, tab->page(), tab->icon(), QString());
+  tabBar()->setTabData(actual_index, QVariant::fromValue<FancyTabData*>(tab));
 
+  if (mode_ == Mode::IconOnlyTabs || mode_ == Mode::IconsSidebar) {
+    tabBar()->setTabText(actual_index, ""_L1);
+    tabBar()->setTabToolTip(actual_index, tab->label());
+  }
+  else {
+    tabBar()->setTabText(actual_index, tab->label());
+    tabBar()->setTabToolTip(actual_index, ""_L1);
+  }
+
+  return actual_index;
+
+}
+
+int FancyTabWidget::InsertTab(const int idx, QWidget *page, const QIcon &icon, const QString &label) {
+  return QTabWidget::insertTab(idx, page, icon, label);
 }
 
 bool FancyTabWidget::EnableTab(QWidget *widget_view) {
 
   if (!tabs_.contains(widget_view)) return false;
-  TabData *tab = tabs_.value(widget_view);
+  FancyTabData *tab = tabs_.value(widget_view);
 
   if (QTabWidget::indexOf(tab->page()) >= 0) return true;
-  const int idx = QTabWidget::insertTab(count(), tab->page(), tab->icon(), tab->label());
-  tabBar()->setTabData(idx, QVariant(tab->name()));
+
+  (void)InsertTab(count(), tab);
 
   return true;
 
@@ -577,7 +239,7 @@ bool FancyTabWidget::EnableTab(QWidget *widget_view) {
 bool FancyTabWidget::DisableTab(QWidget *widget_view) {
 
   if (!tabs_.contains(widget_view)) return false;
-  TabData *tab = tabs_.value(widget_view);
+  FancyTabData *tab = tabs_.value(widget_view);
 
   int idx = QTabWidget::indexOf(tab->page());
   if (idx < 0) return false;
@@ -588,14 +250,59 @@ bool FancyTabWidget::DisableTab(QWidget *widget_view) {
 
 }
 
+void FancyTabWidget::AddSpacer() {
+
+  QWidget *spacer = new QWidget(this);
+  const int idx = insertTab(count(), spacer, QIcon(), QString());
+  setTabEnabled(idx, false);
+
+}
+
+void FancyTabWidget::AddBottomWidget(QWidget *widget_view) {
+  bottom_widget_ = widget_view;
+}
+
+void FancyTabWidget::SetBackgroundPixmap(const QPixmap &pixmap) {
+
+  background_pixmap_ = pixmap;
+  update();
+
+}
+
+void FancyTabWidget::SetCurrentIndex(int idx) {
+
+  Q_ASSERT(count() > 0);
+
+  if (idx >= count() || idx < 0) idx = 0;
+
+  QWidget *currentPage = widget(idx);
+  QLayout *layout = currentPage->layout();
+  if (bottom_widget_) layout->addWidget(bottom_widget_);
+  QTabWidget::setCurrentIndex(idx);
+
+}
+
+void FancyTabWidget::CurrentTabChangedSlot(const int idx) {
+
+  QWidget *currentPage = currentWidget();
+  QLayout *layout = currentPage->layout();
+  if (bottom_widget_) layout->addWidget(bottom_widget_);
+
+  Q_EMIT CurrentTabChanged(idx);
+
+}
+
 int FancyTabWidget::IndexOfTab(QWidget *widget) {
+
   if (!tabs_.contains(widget)) return -1;
-  return QTabWidget::indexOf(tabs_[widget]->page());
+  QWidget *page = tabs_.value(widget)->page();
+  return QTabWidget::indexOf(page);
+
 }
 
 void FancyTabWidget::paintEvent(QPaintEvent *pe) {
 
-  if (mode() != FancyTabWidget::Mode_LargeSidebar && mode() != FancyTabWidget::Mode_SmallSidebar) {
+  if (mode() != Mode::LargeSidebar && mode() != Mode::SmallSidebar && mode() != Mode::IconsSidebar) {
     QTabWidget::paintEvent(pe);
     return;
   }
@@ -667,38 +374,8 @@ void FancyTabWidget::paintEvent(QPaintEvent *pe) {
 
 }
 
-void FancyTabWidget::tabBarUpdateGeometry() {
+void FancyTabWidget::TabBarUpdateGeometry() {
   tabBar()->updateGeometry();
-}
-
-void FancyTabWidget::SetMode(FancyTabWidget::Mode mode) {
-
-  mode_ = mode;
-
-  if (mode == FancyTabWidget::Mode_Tabs || mode == FancyTabWidget::Mode_IconOnlyTabs) {
-    setTabPosition(QTabWidget::North);
-  }
-  else {
-    setTabPosition(QTabWidget::West);
-  }
-
-#ifndef Q_OS_MACOS
-  if (mode_ == FancyTabWidget::Mode_LargeSidebar) {
-    setIconSize(QSize(iconsize_largesidebar_, iconsize_largesidebar_));
-  }
-  else {
-    setIconSize(QSize(iconsize_smallsidebar_, iconsize_smallsidebar_));
-  }
-#endif
-
-  tabBar()->updateGeometry();
-  updateGeometry();
-
-  // There appears to be a bug in QTabBar which causes tabSizeHint to be ignored thus the need for this second shot repaint
-  QTimer::singleShot(1ms, this, &FancyTabWidget::tabBarUpdateGeometry);
-
-  emit ModeChanged(mode);
-
 }
 
 void FancyTabWidget::addMenuItem(QActionGroup *group, const QString &text, Mode mode) {
@@ -721,14 +398,25 @@ void FancyTabWidget::contextMenuEvent(QContextMenuEvent *e) {
   if (!menu_) {
     menu_ = new QMenu(this);
     QActionGroup *group = new QActionGroup(this);
-    addMenuItem(group, tr("Large sidebar"), Mode_LargeSidebar);
-    addMenuItem(group, tr("Small sidebar"), Mode_SmallSidebar);
-    addMenuItem(group, tr("Plain sidebar"), Mode_PlainSidebar);
-    addMenuItem(group, tr("Tabs on top"), Mode_Tabs);
-    addMenuItem(group, tr("Icons on top"), Mode_IconOnlyTabs);
+    addMenuItem(group, tr("Large sidebar"), Mode::LargeSidebar);
+    addMenuItem(group, tr("Icons sidebar"), Mode::IconsSidebar);
+    addMenuItem(group, tr("Small sidebar"), Mode::SmallSidebar);
+    addMenuItem(group, tr("Plain sidebar"), Mode::PlainSidebar);
+    addMenuItem(group, tr("Tabs on top"), Mode::Tabs);
+    addMenuItem(group, tr("Icons on top"), Mode::IconOnlyTabs);
     menu_->addActions(group->actions());
   }
 
   menu_->popup(e->globalPos());
+
+}
+
+QColor FancyTabWidget::DefaultTabbarBgColor() {
+
+  QColor color = StyleHelper::highlightColor();
+  if (Utilities::IsColorDark(color)) {
+    color = color.lighter(130);
+  }
+  return color;
 
 }

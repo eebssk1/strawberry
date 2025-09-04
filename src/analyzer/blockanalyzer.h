@@ -26,7 +26,7 @@
 
 #include <QtGlobal>
 #include <QObject>
-#include <QVector>
+#include <QList>
 #include <QString>
 #include <QPixmap>
 #include <QPainter>
@@ -37,26 +37,19 @@
 class QWidget;
 class QResizeEvent;
 
-class BlockAnalyzer : public Analyzer::Base {
+class BlockAnalyzer : public AnalyzerBase {
   Q_OBJECT
 
  public:
   Q_INVOKABLE explicit BlockAnalyzer(QWidget*);
 
-  static const int kHeight;
-  static const int kWidth;
-  static const int kMinRows;
-  static const int kMinColumns;
-  static const int kMaxColumns;
-  static const int kFadeSize;
-
   static const char *kName;
 
  protected:
-  void transform(Analyzer::Scope&) override;
-  void analyze(QPainter &p, const Analyzer::Scope&, bool new_frame) override;
+  void transform(Scope&) override;
+  void analyze(QPainter &p, const Scope &s, const bool new_frame) override;
   void resizeEvent(QResizeEvent*) override;
-  virtual void paletteChange(const QPalette&);
+  virtual void paletteChange(const QPalette &_palette);
   void framerateChanged() override;
 
   void drawBackground();
@@ -71,13 +64,13 @@ class BlockAnalyzer : public Analyzer::Base {
   QPixmap topbarpixmap_;
   QPixmap background_;
   QPixmap canvas_;
-  Analyzer::Scope scope_;  // so we don't create a vector every frame
-  QVector<double> store_;  // current bar heights
-  QVector<double> yscale_;
+  Scope scope_;  // so we don't create a vector every frame
+  QList<double> store_;  // current bar heights
+  QList<double> yscale_;
 
-  QVector<QPixmap> fade_bars_;
-  QVector<int> fade_pos_;
-  QVector<int> fade_intensity_;
+  QList<QPixmap> fade_bars_;
+  QList<int> fade_pos_;
+  QList<int> fade_intensity_;
 
   double step_;  // rows to fall per frame
 };

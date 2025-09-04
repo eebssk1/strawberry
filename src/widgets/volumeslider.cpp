@@ -40,11 +40,7 @@
 #include <QAction>
 #include <QLinearGradient>
 #include <QStyleOptionViewItem>
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-#  include <QEnterEvent>
-#else
-#  include <QEvent>
-#endif
+#include <QEnterEvent>
 #include <QPaintEvent>
 #include <QContextMenuEvent>
 #include <QMouseEvent>
@@ -52,8 +48,11 @@
 
 #include "volumeslider.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 VolumeSlider::VolumeSlider(QWidget *parent, const uint max)
     : SliderSlider(Qt::Horizontal, parent, static_cast<int>(max)),
+      wheel_accumulator_(0),
       anim_enter_(false),
       anim_count_(0),
       timer_anim_(new QTimer(this)),
@@ -80,7 +79,26 @@ void VolumeSlider::SetEnabled(const bool enabled) {
   QSlider::setVisible(enabled);
 }
 
-void VolumeSlider::paintEvent(QPaintEvent*) {
+void VolumeSlider::HandleWheel(const int delta) {
+
+  const int scroll_state = wheel_accumulator_ + delta;
+  const int steps = scroll_state / WHEEL_ROTATION_PER_STEP;
+  wheel_accumulator_ = scroll_state % WHEEL_ROTATION_PER_STEP;
+
+  if (steps != 0) {
+    wheeling_ = true;
+
+    QSlider::setValue(SliderSlider::value() + steps);
+    Q_EMIT SliderReleased(value());
+
+    wheeling_ = false;
+  }
+
+}
+
+void VolumeSlider::paintEvent(QPaintEvent *e) {
+
+  Q_UNUSED(e)
 
   QPainter p(this);
 
@@ -100,7 +118,7 @@ void VolumeSlider::paintEvent(QPaintEvent*) {
 
   p.drawPixmap(0, 0, pixmap_gradient_, 0, 0, offset + padding, 0);
   p.drawPixmap(0, 0, pixmap_inset_);
-  p.drawPixmap(offset - handle_pixmaps_[0].width() / 2 + padding, 0, handle_pixmaps_[anim_count_]);
+  p.drawPixmap(offset - handle_pixmaps_.value(0).width() / 2 + padding, 0, handle_pixmaps_[anim_count_]);
 
   // Draw percentage number
   QStyleOptionViewItem opt;
@@ -109,13 +127,13 @@ void VolumeSlider::paintEvent(QPaintEvent*) {
   vol_font.setPixelSize(9);
   p.setFont(vol_font);
   const QRect rect(0, 0, 34, 15);
-  p.drawText(rect, Qt::AlignRight | Qt::AlignVCenter, QString::number(value()) + '%');
+  p.drawText(rect, Qt::AlignRight | Qt::AlignVCenter, QString::number(value()) + QLatin1Char('%'));
 
 }
 
 void VolumeSlider::generateGradient() {
 
-  const QImage mask(":/pictures/volumeslider-gradient.png");
+  const QImage mask(u":/pictures/volumeslider-gradient.png"_s);
 
   QImage gradient_image(mask.size(), QImage::Format_ARGB32_Premultiplied);
   QPainter p(&gradient_image);
@@ -148,7 +166,8 @@ void VolumeSlider::slotAnimTimer() {
 
 }
 
-void VolumeSlider::paletteChange(const QPalette&) {
+void VolumeSlider::paletteChange(const QPalette &palette) {
+  Q_UNUSED(palette)
   generateGradient();
 }
 
@@ -177,8 +196,8 @@ QPixmap VolumeSlider::drawVolumePixmap() const {
 
 void VolumeSlider::drawVolumeSliderHandle() {
 
-  QImage pixmapHandle(":/pictures/volumeslider-handle.png");
-  QImage pixmapHandleGlow(":/pictures/volumeslider-handle_glow.png");
+  QImage pixmapHandle(u":/pictures/volumeslider-handle.png"_s);
+  QImage pixmapHandleGlow(u":/pictures/volumeslider-handle_glow.png"_s);
 
   QImage pixmapHandleGlow_image(pixmapHandleGlow.size(), QImage::Format_ARGB32_Premultiplied);
   QPainter painter(&pixmapHandleGlow_image);
@@ -215,11 +234,9 @@ void VolumeSlider::drawVolumeSliderHandle() {
 
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-void VolumeSlider::enterEvent(QEnterEvent*) {
-#else
-void VolumeSlider::enterEvent(QEvent*) {
-#endif
+void VolumeSlider::enterEvent(QEnterEvent *e) {
+
+  Q_UNUSED(e)
 
   anim_enter_ = true;
   anim_count_ = 0;
@@ -228,7 +245,9 @@ void VolumeSlider::enterEvent(QEvent*) {
 
 }
 
-void VolumeSlider::leaveEvent(QEvent*) {
+void VolumeSlider::leaveEvent(QEvent *e) {
+
+  Q_UNUSED(e)
 
   // This can happen if you enter and leave the widget quickly
   if (anim_count_ == 0) anim_count_ = 1;
@@ -242,18 +261,18 @@ void VolumeSlider::contextMenuEvent(QContextMenuEvent *e) {
 
   QHash<QAction*, int> values;
   QMenu menu;
-  menu.setTitle("Volume");
-  values[menu.addAction("100%")] = 100;
-  values[menu.addAction("80%")] = 80;
-  values[menu.addAction("60%")] = 60;
-  values[menu.addAction("40%")] = 40;
-  values[menu.addAction("20%")] = 20;
-  values[menu.addAction("0%")] = 0;
+  menu.setTitle(u"Volume"_s);
+  values[menu.addAction(u"100%"_s)] = 100;
+  values[menu.addAction(u"80%"_s)] = 80;
+  values[menu.addAction(u"60%"_s)] = 60;
+  values[menu.addAction(u"40%"_s)] = 40;
+  values[menu.addAction(u"20%"_s)] = 20;
+  values[menu.addAction(u"0%"_s)] = 0;
 
   QAction *ret = menu.exec(mapToGlobal(e->pos()));
   if (ret) {
     QSlider::setValue(values[ret]);
-    emit SliderReleased(values[ret]);
+    Q_EMIT SliderReleased(values[ret]);
   }
 
 }
@@ -272,13 +291,5 @@ void VolumeSlider::mousePressEvent(QMouseEvent *e) {
 }
 
 void VolumeSlider::wheelEvent(QWheelEvent *e) {
-
-  wheeling_ = true;
-
-  const int step = e->angleDelta().y() / (e->angleDelta().x() == 0 ? 30 : -30);
-  QSlider::setValue(SliderSlider::value() + step);
-  emit SliderReleased(value());
-
-  wheeling_ = false;
-
+  HandleWheel(e->angleDelta().y());
 }

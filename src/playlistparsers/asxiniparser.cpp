@@ -26,26 +26,23 @@
 #include <QString>
 #include <QTextStream>
 
-#include "settings/playlistsettingspage.h"
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 #include "asxiniparser.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 class CollectionBackendInterface;
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-constexpr auto qt_endl = Qt::endl;
-#else
-constexpr auto qt_endl = endl;
-#endif
-
-AsxIniParser::AsxIniParser(CollectionBackendInterface *collection, QObject *parent)
-    : ParserBase(collection, parent) {}
+AsxIniParser::AsxIniParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}
 
 bool AsxIniParser::TryMagic(const QByteArray &data) const {
   return data.toLower().contains("[reference]");
 }
 
-SongList AsxIniParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_search) const {
+ParserBase::LoadResult AsxIniParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
@@ -53,12 +50,12 @@ SongList AsxIniParser::Load(QIODevice *device, const QString &playlist_path, con
 
   while (!device->atEnd()) {
     QString line = QString::fromUtf8(device->readLine()).trimmed();
-    qint64 equals = line.indexOf('=');
+    qint64 equals = line.indexOf(u'=');
     QString key = line.left(equals).toLower();
     QString value = line.mid(equals + 1);
 
-    if (key.startsWith("ref")) {
-      Song song = LoadSong(value, 0, dir, collection_search);
+    if (key.startsWith("ref"_L1)) {
+      Song song = LoadSong(value, 0, 0, dir, collection_lookup);
       if (song.is_valid()) {
         ret << song;
       }
@@ -69,14 +66,16 @@ SongList AsxIniParser::Load(QIODevice *device, const QString &playlist_path, con
 
 }
 
-void AsxIniParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type) const {
+void AsxIniParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
 
   QTextStream s(device);
-  s << "[Reference]" << qt_endl;
+  s << "[Reference]" << Qt::endl;
 
   int n = 1;
   for (const Song &song : songs) {
-    s << "Ref" << n << "=" << URLOrFilename(song.url(), dir, path_type) << qt_endl;
+    s << "Ref" << n << "=" << URLOrFilename(song.url(), dir, path_type) << Qt::endl;
     ++n;
   }
 

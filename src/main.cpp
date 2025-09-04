@@ -24,10 +24,9 @@
 
 #include <QtGlobal>
 
-#include <glib.h>
 #include <cstdlib>
-#include <memory>
 #include <ctime>
+#include <memory>
 
 #ifdef Q_OS_UNIX
 #  include <unistd.h>
@@ -43,11 +42,12 @@
 #  include <iostream>
 #endif  // Q_OS_WIN32
 
+#include <glib.h>
+
 #include <QObject>
 #include <QApplication>
 #include <QCoreApplication>
 #include <QSysInfo>
-#include <QStandardPaths>
 #include <QLibraryInfo>
 #include <QFileDevice>
 #include <QIODevice>
@@ -58,23 +58,26 @@
 #include <QString>
 #include <QSettings>
 #include <QLoggingCategory>
+#include <QStyle>
 #ifdef HAVE_TRANSLATIONS
 #  include <QTranslator>
 #endif
 
 #include "main.h"
 
-#include "core/logging.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 
-#include <singleapplication.h>
-#include <singlecoreapplication.h>
+#include "core/logging.h"
+#include "core/standardpaths.h"
+#include "core/settings.h"
+
+#include "utilities/envutils.h"
+
+#include <kdsingleapplication.h>
 
 #ifdef HAVE_QTSPARKLE
-#  if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
-#    include <qtsparkle-qt6/Updater>
-#  else
-#    include <qtsparkle-qt5/Updater>
-#  endif
+#  include <qtsparkle-qt6/Updater>
 #endif  // HAVE_QTSPARKLE
 
 #ifdef Q_OS_MACOS
@@ -82,25 +85,34 @@
 #  include "core/mac_startup.h"
 #endif
 
-#ifdef HAVE_DBUS
-#  include "core/mpris2.h"
+#ifdef HAVE_MPRIS2
+#  include "mpris2/mpris2.h"
 #endif
-#include "core/metatypes.h"
+
+#ifdef HAVE_DISCORD_RPC
+#  include "discord/richpresence.h"
+#endif
+
 #include "core/iconloader.h"
-#include "core/mainwindow.h"
 #include "core/commandlineoptions.h"
-#include "core/application.h"
 #include "core/networkproxyfactory.h"
+
+#include "core/application.h"
+#include "core/metatypes.h"
+#include "core/mainwindow.h"
+
 #ifdef Q_OS_MACOS
-#  include "core/macsystemtrayicon.h"
+#  include "systemtrayicon/macsystemtrayicon.h"
 #else
-#  include "core/qtsystemtrayicon.h"
+#  include "systemtrayicon/qtsystemtrayicon.h"
 #endif
+
 #ifdef HAVE_TRANSLATIONS
 #  include "core/translations.h"
 #endif
-#include "settings/behavioursettingspage.h"
-#include "settings/appearancesettingspage.h"
+
+#include "constants/behavioursettings.h"
+#include "constants/appearancesettings.h"
 
 #if defined(Q_OS_MACOS)
 #  include "osd/osdmac.h"
@@ -110,6 +122,11 @@
 #  include "osd/osdbase.h"
 #endif
 
+#include "engine/gststartup.h"
+
+using namespace Qt::Literals::StringLiterals;
+using std::make_shared;
+
 int main(int argc, char *argv[]) {
 
 #ifdef Q_OS_MACOS
@@ -118,20 +135,10 @@ int main(int argc, char *argv[]) {
   mac::MacMain();
 #endif
 
-#if defined(Q_OS_WIN32) || defined(Q_OS_MACOS)
-  QCoreApplication::setApplicationName("Strawberry");
-  QCoreApplication::setOrganizationName("Strawberry");
-#else
-  QCoreApplication::setApplicationName("strawberry");
-  QCoreApplication::setOrganizationName("strawberry");
-#endif
-  QCoreApplication::setApplicationVersion(STRAWBERRY_VERSION_DISPLAY);
-  QCoreApplication::setOrganizationDomain("strawberrymusicplayer.org");
-
-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
-  QCoreApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
-  QCoreApplication::setAttribute(Qt::AA_UseHighDpiPixmaps);
-#endif
+  QCoreApplication::setApplicationName(u"Strawberry"_s);
+  QCoreApplication::setOrganizationName(u"Strawberry"_s);
+  QCoreApplication::setApplicationVersion(QStringLiteral(STRAWBERRY_VERSION_DISPLAY));
+  QCoreApplication::setOrganizationDomain(u"strawberrymusicplayer.org"_s);
 
   // This makes us show up nicely in gnome-volume-control
   g_set_application_name("Strawberry");
@@ -148,15 +155,16 @@ int main(int argc, char *argv[]) {
   {
     // Only start a core application now, so we can check if there's another instance without requiring an X server.
     // This MUST be done before parsing the commandline options so QTextCodec gets the right system locale for filenames.
-    SingleCoreApplication core_app(argc, argv, true, SingleCoreApplication::Mode::User | SingleCoreApplication::Mode::ExcludeAppVersion | SingleCoreApplication::Mode::ExcludeAppPath);
+    QCoreApplication core_app(argc, argv);
+    KDSingleApplication single_app(QCoreApplication::applicationName().toLower(), KDSingleApplication::Option::IncludeUsernameInSocketName);
     // Parse commandline options - need to do this before starting the full QApplication, so it works without an X server
     if (!options.Parse()) return 1;
     logging::SetLevels(options.log_levels());
-    if (core_app.isSecondary()) {
+    if (!single_app.isPrimaryInstance()) {
       if (options.is_empty()) {
         qLog(Info) << "Strawberry is already running - activating existing window (1)";
       }
-      if (!core_app.sendMessage(options.Serialize(), 5000)) {
+      if (!single_app.sendMessage(options.Serialize())) {
         qLog(Error) << "Could not send message to primary instance.";
       }
       return 0;
@@ -165,80 +173,72 @@ int main(int argc, char *argv[]) {
 
 #ifdef Q_OS_MACOS
   // Must happen after QCoreApplication::setOrganizationName().
-  setenv("XDG_CONFIG_HOME", QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation).toLocal8Bit().constData(), 1);
+  Utilities::SetEnv("XDG_CONFIG_HOME", StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppConfigLocation));
 #endif
 
   // Output the version, so when people attach log output to bug reports they don't have to tell us which version they're using.
   qLog(Info) << "Strawberry" << STRAWBERRY_VERSION_DISPLAY << "Qt" << QLibraryInfo::version().toString();
-  qLog(Info) << QString("%1 %2 - (%3 %4) [%5]").arg(QSysInfo::prettyProductName(), QSysInfo::productVersion(), QSysInfo::kernelType(), QSysInfo::kernelVersion(), QSysInfo::currentCpuArchitecture());
+  qLog(Info) << QStringLiteral("%1 %2 - (%3 %4) [%5]").arg(QSysInfo::prettyProductName(), QSysInfo::productVersion(), QSysInfo::kernelType(), QSysInfo::kernelVersion(), QSysInfo::currentCpuArchitecture());
 
   // Seed the random number generators.
   time_t t = time(nullptr);
-  srand(t);
-#if QT_VERSION < QT_VERSION_CHECK(5, 10, 0)
-  qsrand(t);
-#endif
+  srand(static_cast<uint>(t));
 
 #ifdef Q_OS_MACOS
   Utilities::IncreaseFDLimit();
 #endif
 
+  QGuiApplication::setApplicationDisplayName(u"Strawberry Music Player"_s);
+  QGuiApplication::setDesktopFileName(u"org.strawberrymusicplayer.strawberry"_s);
   QGuiApplication::setQuitOnLastWindowClosed(false);
 
-  // important: Do not remove this.
-  // This must also be done as a SingleApplication, in case SingleCoreApplication was compiled with a different appdata.
-  SingleApplication a(argc, argv, true, SingleApplication::Mode::User | SingleApplication::Mode::ExcludeAppVersion | SingleApplication::Mode::ExcludeAppPath);
-  if (a.isSecondary()) {
+  QApplication a(argc, argv);
+  KDSingleApplication single_app(QCoreApplication::applicationName().toLower(), KDSingleApplication::Option::IncludeUsernameInSocketName);
+  if (!single_app.isPrimaryInstance()) {
     if (options.is_empty()) {
       qLog(Info) << "Strawberry is already running - activating existing window (2)";
     }
-    if (!a.sendMessage(options.Serialize(), 5000)) {
+    if (!single_app.sendMessage(options.Serialize())) {
       qLog(Error) << "Could not send message to primary instance.";
     }
     return 0;
   }
 
-  QGuiApplication::setWindowIcon(IconLoader::Load("strawberry"));
+  QThread::currentThread()->setObjectName(u"Main"_s);
+
+  if (QGuiApplication::platformName() != "wayland"_L1) {
+    QGuiApplication::setWindowIcon(IconLoader::Load(u"strawberry"_s));
+  }
 
 #if defined(USE_BUNDLE)
-  {
-    QStringList library_paths;
-#ifdef Q_OS_MACOS
-    library_paths.append(QCoreApplication::applicationDirPath() + "/../Frameworks");
+  qLog(Debug) << "Looking for resources in" << QCoreApplication::libraryPaths();
 #endif
-#if defined(Q_OS_LINUX) || defined(Q_OS_MACOS)
-    library_paths.append(QCoreApplication::applicationDirPath() + "/" + USE_BUNDLE_DIR);
-#endif
-    if (!library_paths.isEmpty()) {
-      qLog(Debug) << "Looking for resources in" << library_paths;
-      QCoreApplication::setLibraryPaths(library_paths);
-    }
-  }
-#endif
+
+  GstStartup::Initialize();
 
   // Gnome on Ubuntu has menu icons disabled by default.  I think that's a bad idea, and makes some menus in Strawberry look confusing.
   QCoreApplication::setAttribute(Qt::AA_DontShowIconsInMenus, false);
 
   {
-    QSettings s;
-    s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-    QString style = s.value(AppearanceSettingsPage::kStyle).toString();
+    Settings s;
+    s.beginGroup(AppearanceSettings::kSettingsGroup);
+    QString style = s.value(AppearanceSettings::kStyle).toString();
     if (style.isEmpty()) {
-      style="default";
-      s.setValue(AppearanceSettingsPage::kStyle, style);
+      style = "default"_L1;
+      s.setValue(AppearanceSettings::kStyle, style);
     }
     s.endGroup();
-    if (style != "default") {
+    if (style != "default"_L1) {
       QApplication::setStyle(style);
     }
     if (QApplication::style()) qLog(Debug) << "Style:" << QApplication::style()->objectName();
   }
 
-  // Set the permissions on the config file on Unix - it can contain passwords for internet services, so it's important that other users can't read it.
+  // Set the permissions on the config file on Unix - it can contain passwords for streaming services, so it's important that other users can't read it.
   // On Windows these are stored in the registry instead.
 #ifdef Q_OS_UNIX
   {
-    QSettings s;
+    Settings s;
     if (QFile::exists(s.fileName())) {
       if (!QFile::setPermissions(s.fileName(), QFile::ReadOwner | QFile::WriteOwner)) {
         qLog(Error) << "Could not set permissions for settingsfile" << s.fileName();
@@ -260,34 +260,43 @@ int main(int argc, char *argv[]) {
   IconLoader::Init();
 
 #ifdef HAVE_TRANSLATIONS
-  QString override_language = options.language();
-  if (override_language.isEmpty()) {
-    QSettings s;
-    s.beginGroup(BehaviourSettingsPage::kSettingsGroup);
-    override_language = s.value("language").toString();
+  QString language = options.language();
+  if (language.isEmpty()) {
+    Settings s;
+    s.beginGroup(BehaviourSettings::kSettingsGroup);
+    language = s.value(BehaviourSettings::kLanguage).toString();
     s.endGroup();
   }
 
-  QString system_language = QLocale::system().uiLanguages().empty() ? QLocale::system().name() : QLocale::system().uiLanguages().first();
-  // uiLanguages returns strings with "-" as separators for language/region; however QTranslator needs "_" separators
-  system_language.replace("-", "_");
+  if (language.isEmpty()) {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    const QStringList system_languages = QLocale::system().uiLanguages(QLocale::TagSeparator::Underscore);
+#else
+    const QStringList system_languages = QLocale::system().uiLanguages();
+#endif
+    if (system_languages.isEmpty()) {
+      language = QLocale::system().name();
+    }
+    else {
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+      language = system_languages.first();
+#else
+      language = system_languages.first();
+      language = language.replace(u'-', u'_');
+#endif
+    }
+  }
 
-  const QString language = override_language.isEmpty() ? system_language : override_language;
+  ScopedPtr<Translations> translations(new Translations);
 
-  std::unique_ptr<Translations> translations(new Translations);
-
-#  if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-  translations->LoadTranslation("qt", QLibraryInfo::path(QLibraryInfo::TranslationsPath), language);
-#  else
-  translations->LoadTranslation("qt", QLibraryInfo::location(QLibraryInfo::TranslationsPath), language);
-#  endif
-  translations->LoadTranslation("strawberry", ":/translations", language);
-  translations->LoadTranslation("strawberry", TRANSLATIONS_DIR, language);
-  translations->LoadTranslation("strawberry", QCoreApplication::applicationDirPath(), language);
-  translations->LoadTranslation("strawberry", QDir::currentPath(), language);
+  translations->LoadTranslation(u"qt"_s, QLibraryInfo::path(QLibraryInfo::TranslationsPath), language);
+  translations->LoadTranslation(u"strawberry"_s, u":/i18n"_s, language);
+  translations->LoadTranslation(u"strawberry"_s, QStringLiteral(TRANSLATIONS_DIR), language);
+  translations->LoadTranslation(u"strawberry"_s, QCoreApplication::applicationDirPath(), language);
+  translations->LoadTranslation(u"strawberry"_s, QDir::currentPath(), language);
 
 #  ifdef HAVE_QTSPARKLE
-  //qtsparkle::LoadTranslations(language);
+  qtsparkle::LoadTranslations(language);
 #  endif
 
 #endif
@@ -298,7 +307,7 @@ int main(int argc, char *argv[]) {
   QNetworkProxyFactory::setApplicationProxyFactory(NetworkProxyFactory::Instance());
 
   // Create the tray icon and OSD
-  std::shared_ptr<SystemTrayIcon> tray_icon = std::make_shared<SystemTrayIcon>();
+  SharedPtr<SystemTrayIcon> tray_icon = make_shared<SystemTrayIcon>();
 
 #if defined(Q_OS_MACOS)
   OSDMac osd(tray_icon, &app);
@@ -308,23 +317,38 @@ int main(int argc, char *argv[]) {
   OSDBase osd(tray_icon, &app);
 #endif
 
-#ifdef HAVE_DBUS
-  mpris::Mpris2 mpris2(&app);
+#ifdef HAVE_MPRIS2
+  mpris::Mpris2 mpris2(app.player(), app.playlist_manager(), app.current_albumcover_loader());
+#endif
+#ifdef HAVE_DISCORD_RPC
+  discord::RichPresence discord_rich_presence(app.player(), app.playlist_manager());
 #endif
 
   // Window
-  MainWindow w(&app, tray_icon, &osd, options);
+  MainWindow w(&app,
+               tray_icon,
+               &osd,
+#ifdef HAVE_DISCORD_RPC
+               &discord_rich_presence,
+#endif
+               options);
 
 #ifdef Q_OS_MACOS
   mac::EnableFullScreen(w);
 #endif  // Q_OS_MACOS
 
-#ifdef HAVE_DBUS
+#ifdef HAVE_MPRIS2
   QObject::connect(&mpris2, &mpris::Mpris2::RaiseMainWindow, &w, &MainWindow::Raise);
 #endif
-  QObject::connect(&a, &SingleApplication::receivedMessage, &w, QOverload<quint32, const QByteArray&>::of(&MainWindow::CommandlineOptionsReceived));
+  QObject::connect(&single_app, &KDSingleApplication::messageReceived, &w, QOverload<const QByteArray&>::of(&MainWindow::CommandlineOptionsReceived));
 
   int ret = QCoreApplication::exec();
 
+#ifdef __MINGW32__
+  // Workaround crash on exit with win32 threads
+  TerminateProcess(GetCurrentProcess(), 0);
+#endif
+
   return ret;
+
 }

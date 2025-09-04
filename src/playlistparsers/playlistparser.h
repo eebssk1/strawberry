@@ -30,10 +30,12 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 
 class QIODevice;
+class TagReaderClient;
 class CollectionBackendInterface;
 class ParserBase;
 
@@ -41,11 +43,11 @@ class PlaylistParser : public QObject {
   Q_OBJECT
 
  public:
-  explicit PlaylistParser(CollectionBackendInterface *collection = nullptr, QObject *parent = nullptr);
+  explicit PlaylistParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend = nullptr, QObject *parent = nullptr);
 
-  enum Type {
-    Type_Load,
-    Type_Save,
+  enum class Type {
+    Load,
+    Save
   };
 
   static const int kMagicSize;
@@ -64,9 +66,13 @@ class PlaylistParser : public QObject {
 
   SongList LoadFromFile(const QString &filename) const;
   SongList LoadFromDevice(QIODevice *device, const QString &path_hint = QString(), const QDir &dir_hint = QDir()) const;
-  void Save(const SongList &songs, const QString &filename, const PlaylistSettingsPage::PathType) const;
+  void Save(const QString &playlist_name, const SongList &songs, const QString &filename, const PlaylistSettings::PathType) const;
+
+ Q_SIGNALS:
+  void Error(const QString &error) const;
 
  private:
+  void AddParser(ParserBase *parser);
   bool ParserIsSupported(const Type type, ParserBase *parser) const;
   static QString FilterForParser(const ParserBase *parser, QStringList *all_extensions = nullptr);
 

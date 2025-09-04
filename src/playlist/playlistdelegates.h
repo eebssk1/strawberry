@@ -58,7 +58,7 @@ class QueuedItemDelegate : public QStyledItemDelegate {
   Q_OBJECT
 
  public:
-  explicit QueuedItemDelegate(QObject *parent, int indicator_column = Playlist::Column_Title);
+  explicit QueuedItemDelegate(QObject *parent, const int indicator_column = static_cast<int>(Playlist::Column::Title));
 
   void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &idx) const override;
   static void DrawBox(QPainter *painter, const QRect line_rect, const QFont &font, const QString &text, int width = -1, const float opacity = 1.0);
@@ -66,14 +66,6 @@ class QueuedItemDelegate : public QStyledItemDelegate {
   int queue_indicator_size(const QModelIndex &idx) const;
 
  private:
-  static const int kQueueBoxBorder;
-  static const int kQueueBoxCornerRadius;
-  static const int kQueueBoxLength;
-  static const QRgb kQueueBoxGradientColor1;
-  static const QRgb kQueueBoxGradientColor2;
-  static const int kQueueOpacitySteps;
-  static const float kQueueOpacityLowerBound;
-
   int indicator_column_;
 };
 
@@ -91,7 +83,7 @@ class PlaylistDelegateBase : public QueuedItemDelegate {
 
   static const int kMinHeight;
 
- public slots:
+ public Q_SLOTS:
   bool helpEvent(QHelpEvent *event, QAbstractItemView *view, const QStyleOptionViewItem &option, const QModelIndex &idx) override;
 
  protected:
@@ -151,20 +143,20 @@ class TagCompletionModel : public QStringListModel {
   Q_OBJECT
 
  public:
-  explicit TagCompletionModel(CollectionBackend *backend, const Playlist::Column column, QObject *parent = nullptr);
+  explicit TagCompletionModel(SharedPtr<CollectionBackend> backend, const Playlist::Column column, QObject *parent = nullptr);
 
  private:
-  static QString database_column(Playlist::Column column);
+  static QString database_column(const Playlist::Column column);
 };
 
 class TagCompleter : public QCompleter {
   Q_OBJECT
 
  public:
-  explicit TagCompleter(CollectionBackend *backend, Playlist::Column column, QLineEdit *editor);
+  explicit TagCompleter(SharedPtr<CollectionBackend> backend, const Playlist::Column column, QLineEdit *editor);
   ~TagCompleter() override;
 
- private slots:
+ private Q_SLOTS:
   void ModelReady();
 
  private:
@@ -175,12 +167,12 @@ class TagCompletionItemDelegate : public PlaylistDelegateBase {
   Q_OBJECT
 
  public:
-  explicit TagCompletionItemDelegate(QObject *parent, CollectionBackend *backend, Playlist::Column column) : PlaylistDelegateBase(parent), backend_(backend), column_(column) {};
+  explicit TagCompletionItemDelegate(QObject *parent, SharedPtr<CollectionBackend> backend, Playlist::Column column) : PlaylistDelegateBase(parent), backend_(backend), column_(column) {};
 
   QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option, const QModelIndex &idx) const override;
 
  private:
-  CollectionBackend *backend_;
+  SharedPtr<CollectionBackend> backend_;
   Playlist::Column column_;
 };
 
@@ -201,7 +193,7 @@ class SongSourceDelegate : public PlaylistDelegateBase {
   void paint(QPainter *painter, const QStyleOptionViewItem &option, const QModelIndex &idx) const override;
 
  private:
-  QPixmap LookupPixmap(const Song::Source source, const QSize size) const;
+  QPixmap LookupPixmap(const Song::Source source, const QSize size, const qreal device_pixel_ratio) const;
 };
 
 class RatingItemDelegate : public PlaylistDelegateBase {
@@ -229,6 +221,22 @@ class RatingItemDelegate : public PlaylistDelegateBase {
   QModelIndex mouse_over_index_;
   QPoint mouse_over_pos_;
   QModelIndexList selected_indexes_;
+};
+
+class Ebur128LoudnessLUFSItemDelegate : public PlaylistDelegateBase {
+  Q_OBJECT
+
+ public:
+  explicit Ebur128LoudnessLUFSItemDelegate(QObject *parent) : PlaylistDelegateBase(parent) {}
+  QString displayText(const QVariant &value, const QLocale &locale) const override;
+};
+
+class Ebur128LoudnessRangeLUItemDelegate : public PlaylistDelegateBase {
+  Q_OBJECT
+
+ public:
+  explicit Ebur128LoudnessRangeLUItemDelegate(QObject *parent) : PlaylistDelegateBase(parent) {}
+  QString displayText(const QVariant &value, const QLocale &locale) const override;
 };
 
 #endif  // PLAYLISTDELEGATES_H

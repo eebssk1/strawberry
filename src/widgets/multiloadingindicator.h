@@ -2,6 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,6 +27,8 @@
 #include <QSize>
 #include <QString>
 
+#include "includes/shared_ptr.h"
+
 class QPaintEvent;
 
 class BusyIndicator;
@@ -37,27 +40,24 @@ class MultiLoadingIndicator : public QWidget {
  public:
   explicit MultiLoadingIndicator(QWidget *parent = nullptr);
 
-  static const int kVerticalPadding;
-  static const int kHorizontalPadding;
-  static const int kSpacing;
-
-  void SetTaskManager(TaskManager *task_manager);
+  void SetTaskManager(SharedPtr<TaskManager> task_manager);
 
   QSize sizeHint() const override;
 
- signals:
-  void TaskCountChange(int tasks);
+ Q_SIGNALS:
+  void TaskCountChange(const int tasks);
 
  protected:
-  void paintEvent(QPaintEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void UpdateText();
 
  private:
-  TaskManager *task_manager_;
+  SharedPtr<TaskManager> task_manager_;
 
   BusyIndicator *spinner_;
+  qint64 task_count_;
   QString text_;
 };
 

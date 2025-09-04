@@ -46,9 +46,9 @@ class QDragEnterEvent;
 class QDropEvent;
 
 class ResizableTextEdit;
-class Application;
 class CollectionView;
 class AlbumCoverChoiceController;
+class LyricsProviders;
 class LyricsFetcher;
 
 class ContextView : public QWidget {
@@ -57,7 +57,7 @@ class ContextView : public QWidget {
  public:
   explicit ContextView(QWidget *parent = nullptr);
 
-  void Init(Application *app, CollectionView *collectionview, AlbumCoverChoiceController *album_cover_choice_controller);
+  void Init(CollectionView *collectionview, AlbumCoverChoiceController *album_cover_choice_controller, SharedPtr<LyricsProviders> lyrics_providers);
 
   ContextAlbum *album_widget() const { return widget_album_; }
   bool album_enabled() const { return action_show_album_->isChecked(); }
@@ -80,20 +80,19 @@ class ContextView : public QWidget {
   void SearchLyrics();
   void UpdateFonts();
 
- signals:
+ Q_SIGNALS:
   void AlbumEnabledChanged();
 
- private slots:
+ private Q_SLOTS:
   void ActionShowAlbum();
   void ActionShowData();
-  void ActionShowOutput();
   void ActionShowLyrics();
   void ActionSearchLyrics();
   void UpdateNoSong();
   void FadeStopFinished();
   void UpdateLyrics(const quint64 id, const QString &provider, const QString &lyrics);
 
- public slots:
+ public Q_SLOTS:
   void ReloadSettings();
   void Playing();
   void Stopped();
@@ -102,9 +101,6 @@ class ContextView : public QWidget {
   void AlbumCoverLoaded(const Song &song, const QImage &image);
 
  private:
-  static const int kWidgetSpacing;
-
-  Application *app_;
   CollectionView *collectionview_;
   AlbumCoverChoiceController *album_cover_choice_controller_;
   LyricsFetcher *lyrics_fetcher_;
@@ -112,7 +108,6 @@ class ContextView : public QWidget {
   QMenu *menu_options_;
   QAction *action_show_album_;
   QAction *action_show_data_;
-  QAction *action_show_output_;
   QAction *action_show_lyrics_;
   QAction *action_search_lyrics_;
 
@@ -129,12 +124,9 @@ class ContextView : public QWidget {
   QVBoxLayout *layout_play_;
   QLabel *label_stop_summary_;
   QWidget *widget_play_data_;
-  QWidget *widget_play_output_;
   QGridLayout *layout_play_data_;
-  QGridLayout *layout_play_output_;
   ResizableTextEdit *textedit_play_lyrics_;
 
-  QSpacerItem *spacer_play_output_;
   QSpacerItem *spacer_play_data_;
 
   QLabel *label_filetype_title_;
@@ -143,20 +135,17 @@ class ContextView : public QWidget {
   QLabel *label_bitdepth_title_;
   QLabel *label_bitrate_title_;
 
+  QLabel *label_ebur128_integrated_loudness_title_;
+  QLabel *label_ebur128_loudness_range_title_;
+
   QLabel *label_filetype_;
   QLabel *label_length_;
   QLabel *label_samplerate_;
   QLabel *label_bitdepth_;
   QLabel *label_bitrate_;
 
-  QLabel *label_device_title_;
-  QLabel *label_engine_title_;
-  QLabel *label_device_space_;
-  QLabel *label_engine_space_;
-  QLabel *label_device_;
-  QLabel *label_engine_;
-  QLabel *label_device_icon_;
-  QLabel *label_engine_icon_;
+  QLabel *label_ebur128_integrated_loudness_;
+  QLabel *label_ebur128_loudness_range_;
 
   Song song_playing_;
   Song song_prev_;
@@ -166,16 +155,14 @@ class ContextView : public QWidget {
   QString lyrics_;
   QString title_fmt_;
   QString summary_fmt_;
-  QString font_headline_;
-  QString font_normal_;
-  qreal font_size_headline_;
-  qreal font_size_normal_;
+  QFont font_headline_;
+  QFont font_normal_;
+  QFont font_nosong_;
 
   QList<QLabel*> labels_play_;
   QList<ResizableTextEdit*> textedit_play_;
   QList<QLabel*> labels_play_data_;
   QList<QLabel*> labels_play_all_;
-
 };
 
 #endif  // CONTEXTVIEW_H

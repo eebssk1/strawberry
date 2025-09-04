@@ -24,7 +24,6 @@
 
 #include "config.h"
 
-#include <QObject>
 #include <QWidget>
 
 class CollectionFilterWidget;
@@ -48,4 +47,3 @@ class CollectionViewContainer : public QWidget {
 };
 
 #endif  // COLLECTIONVIEWCONTAINER_H
-

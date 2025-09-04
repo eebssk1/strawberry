@@ -30,32 +30,34 @@
 #include <QStringList>
 #include <QDir>
 
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
 #include "parserbase.h"
 
 class QIODevice;
+class TagReaderClient;
 class CollectionBackendInterface;
 
 class M3UParser : public ParserBase {
   Q_OBJECT
 
  public:
-  explicit M3UParser(CollectionBackendInterface *collection, QObject *parent = nullptr);
+  explicit M3UParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
 
-  QString name() const override { return "M3U"; }
-  QStringList file_extensions() const override { return QStringList() << "m3u" << "m3u8"; }
-  QString mime_type() const override { return "text/uri-list"; }
+  QString name() const override { return QStringLiteral("M3U"); }
+  QStringList file_extensions() const override { return QStringList() << QStringLiteral("m3u") << QStringLiteral("m3u8"); }
+  QString mime_type() const override { return QStringLiteral("text/uri-list"); }
   bool load_supported() const override { return true; }
   bool save_supported() const override { return true; }
 
   bool TryMagic(const QByteArray &data) const override;
 
-  SongList Load(QIODevice *device, const QString &playlist_path = "", const QDir &dir = QDir(), const bool collection_search = true) const override;
-  void Save(const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettingsPage::PathType path_type = PlaylistSettingsPage::PathType_Automatic) const override;
+  LoadResult Load(QIODevice *device, const QString &playlist_path = QLatin1String(""), const QDir &dir = QDir(), const bool collection_lookup = true) const override;
+  void Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir = QDir(), const PlaylistSettings::PathType path_type = PlaylistSettings::PathType::Automatic) const override;
 
  private:
-  enum M3UType {
+  enum class M3UType {
     STANDARD = 0,
     EXTENDED,  // Includes extended info (track, artist, etc.)
     LINK,      // Points to a directory.

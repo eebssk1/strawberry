@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  * Copyright 2020, Pascal Below <spezifisch@below.fr>
  *
  * Strawberry is free software: you can redistribute it and/or modify
@@ -20,31 +20,36 @@
 
 #include "config.h"
 
+#include <memory>
+
 #include <QVariant>
 #include <QString>
 #include <QDateTime>
 #include <QTimer>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "core/logging.h"
-#include "utilities/timeconstants.h"
-#include "internet/internetservices.h"
-#include "settings/subsonicsettingspage.h"
+#include "core/settings.h"
+#include "constants/timeconstants.h"
+#include "constants/subsonicsettings.h"
 #include "subsonic/subsonicservice.h"
 
-#include "audioscrobbler.h"
+#include "scrobblersettingsservice.h"
 #include "scrobblerservice.h"
 #include "subsonicscrobbler.h"
 
-const char *SubsonicScrobbler::kName = "Subsonic";
+namespace {
+constexpr char kName[] = "Subsonic";
+}
 
-SubsonicScrobbler::SubsonicScrobbler(Application *app, QObject *parent)
-    : ScrobblerService(kName, app, parent),
-      app_(app),
-      service_(app->internet_services()->Service<SubsonicService>()),
+SubsonicScrobbler::SubsonicScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, const SharedPtr<SubsonicService> service, QObject *parent)
+    : ScrobblerService(QLatin1String(kName), network, settings, parent),
+      service_(service),
       enabled_(false),
       submitted_(false) {
+
+  SubsonicScrobbler::ReloadSettings();
 
   timer_submit_.setSingleShot(true);
   QObject::connect(&timer_submit_, &QTimer::timeout, this, &SubsonicScrobbler::Submit);
@@ -53,23 +58,29 @@ SubsonicScrobbler::SubsonicScrobbler(Application *app, QObject *parent)
 
 void SubsonicScrobbler::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(SubsonicSettingsPage::kSettingsGroup);
+  Settings s;
+  s.beginGroup(SubsonicSettings::kSettingsGroup);
   enabled_ = s.value("serversidescrobbling", false).toBool();
   s.endGroup();
 
 }
 
+SubsonicServicePtr SubsonicScrobbler::service() const {
+
+  return service_;
+
+}
+
 void SubsonicScrobbler::UpdateNowPlaying(const Song &song) {
 
-  if (song.source() != Song::Source::Source_Subsonic) return;
+  if (song.source() != Song::Source::Subsonic) return;
 
   song_playing_ = song;
   time_ = QDateTime::currentDateTime();
 
-  if (!song.is_metadata_good() || app_->scrobbler()->IsOffline()) return;
+  if (!song.is_metadata_good() || settings_->offline() || !service()) return;
 
-  service_->Scrobble(song.song_id(), false, time_);
+  service()->Scrobble(song.song_id(), false, time_);
 
 }
 
@@ -82,17 +93,17 @@ void SubsonicScrobbler::ClearPlaying() {
 
 void SubsonicScrobbler::Scrobble(const Song &song) {
 
-  if (song.source() != Song::Source::Source_Subsonic || song.id() != song_playing_.id() || song.url() != song_playing_.url() || !song.is_metadata_good()) return;
+  if (song.source() != Song::Source::Subsonic || song.id() != song_playing_.id() || song.url() != song_playing_.url() || !song.is_metadata_good()) return;
 
-  if (app_->scrobbler()->IsOffline()) return;
+  if (settings_->offline()) return;
 
   if (!submitted_) {
     submitted_ = true;
-    if (app_->scrobbler()->SubmitDelay() <= 0) {
+    if (settings_->submit_delay() <= 0) {
       Submit();
     }
     else if (!timer_submit_.isActive()) {
-      timer_submit_.setInterval(static_cast<int>(app_->scrobbler()->SubmitDelay() * kMsecPerSec));
+      timer_submit_.setInterval(static_cast<int>(settings_->submit_delay() * kMsecPerSec));
       timer_submit_.start();
     }
   }
@@ -104,15 +115,8 @@ void SubsonicScrobbler::Submit() {
   qLog(Debug) << "SubsonicScrobbler: Submitting scrobble for" << song_playing_.artist() << song_playing_.title();
   submitted_ = false;
 
-  if (app_->scrobbler()->IsOffline()) return;
+  if (settings_->offline() || !service()) return;
 
-  service_->Scrobble(song_playing_.song_id(), true, time_);
-
-}
-
-void SubsonicScrobbler::Error(const QString &error, const QVariant &debug) {
-
-  qLog(Error) << "SubsonicScrobbler:" << error;
-  if (debug.isValid()) qLog(Debug) << debug;
+  service()->Scrobble(song_playing_.song_id(), true, time_);
 
 }

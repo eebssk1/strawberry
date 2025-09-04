@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,8 +22,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QList>
 #include <QSet>
@@ -36,8 +34,10 @@
 #include <QSslError>
 #include <QJsonObject>
 
+#include "includes/scoped_ptr.h"
+#include "constants/subsonicsettings.h"
+#include "core/jsonbaserequest.h"
 #include "subsonicservice.h"
-#include "settings/subsonicsettingspage.h"
 
 class QNetworkAccessManager;
 class QNetworkReply;
@@ -48,36 +48,37 @@ class SubsonicBaseRequest : public QObject {
  public:
   explicit SubsonicBaseRequest(SubsonicService *service, QObject *parent = nullptr);
 
+  using JsonObjectResult = JsonBaseRequest::JsonObjectResult;
+  using ErrorCode = JsonBaseRequest::ErrorCode;
+
  protected:
   using Param = QPair<QString, QString>;
   using ParamList = QList<Param>;
 
  public:
-  static QUrl CreateUrl(const QUrl &server_url, const SubsonicSettingsPage::AuthMethod auth_method, const QString &username, const QString &password, const QString &ressource_name, const ParamList &params_provided);
+  static QUrl CreateUrl(const QUrl &server_url, const SubsonicSettings::AuthMethod auth_method, const QString &username, const QString &password, const QString &ressource_name, const ParamList &params_provided);
 
  protected:
   QNetworkReply *CreateGetRequest(const QString &ressource_name, const ParamList &params_provided) const;
-  QByteArray GetReplyData(QNetworkReply *reply);
-  QJsonObject ExtractJsonObj(QByteArray &data);
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
 
   virtual void Error(const QString &error, const QVariant &debug = QVariant()) = 0;
-  static QString ErrorsToHTML(const QStringList &errors);
 
   QUrl server_url() const { return service_->server_url(); }
   QString username() const { return service_->username(); }
   QString password() const { return service_->password(); }
-  SubsonicSettingsPage::AuthMethod auth_method() const { return service_->auth_method(); }
+  SubsonicSettings::AuthMethod auth_method() const { return service_->auth_method(); }
   bool http2() const { return service_->http2(); }
   bool verify_certificate() const { return service_->verify_certificate(); }
   bool download_album_covers() const { return service_->download_album_covers(); }
+  bool use_album_id_for_album_covers() const { return service_->use_album_id_for_album_covers(); }
 
- private slots:
+ private Q_SLOTS:
   void HandleSSLErrors(const QList<QSslError> &ssl_errors);
 
  private:
   SubsonicService *service_;
-  std::unique_ptr<QNetworkAccessManager> network_;
-
+  ScopedPtr<QNetworkAccessManager> network_;
 };
 
 #endif  // SUBSONICBASEREQUEST_H

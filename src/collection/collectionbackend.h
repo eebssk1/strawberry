@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,6 +25,7 @@
 #include "config.h"
 
 #include <optional>
+#include <memory>
 
 #include <QtGlobal>
 #include <QObject>
@@ -34,10 +35,9 @@
 #include <QStringList>
 #include <QUrl>
 #include <QSqlDatabase>
-#include <QSqlQuery>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "core/sqlquery.h"
 #include "collectionfilteroptions.h"
 #include "collectionquery.h"
 #include "collectiondirectory.h"
@@ -45,7 +45,6 @@
 class QThread;
 class TaskManager;
 class Database;
-class SmartPlaylistSearch;
 
 class CollectionBackendInterface : public QObject {
   Q_OBJECT
@@ -54,12 +53,14 @@ class CollectionBackendInterface : public QObject {
   explicit CollectionBackendInterface(QObject *parent = nullptr) : QObject(parent) {}
 
   struct Album {
-    Album() : filetype(Song::FileType_Unknown) {}
-    Album(const QString &_album_artist, const QString &_album, const QUrl &_art_automatic, const QUrl &_art_manual, const QList<QUrl> &_urls, const Song::FileType _filetype, const QString &_cue_path)
+    Album() : art_embedded(false), art_unset(false), filetype(Song::FileType::Unknown) {}
+    Album(const QString &_album_artist, const QString &_album, const bool _art_embedded, const QUrl &_art_automatic, const QUrl &_art_manual, const bool _art_unset, const QList<QUrl> &_urls, const Song::FileType _filetype, const QString &_cue_path)
         : album_artist(_album_artist),
           album(_album),
+          art_embedded(_art_embedded),
           art_automatic(_art_automatic),
           art_manual(_art_manual),
+          art_unset(_art_unset),
           urls(_urls),
           filetype(_filetype),
           cue_path(_cue_path) {}
@@ -67,8 +68,10 @@ class CollectionBackendInterface : public QObject {
     QString album_artist;
     QString album;
 
+    bool art_embedded;
     QUrl art_automatic;
     QUrl art_manual;
+    bool art_unset;
     QList<QUrl> urls;
     Song::FileType filetype;
     QString cue_path;
@@ -76,11 +79,12 @@ class CollectionBackendInterface : public QObject {
   using AlbumList = QList<Album>;
 
   virtual QString songs_table() const = 0;
-  virtual QString fts_table() const = 0;
 
   virtual Song::Source source() const = 0;
 
-  virtual Database *db() const = 0;
+  virtual SharedPtr<Database> db() const = 0;
+
+  virtual void GetAllSongsAsync(const int id = 0) = 0;
 
   // Get a list of directories in the collection.  Emits DirectoriesDiscovered.
   virtual void LoadDirectoriesAsync() = 0;
@@ -91,6 +95,7 @@ class CollectionBackendInterface : public QObject {
 
   virtual SongList FindSongsInDirectory(const int id) = 0;
   virtual SongList SongsWithMissingFingerprint(const int id) = 0;
+  virtual SongList SongsWithMissingLoudnessCharacteristics(const int id) = 0;
   virtual CollectionSubdirectoryList SubdirsInDirectory(const int id) = 0;
   virtual CollectionDirectoryList GetAllDirectories() = 0;
   virtual void ChangeDirPath(const int id, const QString &old_path, const QString &new_path) = 0;
@@ -109,8 +114,10 @@ class CollectionBackendInterface : public QObject {
   virtual AlbumList GetAlbumsByArtist(const QString &artist, const CollectionFilterOptions &opt = CollectionFilterOptions()) = 0;
   virtual AlbumList GetCompilationAlbums(const CollectionFilterOptions &opt = CollectionFilterOptions()) = 0;
 
-  virtual void UpdateManualAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_automatic = false) = 0;
-  virtual void UpdateAutomaticAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_manual = false) = 0;
+  virtual void UpdateEmbeddedAlbumArtAsync(const QString &effective_albumartist, const QString &album, const bool art_embedded) = 0;
+  virtual void UpdateManualAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &art_manual) = 0;
+  virtual void UnsetAlbumArtAsync(const QString &effective_albumartist, const QString &album) = 0;
+  virtual void ClearAlbumArtAsync(const QString &effective_albumartist, const QString &album, const bool art_unset) = 0;
 
   virtual Album GetAlbumArt(const QString &effective_albumartist, const QString &album) = 0;
 
@@ -123,9 +130,10 @@ class CollectionBackendInterface : public QObject {
   // Returns a section of a song with the given filename and beginning. If the section is not present in collection, returns invalid song.
   // Using default beginning value is suitable when searching for single-section songs.
   virtual Song GetSongByUrl(const QUrl &url, const qint64 beginning = 0) = 0;
+  virtual Song GetSongByUrlAndTrack(const QUrl &url, const int track) = 0;
 
-  virtual void AddDirectory(const QString &path) = 0;
-  virtual void RemoveDirectory(const CollectionDirectory &dir) = 0;
+  virtual void AddDirectoryAsync(const QString &path) = 0;
+  virtual void RemoveDirectoryAsync(const CollectionDirectory &dir) = 0;
 };
 
 class CollectionBackend : public CollectionBackendInterface {
@@ -135,7 +143,10 @@ class CollectionBackend : public CollectionBackendInterface {
 
   Q_INVOKABLE explicit CollectionBackend(QObject *parent = nullptr);
 
-  void Init(Database *db, TaskManager *task_manager, const Song::Source source, const QString &songs_table, const QString &fts_table, const QString &dirs_table = QString(), const QString &subdirs_table = QString());
+  ~CollectionBackend();
+
+  void Init(SharedPtr<Database> db, SharedPtr<TaskManager> task_manager, const Song::Source source, const QString &songs_table, const QString &dirs_table = QString(), const QString &subdirs_table = QString());
+
   void Close();
 
   void ExitAsync();
@@ -144,12 +155,13 @@ class CollectionBackend : public CollectionBackendInterface {
 
   Song::Source source() const override { return source_; }
 
-  Database *db() const override { return db_; }
+  SharedPtr<Database> db() const override { return db_; }
 
   QString songs_table() const override { return songs_table_; }
-  QString fts_table() const override { return fts_table_; }
   QString dirs_table() const { return dirs_table_; }
   QString subdirs_table() const { return subdirs_table_; }
+
+  void GetAllSongsAsync(const int id = 0) override;
 
   // Get a list of directories in the collection.  Emits DirectoriesDiscovered.
   void LoadDirectoriesAsync() override;
@@ -160,6 +172,7 @@ class CollectionBackend : public CollectionBackendInterface {
 
   SongList FindSongsInDirectory(const int id) override;
   SongList SongsWithMissingFingerprint(const int id) override;
+  SongList SongsWithMissingLoudnessCharacteristics(const int id) override;
   CollectionSubdirectoryList SubdirsInDirectory(const int id) override;
   CollectionDirectoryList GetAllDirectories() override;
   void ChangeDirPath(const int id, const QString &old_path, const QString &new_path) override;
@@ -179,8 +192,10 @@ class CollectionBackend : public CollectionBackendInterface {
   AlbumList GetCompilationAlbums(const CollectionFilterOptions &opt = CollectionFilterOptions()) override;
   AlbumList GetAlbumsByArtist(const QString &artist, const CollectionFilterOptions &opt = CollectionFilterOptions()) override;
 
-  void UpdateManualAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_automatic = false) override;
-  void UpdateAutomaticAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_manual = false) override;
+  void UpdateEmbeddedAlbumArtAsync(const QString &effective_albumartist, const QString &album, const bool art_embedded) override;
+  void UpdateManualAlbumArtAsync(const QString &effective_albumartist, const QString &album, const QUrl &art_manual) override;
+  void UnsetAlbumArtAsync(const QString &effective_albumartist, const QString &album) override;
+  void ClearAlbumArtAsync(const QString &effective_albumartist, const QString &album, const bool art_unset) override;
 
   Album GetAlbumArt(const QString &effective_albumartist, const QString &album) override;
 
@@ -191,16 +206,18 @@ class CollectionBackend : public CollectionBackendInterface {
 
   SongList GetSongsByUrl(const QUrl &url, const bool unavailable = false) override;
   Song GetSongByUrl(const QUrl &url, qint64 beginning = 0) override;
+  Song GetSongByUrlAndTrack(const QUrl &url, const int track) override;
 
-  void AddDirectory(const QString &path) override;
-  void RemoveDirectory(const CollectionDirectory &dir) override;
+  void AddDirectoryAsync(const QString &path) override;
+  void RemoveDirectoryAsync(const CollectionDirectory &dir) override;
 
   bool ExecCollectionQuery(CollectionQuery *query, SongList &songs);
   bool ExecCollectionQuery(CollectionQuery *query, SongMap &songs);
 
   void IncrementPlayCountAsync(const int id);
   void IncrementSkipCountAsync(const int id, const float progress);
-  void ResetStatisticsAsync(const int id);
+  void ResetPlayStatisticsAsync(const int id, const bool save_tags = false);
+  void ResetPlayStatisticsAsync(const QList<int> &id_list, const bool save_tags = false);
 
   void DeleteAllAsync();
 
@@ -209,8 +226,7 @@ class CollectionBackend : public CollectionBackendInterface {
 
   SongList GetSongsByFingerprint(const QString &fingerprint) override;
 
-  SongList SmartPlaylistsGetAllSongs();
-  SongList SmartPlaylistsFindSongs(const SmartPlaylistSearch &search);
+  SongList ExecuteQuery(const QString &sql);
 
   void AddOrUpdateSongsAsync(const SongList &songs);
   void UpdateSongsBySongIDAsync(const SongMap &new_songs);
@@ -218,31 +234,42 @@ class CollectionBackend : public CollectionBackendInterface {
   void UpdateSongRatingAsync(const int id, const float rating, const bool save_tags = false);
   void UpdateSongsRatingAsync(const QList<int> &ids, const float rating, const bool save_tags = false);
 
- public slots:
+  void DeleteSongsAsync(const SongList &songs);
+  void DeleteSongsByUrlsAsync(const QList<QUrl> &url);
+
+ public Q_SLOTS:
   void Exit();
+  void GetAllSongs(const int id);
   void LoadDirectories();
   void UpdateTotalSongCount();
   void UpdateTotalArtistCount();
   void UpdateTotalAlbumCount();
+  void AddDirectory(const QString &path);
+  void RemoveDirectory(const CollectionDirectory &dir);
   void AddOrUpdateSongs(const SongList &songs);
   void UpdateSongsBySongID(const SongMap &new_songs);
   void UpdateMTimesOnly(const SongList &songs);
   void DeleteSongs(const SongList &songs);
+  void DeleteSongsByUrls(const QList<QUrl> &url);
   void MarkSongsUnavailable(const SongList &songs, const bool unavailable = true);
   void AddOrUpdateSubdirs(const CollectionSubdirectoryList &subdirs);
   void CompilationsNeedUpdating();
-  void UpdateManualAlbumArt(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_automatic = false);
-  void UpdateAutomaticAlbumArt(const QString &effective_albumartist, const QString &album, const QUrl &cover_url, const bool clear_art_manual = false);
-  void ForceCompilation(const QString &album, const QList<QString> &artists, const bool on);
+  void UpdateEmbeddedAlbumArt(const QString &effective_albumartist, const QString &album, const bool art_embedded);
+  void UpdateManualAlbumArt(const QString &effective_albumartist, const QString &album, const QUrl &art_manual);
+  void UnsetAlbumArt(const QString &effective_albumartist, const QString &album);
+  void ClearAlbumArt(const QString &effective_albumartist, const QString &album, const bool art_unset);
+  void ForceCompilation(const QString &album, const QStringList &artists, const bool on);
   void IncrementPlayCount(const int id);
   void IncrementSkipCount(const int id, const float progress);
-  void ResetStatistics(const int id);
+  void ResetPlayStatistics(const int id, const bool save_tags = false);
+  void ResetPlayStatistics(const QList<int> &id_list, const bool save_tags = false);
+  bool ResetPlayStatistics(const QStringList &id_str_list);
   void DeleteAll();
   void SongPathChanged(const Song &song, const QFileInfo &new_file, const std::optional<int> new_collection_directory_id);
 
   SongList GetSongsBy(const QString &artist, const QString &album, const QString &title);
   void UpdateLastPlayed(const QString &artist, const QString &album, const QString &title, const qint64 lastplayed);
-  void UpdatePlayCount(const QString &artist, const QString &title, const int playcount);
+  void UpdatePlayCount(const QString &artist, const QString &title, const int playcount, const bool save_tags = false);
 
   void UpdateSongRating(const int id, const float rating, const bool save_tags = false);
   void UpdateSongsRating(const QList<int> &id_list, const float rating, const bool save_tags = false);
@@ -250,24 +277,26 @@ class CollectionBackend : public CollectionBackendInterface {
   void UpdateLastSeen(const int directory_id, const int expire_unavailable_songs_days);
   void ExpireSongs(const int directory_id, const int expire_unavailable_songs_days);
 
- signals:
-  void DirectoryDiscovered(CollectionDirectory, CollectionSubdirectoryList);
-  void DirectoryDeleted(CollectionDirectory);
+ Q_SIGNALS:
+  void DirectoryAdded(const CollectionDirectory &dir, const CollectionSubdirectoryList &subdir);
+  void DirectoryDeleted(const CollectionDirectory &dir);
 
-  void SongsDiscovered(SongList);
-  void SongsDeleted(SongList);
-  void SongsStatisticsChanged(SongList);
+  void GotSongs(const SongList &songs, const int id);
+  void SongsAdded(const SongList &songs);
+  void SongsDeleted(const SongList &songs);
+  void SongsChanged(const SongList &songs);
+  void SongsStatisticsChanged(const SongList &songs, const bool save_tags = false);
 
   void DatabaseReset();
 
-  void TotalSongCountUpdated(int);
-  void TotalArtistCountUpdated(int);
-  void TotalAlbumCountUpdated(int);
-  void SongsRatingChanged(SongList, bool);
+  void TotalSongCountUpdated(const int count);
+  void TotalArtistCountUpdated(const int count);
+  void TotalAlbumCountUpdated(const int count);
+  void SongsRatingChanged(const SongList &songs, const bool save_tags);
 
   void ExitFinished();
 
-  void Error(QString);
+  void Error(const QString &error);
 
  private:
   struct CompilationInfo {
@@ -280,7 +309,7 @@ class CollectionBackend : public CollectionBackendInterface {
     int has_not_compilation_detected;
   };
 
-  bool UpdateCompilations(const QSqlDatabase &db, SongList &deleted_songs, SongList &added_songs, const QUrl &url, const bool compilation_detected);
+  bool UpdateCompilations(const QSqlDatabase &db, SongList &changed_songs, const QUrl &url, const bool compilation_detected);
   AlbumList GetAlbums(const QString &artist, const QString &album_artist, const bool compilation_required = false, const CollectionFilterOptions &opt = CollectionFilterOptions());
   AlbumList GetAlbums(const QString &artist, const bool compilation_required, const CollectionFilterOptions &opt = CollectionFilterOptions());
   CollectionSubdirectoryList SubdirsInDirectory(const int id, QSqlDatabase &db);
@@ -292,15 +321,13 @@ class CollectionBackend : public CollectionBackendInterface {
   SongList GetSongsBySongId(const QStringList &song_ids, QSqlDatabase &db);
 
  private:
-  Database *db_;
-  TaskManager *task_manager_;
+  SharedPtr<Database> db_;
+  SharedPtr<TaskManager> task_manager_;
   Song::Source source_;
   QString songs_table_;
   QString dirs_table_;
   QString subdirs_table_;
-  QString fts_table_;
   QThread *original_thread_;
-
 };
 
 #endif  // COLLECTIONBACKEND_H

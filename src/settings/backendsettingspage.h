@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2013-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2013-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,42 +26,40 @@
 #include <QVariant>
 #include <QString>
 
-#include "engine/enginetype.h"
+#include "includes/shared_ptr.h"
 #include "dialogs/errordialog.h"
 #include "settingspage.h"
 
-#include "core/application.h"
-#include "core/player.h"
-#include "engine/engine_fwd.h"
-
 class SettingsDialog;
 class Ui_BackendSettingsPage;
+class Player;
+class DeviceFinders;
 
 class BackendSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit BackendSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit BackendSettingsPage(SettingsDialog *dialog, const SharedPtr<Player> player, const SharedPtr<DeviceFinders> device_finders, QWidget *parent = nullptr);
   ~BackendSettingsPage() override;
-
-  static const char *kSettingsGroup;
-  static const qint64 kDefaultBufferDuration;
-  static const double kDefaultBufferLowWatermark;
-  static const double kDefaultBufferHighWatermark;
 
   void Load() override;
   void Save() override;
-  void Cancel() override;
 
-  EngineBase *engine() const { return dialog()->app()->player()->engine(); }
+#ifdef HAVE_ALSA
+  enum class ALSAPluginType {
+    HW = 1,
+    PlugHW = 2,
+    PCM = 3
+  };
+#endif
 
- private slots:
-  void EngineChanged(const int index);
+ private Q_SLOTS:
   void OutputChanged(const int index);
   void DeviceSelectionChanged(const int index);
   void DeviceStringChanged();
   void RgPreampChanged(const int value);
   void RgFallbackGainChanged(const int value);
+  void EbuR128TargetLevelChanged(const int value);
   void radiobutton_alsa_hw_clicked(const bool checked);
   void radiobutton_alsa_plughw_clicked(const bool checked);
   void radiobutton_alsa_pcm_clicked(const bool checked);
@@ -69,37 +67,23 @@ class BackendSettingsPage : public SettingsPage {
   void BufferDefaults();
 
  private:
-#ifdef HAVE_ALSA
-  enum alsa_plugin {
-    alsa_hw = 1,
-    alsa_plughw = 2,
-    alsa_pcm = 3
-  };
-#endif
-
-  bool EngineInitialized();
-
-  void Load_Engine(Engine::EngineType enginetype);
   void Load_Output(QString output, QVariant device);
   void Load_Device(const QString &output, const QVariant &device);
 #ifdef HAVE_ALSA
-  void SwitchALSADevices(const alsa_plugin alsaplugin);
+  void SwitchALSADevices(const ALSAPluginType alsa_plugin_type);
 #endif
   void SelectDevice(const QString &device_new);
 
  private:
-  static const char *kOutputAutomaticallySelect;
-  static const char *kOutputCustom;
-
   Ui_BackendSettingsPage *ui_;
+  const SharedPtr<Player> player_;
+  const SharedPtr<DeviceFinders> device_finders_;
+
   bool configloaded_;
-  bool engineloaded_;
   ErrorDialog errordialog_;
 
-  Engine::EngineType enginetype_current_;
   QString output_current_;
   QVariant device_current_;
-
 };
 
 #endif  // BACKENDSETTINGSPAGE_H

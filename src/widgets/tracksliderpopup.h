@@ -39,7 +39,7 @@ class TrackSliderPopup : public QWidget {
  public:
   explicit TrackSliderPopup(QWidget *parent);
 
- public slots:
+ public Q_SLOTS:
   void SetText(const QString &text);
   void SetSmallText(const QString &small_text);
   void SetPopupPosition(const QPoint pos);
@@ -48,12 +48,6 @@ class TrackSliderPopup : public QWidget {
   void paintEvent(QPaintEvent*) override;
 
  private:
-  static const int kTextMargin;
-  static const int kPointLength;
-  static const int kPointWidth;
-  static const int kBorderRadius;
-  static const qreal kBlurRadius;
-
   void UpdatePixmap();
   void UpdatePosition();
   void SendMouseEventToParent(QMouseEvent *e);

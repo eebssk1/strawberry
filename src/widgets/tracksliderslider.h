@@ -43,7 +43,7 @@ class TrackSliderSlider : public QSlider {
  public:
   explicit TrackSliderSlider(QWidget *parent = nullptr);
 
- signals:
+ Q_SIGNALS:
   void SeekForward();
   void SeekBackward();
   void Previous();
@@ -54,23 +54,24 @@ class TrackSliderSlider : public QSlider {
   void mouseReleaseEvent(QMouseEvent *e) override;
   void mouseMoveEvent(QMouseEvent *e) override;
   void wheelEvent(QWheelEvent *e) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   void enterEvent(QEnterEvent *e) override;
-#else
-  void enterEvent(QEvent *e) override;
-#endif
   void leaveEvent(QEvent *e) override;
   void keyPressEvent(QKeyEvent *event) override;
 
- private slots:
+ private Q_SLOTS:
   void UpdateDeltaTime();
 
  private:
+  // Units are eighths of a degree
+  static const int WHEEL_ROTATION_TO_SEEK = 120;
+
 #ifndef Q_OS_MACOS
   TrackSliderPopup *popup_;
 #endif
 
   int mouse_hover_seconds_;
+
+  int wheel_accumulator_;
 };
 
 #endif  // TRACKSLIDERSLIDER_H

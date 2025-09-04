@@ -25,52 +25,66 @@
 #include <QString>
 #include <QUrl>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/song.h"
+#include "core/taskmanager.h"
+#include "core/database.h"
 
 #include "collection/collectionbackend.h"
 #include "collection/collectionmodel.h"
 #include "collection/collectionwatcher.h"
+
+#include "covermanager/albumcoverloader.h"
+
 #include "connecteddevice.h"
 #include "devicemanager.h"
 #include "filesystemdevice.h"
 
 class DeviceLister;
 
-FilesystemDevice::FilesystemDevice(const QUrl &url, DeviceLister *lister, const QString &unique_id, DeviceManager *manager, Application *app, const int database_id, const bool first_time, QObject *parent)
-    : FilesystemMusicStorage(Song::Source_Device, url.toLocalFile()),
-      ConnectedDevice(url, lister, unique_id, manager, app, database_id, first_time, parent),
-      watcher_(new CollectionWatcher(Song::Source_Device)),
+FilesystemDevice::FilesystemDevice(const QUrl &url,
+                                   DeviceLister *lister,
+                                   const QString &unique_id,
+                                   DeviceManager *device_manager,
+                                   const SharedPtr<TaskManager> task_manager,
+                                   const SharedPtr<Database> database,
+                                   const SharedPtr<TagReaderClient> tagreader_client,
+                                   const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                                   const int database_id,
+                                   const bool first_time,
+                                   QObject *parent)
+    : FilesystemMusicStorage(Song::Source::Device, url.toLocalFile()),
+      ConnectedDevice(url, lister, unique_id, device_manager, task_manager, database, tagreader_client, albumcover_loader, database_id, first_time, parent),
+      collection_watcher_(new CollectionWatcher(Song::Source::Device, task_manager, tagreader_client, collection_backend_)),
       watcher_thread_(new QThread(this)) {
 
-  watcher_->moveToThread(watcher_thread_);
+  collection_watcher_->moveToThread(watcher_thread_);
   watcher_thread_->start(QThread::IdlePriority);
-  qLog(Debug) << watcher_ << "for device" << unique_id << "moved to thread" << watcher_thread_;
 
-  watcher_->set_device_name(manager->DeviceNameByID(unique_id));
-  watcher_->set_backend(backend_);
-  watcher_->set_task_manager(app_->task_manager());
+  qLog(Debug) << collection_watcher_ << "for device" << unique_id << "moved to thread" << watcher_thread_;
 
-  QObject::connect(backend_, &CollectionBackend::DirectoryDiscovered, watcher_, &CollectionWatcher::AddDirectory);
-  QObject::connect(backend_, &CollectionBackend::DirectoryDeleted, watcher_, &CollectionWatcher::RemoveDirectory);
-  QObject::connect(watcher_, &CollectionWatcher::NewOrUpdatedSongs, backend_, &CollectionBackend::AddOrUpdateSongs);
-  QObject::connect(watcher_, &CollectionWatcher::SongsMTimeUpdated, backend_, &CollectionBackend::UpdateMTimesOnly);
-  QObject::connect(watcher_, &CollectionWatcher::SongsDeleted, backend_, &CollectionBackend::DeleteSongs);
-  QObject::connect(watcher_, &CollectionWatcher::SongsUnavailable, backend_, &CollectionBackend::MarkSongsUnavailable);
-  QObject::connect(watcher_, &CollectionWatcher::SongsReadded, backend_, &CollectionBackend::MarkSongsUnavailable);
-  QObject::connect(watcher_, &CollectionWatcher::SubdirsDiscovered, backend_, &CollectionBackend::AddOrUpdateSubdirs);
-  QObject::connect(watcher_, &CollectionWatcher::SubdirsMTimeUpdated, backend_, &CollectionBackend::AddOrUpdateSubdirs);
-  QObject::connect(watcher_, &CollectionWatcher::CompilationsNeedUpdating, backend_, &CollectionBackend::CompilationsNeedUpdating);
-  QObject::connect(watcher_, &CollectionWatcher::UpdateLastSeen, backend_, &CollectionBackend::UpdateLastSeen);
-  QObject::connect(watcher_, &CollectionWatcher::ScanStarted, this, &FilesystemDevice::TaskStarted);
+  collection_watcher_->set_device_name(device_manager->DeviceNameByID(unique_id));
+
+  QObject::connect(&*collection_backend_, &CollectionBackend::DirectoryAdded, collection_watcher_, &CollectionWatcher::AddDirectory);
+  QObject::connect(&*collection_backend_, &CollectionBackend::DirectoryDeleted, collection_watcher_, &CollectionWatcher::RemoveDirectory);
+  QObject::connect(collection_watcher_, &CollectionWatcher::NewOrUpdatedSongs, &*collection_backend_, &CollectionBackend::AddOrUpdateSongs);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SongsMTimeUpdated, &*collection_backend_, &CollectionBackend::UpdateMTimesOnly);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SongsDeleted, &*collection_backend_, &CollectionBackend::DeleteSongs);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SongsUnavailable, &*collection_backend_, &CollectionBackend::MarkSongsUnavailable);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SongsReadded, &*collection_backend_, &CollectionBackend::MarkSongsUnavailable);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SubdirsDiscovered, &*collection_backend_, &CollectionBackend::AddOrUpdateSubdirs);
+  QObject::connect(collection_watcher_, &CollectionWatcher::SubdirsMTimeUpdated, &*collection_backend_, &CollectionBackend::AddOrUpdateSubdirs);
+  QObject::connect(collection_watcher_, &CollectionWatcher::CompilationsNeedUpdating, &*collection_backend_, &CollectionBackend::CompilationsNeedUpdating);
+  QObject::connect(collection_watcher_, &CollectionWatcher::UpdateLastSeen, &*collection_backend_, &CollectionBackend::UpdateLastSeen);
+  QObject::connect(collection_watcher_, &CollectionWatcher::ScanStarted, this, &FilesystemDevice::TaskStarted);
 
 }
 
 FilesystemDevice::~FilesystemDevice() {
 
-  watcher_->Stop();
-  watcher_->deleteLater();
+  collection_watcher_->Abort();
+  collection_watcher_->deleteLater();
   watcher_thread_->exit();
   watcher_thread_->wait();
 
@@ -79,28 +93,28 @@ FilesystemDevice::~FilesystemDevice() {
 bool FilesystemDevice::Init() {
 
   InitBackendDirectory(url_.toLocalFile(), first_time_);
-  model_->Init();
+  collection_model_->Init();
   return true;
 
 }
 
 void FilesystemDevice::CloseAsync() {
-  QMetaObject::invokeMethod(this, "Close", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &FilesystemDevice::Close, Qt::QueuedConnection);
 }
 
 void FilesystemDevice::Close() {
 
   Q_ASSERT(QThread::currentThread() == thread());
 
-  wait_for_exit_ << backend_ << watcher_;
+  wait_for_exit_ << &*collection_backend_ << collection_watcher_;
 
-  QObject::disconnect(backend_, nullptr, watcher_, nullptr);
-  QObject::disconnect(watcher_, nullptr, backend_, nullptr);
+  QObject::disconnect(&*collection_backend_, nullptr, collection_watcher_, nullptr);
+  QObject::disconnect(collection_watcher_, nullptr, &*collection_backend_, nullptr);
 
-  QObject::connect(backend_, &CollectionBackend::ExitFinished, this, &FilesystemDevice::ExitFinished);
-  QObject::connect(watcher_, &CollectionWatcher::ExitFinished, this, &FilesystemDevice::ExitFinished);
-  backend_->ExitAsync();
-  watcher_->ExitAsync();
+  QObject::connect(&*collection_backend_, &CollectionBackend::ExitFinished, this, &FilesystemDevice::ExitFinished);
+  QObject::connect(collection_watcher_, &CollectionWatcher::ExitFinished, this, &FilesystemDevice::ExitFinished);
+  collection_backend_->ExitAsync();
+  collection_watcher_->ExitAsync();
 
 }
 
@@ -112,7 +126,7 @@ void FilesystemDevice::ExitFinished() {
   qLog(Debug) << obj << "successfully exited.";
   wait_for_exit_.removeAll(obj);
   if (wait_for_exit_.isEmpty()) {
-    emit DeviceCloseFinished(unique_id());
+    Q_EMIT DeviceCloseFinished(unique_id());
   }
 
 }

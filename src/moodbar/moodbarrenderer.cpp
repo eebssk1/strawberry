@@ -1,19 +1,22 @@
-/* This file was part of Clementine.
-   Copyright 2012, David Sansome <me@davidsansome.com>
-
-   Strawberry is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   Strawberry is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/*
+ * Strawberry Music Player
+ * This file was part of Clementine.
+ * Copyright 2012, David Sansome <me@davidsansome.com>
+ *
+ * Strawberry is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Strawberry is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
 
 #include <QtGlobal>
 #include <QObject>
@@ -29,28 +32,29 @@
 #include <QSize>
 
 #include "moodbarrenderer.h"
+#include "constants/moodbarsettings.h"
 
-ColorVector MoodbarRenderer::Colors(const QByteArray &data, const MoodbarStyle style, const QPalette &palette) {
+ColorVector MoodbarRenderer::Colors(const QByteArray &data, const MoodbarSettings::Style style, const QPalette &palette) {
 
   const int samples = static_cast<int>(data.size() / 3);
 
   // Set some parameters based on the moodbar style
   StyleProperties properties;
   switch (style) {
-    case Style_Angry:
+    case MoodbarSettings::Style::Angry:
       properties = StyleProperties(samples / 360 * 9, 45, -45, 200, 100);
       break;
-    case Style_Frozen:
+    case MoodbarSettings::Style::Frozen:
       properties = StyleProperties(samples / 360 * 1, 140, 160, 50, 100);
       break;
-    case Style_Happy:
+    case MoodbarSettings::Style::Happy:
       properties = StyleProperties(samples / 360 * 2, 0, 359, 150, 250);
       break;
-    case Style_Normal:
+    case MoodbarSettings::Style::Normal:
       properties = StyleProperties(samples / 360 * 3, 0, 359, 100, 100);
       break;
-    case Style_SystemPalette:
-    default: {
+    case MoodbarSettings::Style::SystemPalette:
+    default:{
       const QColor highlight_color(palette.color(QPalette::Active, QPalette::Highlight));
 
       properties.threshold_ = samples / 360 * 3;
@@ -87,16 +91,13 @@ ColorVector MoodbarRenderer::Colors(const QByteArray &data, const MoodbarStyle s
 
   total = qMax(total, 1);
 
-  // Remap the hue values to be between rangeStart and
-  // rangeStart + rangeDelta.  Every time we see an input hue
-  // above the threshold, increment the output hue by
-  // (1/total) * rangeDelta.
+  // Remap the hue values to be between rangeStart and rangeStart + rangeDelta.
+  // Every time we see an input hue above the threshold, increment the output hue by (1/total) * rangeDelta.
   for (int i = 0, n = 0; i < 360; i++) {
     hue_distribution[i] = ((hue_distribution[i] > properties.threshold_ ? n++ : n) * properties.range_delta_ / total + properties.range_start_) % 360;
   }
 
-  // Now huedist is a hue mapper: huedist[h] is the new hue value
-  // for a bar with hue h
+  // Now huedist is a hue mapper: huedist[h] is the new hue value for a bar with hue h
   for (ColorVector::iterator it = colors.begin(); it != colors.end(); ++it) {
     const int hue = qMax(0, it->hue());
 
@@ -104,6 +105,7 @@ ColorVector MoodbarRenderer::Colors(const QByteArray &data, const MoodbarStyle s
   }
 
   return colors;
+
 }
 
 void MoodbarRenderer::Render(const ColorVector &colors, QPainter *p, const QRect rect) {
@@ -148,6 +150,7 @@ void MoodbarRenderer::Render(const ColorVector &colors, QPainter *p, const QRect
       p->drawPoint(rect.left() + x, rect.top() + rect.height() - 1 - y);
     }
   }
+
 }
 
 QImage MoodbarRenderer::RenderToImage(const ColorVector &colors, const QSize size) {
@@ -160,18 +163,18 @@ QImage MoodbarRenderer::RenderToImage(const ColorVector &colors, const QSize siz
 
 }
 
-QString MoodbarRenderer::StyleName(const MoodbarStyle style) {
+QString MoodbarRenderer::StyleName(const MoodbarSettings::Style style) {
 
   switch (style) {
-    case Style_Normal:
+    case MoodbarSettings::Style::Normal:
       return QObject::tr("Normal");
-    case Style_Angry:
+    case MoodbarSettings::Style::Angry:
       return QObject::tr("Angry");
-    case Style_Frozen:
+    case MoodbarSettings::Style::Frozen:
       return QObject::tr("Frozen");
-    case Style_Happy:
+    case MoodbarSettings::Style::Happy:
       return QObject::tr("Happy");
-    case Style_SystemPalette:
+    case MoodbarSettings::Style::SystemPalette:
       return QObject::tr("System colors");
 
     default:

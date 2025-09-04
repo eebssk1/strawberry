@@ -2,7 +2,7 @@
  *   Copyright (C) 2003-2005 by Mark Kretschmann <markey@web.de>           *
  *   Copyright (C) 2005 by Jakub Stachowski <qbast@go2.pl>                 *
  *   Copyright (C) 2006 Paul Cifarelli <paul@cifarelli.net>                *
- *   Copyright (C) 2017-2021 Jonas Kvinge <jonas@jkvinge.net>              *
+ *   Copyright (C) 2017-2024 Jonas Kvinge <jonas@jkvinge.net>              *
  *                                                                         *
  *   This program is free software; you can redistribute it and/or modify  *
  *   it under the terms of the GNU General Public License as published by  *
@@ -25,7 +25,7 @@
 
 #include "config.h"
 
-#include <memory>
+#include <optional>
 
 #include <gst/gst.h>
 #include <gst/pbutils/pbutils.h>
@@ -35,39 +35,34 @@
 #include <QFuture>
 #include <QByteArray>
 #include <QList>
+#include <QMap>
 #include <QString>
 #include <QUrl>
 
-#include "utilities/timeconstants.h"
-#include "engine_fwd.h"
+#include "includes/shared_ptr.h"
 #include "enginebase.h"
-#include "gststartup.h"
+#include "gstenginepipeline.h"
 #include "gstbufferconsumer.h"
 
 class QTimer;
 class QTimerEvent;
 class TaskManager;
-class GstEnginePipeline;
 
-/**
- * @class GstEngine
- * @short GStreamer engine plugin
- * @author Mark Kretschmann <markey@web.de>
- */
-class GstEngine : public Engine::Base, public GstBufferConsumer {
+class GstEngine : public EngineBase, public GstBufferConsumer {
   Q_OBJECT
 
  public:
-  explicit GstEngine(TaskManager *task_manager, QObject *parent = nullptr);
+  explicit GstEngine(SharedPtr<TaskManager> task_manager, QObject *parent = nullptr);
   ~GstEngine() override;
 
   static const char *kAutoSink;
+  static const char *kALSASink;
 
   bool Init() override;
-  Engine::State state() const override;
-  void StartPreloading(const QUrl &stream_url, const QUrl &original_url, const bool force_stop_at_end, const qint64 beginning_nanosec, const qint64 end_nanosec) override;
-  bool Load(const QUrl &stream_url, const QUrl &original_url, const Engine::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_nanosec, const qint64 end_nanosec) override;
-  bool Play(const quint64 offset_nanosec) override;
+  State state() const override;
+  void StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) override;
+  bool Load(const QUrl &media_url, const QUrl &stream_url, const EngineBase::TrackChangeFlags change, const bool force_stop_at_end, const quint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const std::optional<double> ebur128_integrated_loudness_lufs) override;
+  bool Play(const bool pause, const quint64 offset_nanosec) override;
   void Stop(const bool stop_after = false) override;
   void Pause() override;
   void Unpause() override;
@@ -79,20 +74,18 @@ class GstEngine : public Engine::Base, public GstBufferConsumer {
  public:
   qint64 position_nanosec() const override;
   qint64 length_nanosec() const override;
-  const Engine::Scope &scope(const int chunk_length) override;
+  const EngineBase::Scope &scope(const int chunk_length) override;
 
   OutputDetailsList GetOutputsList() const override;
   bool ValidOutput(const QString &output) override;
-  QString DefaultOutput() override { return kAutoSink; }
-  bool CustomDeviceSupport(const QString &output) override;
-  bool ALSADeviceSupport(const QString &output) override;
-
-  void SetStartup(GstStartup *gst_startup) { gst_startup_ = gst_startup; }
-  void EnsureInitialized() { gst_startup_->EnsureInitialized(); }
+  QString DefaultOutput() const override { return QLatin1String(kAutoSink); }
+  bool CustomDeviceSupport(const QString &output) const override;
+  bool ALSADeviceSupport(const QString &output) const override;
+  bool ExclusiveModeSupport(const QString &output) const override;
 
   void ConsumeBuffer(GstBuffer *buffer, const int pipeline_id, const QString &format) override;
 
- public slots:
+ public Q_SLOTS:
   void ReloadSettings() override;
 
   // Set whether stereo balancer is enabled
@@ -113,66 +106,60 @@ class GstEngine : public Engine::Base, public GstBufferConsumer {
  protected:
   void timerEvent(QTimerEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void EndOfStreamReached(const int pipeline_id, const bool has_next_track);
   void HandlePipelineError(const int pipeline_id, const int domain, const int error_code, const QString &message, const QString &debugstr);
-  void NewMetaData(const int pipeline_id, const Engine::SimpleMetaBundle &bundle);
+  void NewMetaData(const int pipeline_id, const EngineMetadata &engine_metadata);
   void AddBufferToScope(GstBuffer *buf, const int pipeline_id, const QString &format);
-  void FadeoutFinished();
+  void FadeoutFinished(const int pipeline_id);
   void FadeoutPauseFinished();
   void SeekNow();
-  void PlayDone(const GstStateChangeReturn ret, const quint64, const int);
+  void PlayDone(const GstStateChangeReturn ret, const bool pause, const quint64 offset_nanosec, const int pipeline_id);
 
   void BufferingStarted();
   void BufferingProgress(int percent);
   void BufferingFinished();
 
+  void PipelineFinished(const int pipeline_id);
+
  private:
-  PluginDetailsList GetPluginList(const QString &classname) const;
   QByteArray FixupUrl(const QUrl &url);
 
-  void StartFadeout();
+  void StartFadeout(GstEnginePipelinePtr pipeline);
   void StartFadeoutPause();
+  void StopFadeoutPause();
 
   void StartTimers();
   void StopTimers();
 
-  std::shared_ptr<GstEnginePipeline> CreatePipeline();
-  std::shared_ptr<GstEnginePipeline> CreatePipeline(const QByteArray &gst_url, const QUrl &original_url, const qint64 end_nanosec);
+  GstEnginePipelinePtr CreatePipeline();
+  GstEnginePipelinePtr CreatePipeline(const QUrl &media_url, const QUrl &stream_url, const QByteArray &gst_url, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec, const double ebur128_loudness_normalizing_gain_db);
+
+  void FinishPipeline(GstEnginePipelinePtr pipeline);
 
   void UpdateScope(int chunk_length);
 
-  static void StreamDiscovered(GstDiscoverer*, GstDiscovererInfo *info, GError*, gpointer self);
-  static void StreamDiscoveryFinished(GstDiscoverer*, gpointer);
+  static void StreamDiscovered(GstDiscoverer *discoverer, GstDiscovererInfo *info, GError *error, gpointer self);
+  static void StreamDiscoveryFinished(GstDiscoverer *discoverer, gpointer self);
   static QString GSTdiscovererErrorMessage(GstDiscovererResult result);
 
- private:
-  static const char *kALSASink;
-  static const char *kOpenALSASink;
-  static const char *kOSSSink;
-  static const char *kOSS4Sink;
-  static const char *kJackAudioSink;
-  static const char *kPulseSink;
-  static const char *kA2DPSink;
-  static const char *kAVDTPSink;
-  static const char *InterAudiosink;
-  static const char *kDirectSoundSink;
-  static const char *kOSXAudioSink;
-  static const int kDiscoveryTimeoutS;
-  static const qint64 kTimerIntervalNanosec = 1000 * kNsecPerMsec;  // 1s
-  static const qint64 kPreloadGapNanosec = 5000 * kNsecPerMsec;     // 5s
-  static const qint64 kSeekDelayNanosec = 100 * kNsecPerMsec;       // 100msec
+  bool OldExclusivePipelineActive() const;
+  bool AnyExclusivePipelineActive() const;
 
-  TaskManager *task_manager_;
-  GstStartup *gst_startup_;
+#ifdef HAVE_SPOTIFY
+  void SetSpotifyAccessToken() override;
+#endif
+
+ private:
+  SharedPtr<TaskManager> task_manager_;
   GstDiscoverer *discoverer_;
 
   int buffering_task_id_;
 
-  std::shared_ptr<GstEnginePipeline> current_pipeline_;
-  std::shared_ptr<GstEnginePipeline> fadeout_pipeline_;
-  std::shared_ptr<GstEnginePipeline> fadeout_pause_pipeline_;
-  QUrl preloaded_url_;
+  GstEnginePipelinePtr current_pipeline_;
+  QMap<int, GstEnginePipelinePtr> fadeout_pipelines_;
+  GstEnginePipelinePtr fadeout_pause_pipeline_;
+  QMap<int, GstEnginePipelinePtr> old_pipelines_;
 
   QList<GstBufferConsumer*> buffer_consumers_;
 
@@ -192,8 +179,7 @@ class GstEngine : public Engine::Base, public GstBufferConsumer {
 
   int timer_id_;
 
-  bool is_fading_out_to_pause_;
-  bool has_faded_out_;
+  bool has_faded_out_to_pause_;
 
   int scope_chunk_;
   bool have_new_buffer_;
@@ -203,6 +189,9 @@ class GstEngine : public Engine::Base, public GstBufferConsumer {
   int discovery_finished_cb_id_;
   int discovery_discovered_cb_id_;
 
+  State delayed_state_;
+  bool delayed_state_pause_;
+  quint64 delayed_state_offset_nanosec_;
 };
 
 #endif  // GSTENGINE_H

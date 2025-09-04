@@ -23,13 +23,16 @@
 #include <QMutexLocker>
 #include <QSqlDatabase>
 
+#include "includes/shared_ptr.h"
 #include "core/database.h"
 #include "core/sqlquery.h"
 #include "core/song.h"
 #include "radiobackend.h"
 #include "radiochannel.h"
 
-RadioBackend::RadioBackend(Database *db, QObject *parent)
+using namespace Qt::Literals::StringLiterals;
+
+RadioBackend::RadioBackend(const SharedPtr<Database> db, QObject *parent)
     : QObject(parent),
       db_(db),
       original_thread_(thread()) {}
@@ -44,7 +47,7 @@ void RadioBackend::Close() {
 }
 
 void RadioBackend::ExitAsync() {
-  QMetaObject::invokeMethod(this, "Exit", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &RadioBackend::Exit, Qt::QueuedConnection);
 }
 
 void RadioBackend::Exit() {
@@ -52,7 +55,7 @@ void RadioBackend::Exit() {
   Q_ASSERT(QThread::currentThread() == thread());
 
   moveToThread(original_thread_);
-  emit ExitFinished();
+  Q_EMIT ExitFinished();
 
 }
 
@@ -66,26 +69,26 @@ void RadioBackend::AddChannels(const RadioChannelList &channels) {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare(QString("INSERT INTO radio_channels (source, name, url, thumbnail_url) VALUES (:source, :name, :url, :thumbnail_url)"));
+  q.prepare(u"INSERT INTO radio_channels (source, name, url, thumbnail_url) VALUES (:source, :name, :url, :thumbnail_url)"_s);
 
   for (const RadioChannel &channel : channels) {
-    q.BindValue(":source", channel.source);
-    q.BindValue(":name", channel.name);
-    q.BindValue(":url", channel.url);
-    q.BindValue(":thumbnail_url", channel.thumbnail_url);
+    q.BindValue(u":source"_s, static_cast<int>(channel.source));
+    q.BindValue(u":name"_s, channel.name);
+    q.BindValue(u":url"_s, channel.url);
+    q.BindValue(u":thumbnail_url"_s, channel.thumbnail_url);
     if (!q.Exec()) {
       db_->ReportErrors(q);
       return;
     }
   }
 
-  emit NewChannels(channels);
+  Q_EMIT NewChannels(channels);
 
 }
 
 void RadioBackend::GetChannelsAsync() {
 
-  QMetaObject::invokeMethod(this, "GetChannels", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &RadioBackend::GetChannels, Qt::QueuedConnection);
 
 }
 
@@ -95,7 +98,7 @@ void RadioBackend::GetChannels() {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare("SELECT source, name, url, thumbnail_url FROM radio_channels");
+  q.prepare(u"SELECT source, name, url, thumbnail_url FROM radio_channels"_s);
 
   if (!q.Exec()) {
     db_->ReportErrors(q);
@@ -112,12 +115,12 @@ void RadioBackend::GetChannels() {
     channels << channel;
   }
 
-  emit NewChannels(channels);
+  Q_EMIT NewChannels(channels);
 
 }
 
 void RadioBackend::DeleteChannelsAsync() {
-  QMetaObject::invokeMethod(this, "DeleteChannels", Qt::QueuedConnection);
+  QMetaObject::invokeMethod(this, &RadioBackend::DeleteChannels, Qt::QueuedConnection);
 }
 
 void RadioBackend::DeleteChannels() {
@@ -126,7 +129,7 @@ void RadioBackend::DeleteChannels() {
   QSqlDatabase db(db_->Connect());
 
   SqlQuery q(db);
-  q.prepare("DELETE FROM radio_channels");
+  q.prepare(u"DELETE FROM radio_channels"_s);
 
   if (!q.Exec()) {
     db_->ReportErrors(q);

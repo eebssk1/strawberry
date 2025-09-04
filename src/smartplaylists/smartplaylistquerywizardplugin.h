@@ -23,28 +23,43 @@
 
 #include "config.h"
 
-#include <memory>
-
-#include <QObject>
 #include <QString>
 
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 #include "smartplaylistwizardplugin.h"
 #include "smartplaylistsearch.h"
 
 class QWizard;
 
+class Player;
+class PlaylistManager;
 class CollectionBackend;
+class CurrentAlbumCoverLoader;
 class SmartPlaylistSearch;
+class SmartPlaylistQueryWizardPluginSearchPage;
 class Ui_SmartPlaylistQuerySortPage;
+
+#ifdef HAVE_MOODBAR
+class MoodbarLoader;
+#endif
 
 class SmartPlaylistQueryWizardPlugin : public SmartPlaylistWizardPlugin {
   Q_OBJECT
 
  public:
-  explicit SmartPlaylistQueryWizardPlugin(Application *app, CollectionBackend *collection, QObject *parent);
+  explicit SmartPlaylistQueryWizardPlugin(const SharedPtr<Player> player,
+                                          const SharedPtr<PlaylistManager> playlist_manager,
+                                          const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                                          const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                                          const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                                          QObject *parent);
+
   ~SmartPlaylistQueryWizardPlugin() override;
 
-  PlaylistGenerator::Type type() const override { return PlaylistGenerator::Type_Query; }
+  PlaylistGenerator::Type type() const override { return PlaylistGenerator::Type::Query; }
   QString name() const override;
   QString description() const override;
   bool is_dynamic() const override { return true; }
@@ -53,26 +68,33 @@ class SmartPlaylistQueryWizardPlugin : public SmartPlaylistWizardPlugin {
   void SetGenerator(PlaylistGeneratorPtr) override;
   PlaylistGeneratorPtr CreateGenerator() const override;
 
- private slots:
+ public Q_SLOTS:
+  void UpdateSortPreview();
+
+ private Q_SLOTS:
   void AddSearchTerm();
   void RemoveSearchTerm();
 
   void SearchTypeChanged();
 
   void UpdateTermPreview();
-  void UpdateSortPreview();
   void UpdateSortOrder();
 
   void MoveTermListToBottom(const int min, const int max);
 
  private:
-  class SearchPage;
-  class SortPage;
+  const SharedPtr<Player> player_;
+  const SharedPtr<PlaylistManager> playlist_manager_;
+  const SharedPtr<CollectionBackend> collection_backend_;
+#ifdef HAVE_MOODBAR
+  const SharedPtr<MoodbarLoader> moodbar_loader_;
+#endif
+  const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader_;
 
   SmartPlaylistSearch MakeSearch() const;
 
-  std::unique_ptr<Ui_SmartPlaylistQuerySortPage> sort_ui_;
-  SearchPage *search_page_;
+  ScopedPtr<Ui_SmartPlaylistQuerySortPage> sort_ui_;
+  SmartPlaylistQueryWizardPluginSearchPage *search_page_;
 
   int previous_scrollarea_max_;
 };

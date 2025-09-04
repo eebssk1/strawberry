@@ -19,6 +19,7 @@
 
 #include "config.h"
 
+#include <utility>
 #include <memory>
 
 #include <QtGlobal>
@@ -37,13 +38,21 @@
 #include <QContextMenuEvent>
 #include <QPaintEvent>
 
+#include "includes/shared_ptr.h"
 #include "utilities/imageutils.h"
 #include "covermanager/albumcoverchoicecontroller.h"
 
 #include "contextview.h"
 #include "contextalbum.h"
 
-const int ContextAlbum::kFadeTimeLineMs = 1000;
+using std::make_unique;
+using std::make_shared;
+
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kFadeTimeLineMs = 1000;
+}
 
 ContextAlbum::ContextAlbum(QWidget *parent)
     : QWidget(parent),
@@ -52,23 +61,21 @@ ContextAlbum::ContextAlbum(QWidget *parent)
       album_cover_choice_controller_(nullptr),
       downloading_covers_(false),
       timeline_fade_(new QTimeLine(kFadeTimeLineMs, this)),
-      image_strawberry_(":/pictures/strawberry.png"),
+      image_strawberry_(u":/pictures/strawberry.png"_s),
       image_original_(image_strawberry_),
-      pixmap_current_opacity_(1.0) {
+      pixmap_current_opacity_(1.0),
+      desired_height_(width()) {
 
-  setObjectName("context-widget-album");
+  setObjectName(u"context-widget-album"_s);
 
   setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
-  cover_loader_options_.desired_height_ = width();
-  cover_loader_options_.pad_output_image_ = true;
-  cover_loader_options_.scale_output_image_ = true;
-  QImage image = ImageUtils::ScaleAndPad(image_strawberry_, cover_loader_options_.scale_output_image_, cover_loader_options_.pad_output_image_, cover_loader_options_.desired_height_);
+  QImage image = ImageUtils::ScaleImage(image_strawberry_, QSize(desired_height_, desired_height_), devicePixelRatioF(), true);
   if (!image.isNull()) {
     pixmap_current_ = QPixmap::fromImage(image);
   }
 
-  timeline_fade_->setDirection(QTimeLine::Forward);
+  timeline_fade_->setDirection(QTimeLine::Direction::Forward);
   QObject::connect(timeline_fade_, &QTimeLine::valueChanged, this, &ContextAlbum::FadeCurrentCover);
   QObject::connect(timeline_fade_, &QTimeLine::finished, this, &ContextAlbum::FadeCurrentCoverFinished);
 
@@ -91,11 +98,13 @@ void ContextAlbum::Init(ContextView *context_view, AlbumCoverChoiceController *a
 
 QSize ContextAlbum::sizeHint() const {
 
-  return QSize(pixmap_current_.width(), pixmap_current_.height());
+  return QSize(static_cast<int>(pixmap_current_.width() / devicePixelRatioF()), static_cast<int>(pixmap_current_.height() / devicePixelRatioF()));
 
 }
 
-void ContextAlbum::paintEvent(QPaintEvent*) {
+void ContextAlbum::paintEvent(QPaintEvent *paint_event) {
+
+  Q_UNUSED(paint_event)
 
   QPainter p(this);
   p.setRenderHint(QPainter::SmoothPixmapTransform);
@@ -128,8 +137,8 @@ void ContextAlbum::contextMenuEvent(QContextMenuEvent *e) {
 
 void ContextAlbum::UpdateWidth(const int new_width) {
 
-  if (new_width != cover_loader_options_.desired_height_) {
-    cover_loader_options_.desired_height_ = new_width;
+  if (new_width != desired_height_) {
+    desired_height_ = new_width;
     ScaleCover();
     ScalePreviousCovers();
     updateGeometry();
@@ -137,11 +146,7 @@ void ContextAlbum::UpdateWidth(const int new_width) {
 
 }
 
-void ContextAlbum::SetImage(QImage image) {
-
-  if (image.isNull()) {
-    image = image_strawberry_;
-  }
+void ContextAlbum::SetImage(const QImage &image) {
 
   if (downloading_covers_) {
     downloading_covers_ = false;
@@ -152,25 +157,31 @@ void ContextAlbum::SetImage(QImage image) {
   QPixmap pixmap_previous = pixmap_current_;
   qreal opacity_previous = pixmap_current_opacity_;
 
-  image_original_ = image;
+  if (image.isNull()) {
+    image_original_ = image_strawberry_;
+  }
+  else {
+    image_original_ = image;
+  }
+
   pixmap_current_opacity_ = 0.0;
   ScaleCover();
 
   if (!pixmap_previous.isNull()) {
-    std::shared_ptr<PreviousCover> previous_cover = std::make_shared<PreviousCover>();
+    SharedPtr<PreviousCover> previous_cover = make_shared<PreviousCover>();
     previous_cover->image = image_previous;
-    previous_cover->pixmap =  pixmap_previous;
+    previous_cover->pixmap = pixmap_previous;
     previous_cover->opacity = opacity_previous;
     previous_cover->timeline.reset(new QTimeLine(kFadeTimeLineMs), [](QTimeLine *timeline) { timeline->deleteLater(); });
-    previous_cover->timeline->setDirection(QTimeLine::Backward);
-    previous_cover->timeline->setCurrentTime(timeline_fade_->state() == QTimeLine::Running ? timeline_fade_->currentTime() : kFadeTimeLineMs);
-    QObject::connect(previous_cover->timeline.get(), &QTimeLine::valueChanged, this, [this, previous_cover]() { FadePreviousCover(previous_cover); });
-    QObject::connect(previous_cover->timeline.get(), &QTimeLine::finished, this, [this, previous_cover]() { FadePreviousCoverFinished(previous_cover); });
+    previous_cover->timeline->setDirection(QTimeLine::Direction::Backward);
+    previous_cover->timeline->setCurrentTime(timeline_fade_->state() == QTimeLine::State::Running ? timeline_fade_->currentTime() : kFadeTimeLineMs);
+    QObject::connect(&*previous_cover->timeline, &QTimeLine::valueChanged, this, [this, previous_cover]() { FadePreviousCover(previous_cover); });
+    QObject::connect(&*previous_cover->timeline, &QTimeLine::finished, this, [this, previous_cover]() { FadePreviousCoverFinished(previous_cover); });
     previous_covers_ << previous_cover;
     previous_cover->timeline->start();
   }
 
-  if (timeline_fade_->state() == QTimeLine::Running) {
+  if (timeline_fade_->state() != QTimeLine::State::NotRunning) {
     timeline_fade_->stop();
   }
   timeline_fade_->start();
@@ -182,7 +193,7 @@ void ContextAlbum::DrawImage(QPainter *p, const QPixmap &pixmap, const qreal opa
   if (qFuzzyCompare(opacity, static_cast<qreal>(0.0))) return;
 
   p->setOpacity(opacity);
-  p->drawPixmap(0, 0, pixmap.width(), pixmap.height(), pixmap);
+  p->drawPixmap(0, 0, static_cast<int>(pixmap.width() / pixmap.devicePixelRatioF()), static_cast<int>(pixmap.height() / pixmap.devicePixelRatioF()), pixmap);
 
 }
 
@@ -196,7 +207,7 @@ void ContextAlbum::DrawSpinner(QPainter *p) {
 
 void ContextAlbum::DrawPreviousCovers(QPainter *p) {
 
-  for (std::shared_ptr<PreviousCover> previous_cover : previous_covers_) {
+  for (SharedPtr<PreviousCover> previous_cover : std::as_const(previous_covers_)) {
     DrawImage(p, previous_cover->pixmap, previous_cover->opacity);
   }
 
@@ -214,12 +225,12 @@ void ContextAlbum::FadeCurrentCover(const qreal value) {
 void ContextAlbum::FadeCurrentCoverFinished() {
 
   if (image_original_ == image_strawberry_) {
-    emit FadeStopFinished();
+    Q_EMIT FadeStopFinished();
   }
 
 }
 
-void ContextAlbum::FadePreviousCover(std::shared_ptr<PreviousCover> previous_cover) {
+void ContextAlbum::FadePreviousCover(SharedPtr<PreviousCover> previous_cover) {
 
   if (previous_cover->timeline->currentValue() >= previous_cover->opacity) return;
 
@@ -227,15 +238,16 @@ void ContextAlbum::FadePreviousCover(std::shared_ptr<PreviousCover> previous_cov
 
 }
 
-void ContextAlbum::FadePreviousCoverFinished(std::shared_ptr<PreviousCover> previous_cover) {
+void ContextAlbum::FadePreviousCoverFinished(SharedPtr<PreviousCover> previous_cover) {
 
+  previous_cover->timeline.reset();
   previous_covers_.removeAll(previous_cover);
 
 }
 
 void ContextAlbum::ScaleCover() {
 
-  QImage image = ImageUtils::ScaleAndPad(image_original_, cover_loader_options_.scale_output_image_, cover_loader_options_.pad_output_image_, cover_loader_options_.desired_height_);
+  const QImage image = ImageUtils::ScaleImage(image_original_, QSize(desired_height_, desired_height_), devicePixelRatioF(), true);
   if (image.isNull()) {
     pixmap_current_ = QPixmap();
   }
@@ -247,8 +259,8 @@ void ContextAlbum::ScaleCover() {
 
 void ContextAlbum::ScalePreviousCovers() {
 
-  for (std::shared_ptr<PreviousCover> previous_cover : previous_covers_) {
-    QImage image = ImageUtils::ScaleAndPad(previous_cover->image, cover_loader_options_.scale_output_image_, cover_loader_options_.pad_output_image_, cover_loader_options_.desired_height_);
+  for (SharedPtr<PreviousCover> previous_cover : std::as_const(previous_covers_)) {
+    QImage image = ImageUtils::ScaleImage(previous_cover->image, QSize(desired_height_, desired_height_), devicePixelRatioF(), true);
     if (image.isNull()) {
       previous_cover->pixmap = QPixmap();
     }
@@ -264,8 +276,8 @@ void ContextAlbum::SearchCoverInProgress() {
   downloading_covers_ = true;
 
   // Show a spinner animation
-  spinner_animation_ = std::make_unique<QMovie>(":/pictures/spinner.gif", QByteArray(), this);
-  QObject::connect(spinner_animation_.get(), &QMovie::updated, this, &ContextAlbum::Update);
+  spinner_animation_ = make_unique<QMovie>(u":/pictures/spinner.gif"_s, QByteArray(), this);
+  QObject::connect(&*spinner_animation_, &QMovie::updated, this, &ContextAlbum::Update);
   spinner_animation_->start();
   update();
 

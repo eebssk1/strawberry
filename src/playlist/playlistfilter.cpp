@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2012, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -23,48 +23,19 @@
 
 #include <QObject>
 #include <QString>
-#include <QAbstractItemModel>
-#include <QSortFilterProxyModel>
 
 #include "playlist/playlist.h"
+#include "playlist/playlistitem.h"
+#include "filterparser/filterparser.h"
+#include "filterparser/filtertreenop.h"
 #include "playlistfilter.h"
-#include "playlistfilterparser.h"
 
 PlaylistFilter::PlaylistFilter(QObject *parent)
     : QSortFilterProxyModel(parent),
-      filter_tree_(new NopFilter),
+      filter_tree_(new FilterTreeNop),
       query_hash_(0) {
 
   setDynamicSortFilter(true);
-
-  column_names_["title"] = Playlist::Column_Title;
-  column_names_["name"] = Playlist::Column_Title;
-  column_names_["artist"] = Playlist::Column_Artist;
-  column_names_["album"] = Playlist::Column_Album;
-  column_names_["albumartist"] = Playlist::Column_AlbumArtist;
-  column_names_["performer"] = Playlist::Column_Performer;
-  column_names_["composer"] = Playlist::Column_Composer;
-  column_names_["year"] = Playlist::Column_Year;
-  column_names_["originalyear"] = Playlist::Column_OriginalYear;
-  column_names_["track"] = Playlist::Column_Track;
-  column_names_["disc"] = Playlist::Column_Disc;
-  column_names_["length"] = Playlist::Column_Length;
-  column_names_["genre"] = Playlist::Column_Genre;
-  column_names_["samplerate"] = Playlist::Column_Samplerate;
-  column_names_["bitdepth"] = Playlist::Column_Bitdepth;
-  column_names_["bitrate"] = Playlist::Column_Bitrate;
-  column_names_["filename"] = Playlist::Column_Filename;
-  column_names_["grouping"] = Playlist::Column_Grouping;
-  column_names_["comment"] = Playlist::Column_Comment;
-
-  numerical_columns_ << Playlist::Column_Year
-                     << Playlist::Column_OriginalYear
-                     << Playlist::Column_Track
-                     << Playlist::Column_Disc
-                     << Playlist::Column_Length
-                     << Playlist::Column_Samplerate
-                     << Playlist::Column_Bitdepth
-                     << Playlist::Column_Bitrate;
 
 }
 
@@ -75,29 +46,31 @@ void PlaylistFilter::sort(int column, Qt::SortOrder order) {
   sourceModel()->sort(column, order);
 }
 
-bool PlaylistFilter::filterAcceptsRow(int row, const QModelIndex &parent) const {
+bool PlaylistFilter::filterAcceptsRow(const int source_row, const QModelIndex &source_parent) const {
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-  size_t hash = qHash(filter_text_);
-#else
-  uint hash = qHash(filter_text_);
-#endif
+  Playlist *playlist = qobject_cast<Playlist*>(sourceModel());
+  if (!playlist) return false;
+  const QModelIndex idx = sourceModel()->index(source_row, 0, source_parent);
+  if (!idx.isValid()) return false;
+  PlaylistItemPtr item = playlist->item_at(idx.row());
+  if (!item) return false;
+
+  if (filter_string_.isEmpty()) return true;
+
+  size_t hash = qHash(filter_string_);
   if (hash != query_hash_) {
-    // Parse the query
-    FilterParser p(filter_text_, column_names_, numerical_columns_);
+    FilterParser p(filter_string_);
     filter_tree_.reset(p.parse());
-
     query_hash_ = hash;
   }
 
-  // Test the row
-  return filter_tree_->accept(row, parent, sourceModel());
+  return filter_tree_->accept(item->EffectiveMetadata());
 
 }
 
-void PlaylistFilter::SetFilterText(const QString &filter_text) {
+void PlaylistFilter::SetFilterString(const QString &filter_string) {
 
-  filter_text_ = filter_text;
-  setFilterFixedString(filter_text);
+  filter_string_ = filter_string;
+  setFilterFixedString(filter_string);
 
 }

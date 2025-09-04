@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>518</width>
-    <height>778</height>
+    <height>844</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -159,10 +159,10 @@
       <item>
        <widget class="QFrame" name="frame_custom_notifications">
         <property name="frameShape">
-         <enum>QFrame::NoFrame</enum>
+         <enum>QFrame::Shape::NoFrame</enum>
         </property>
         <property name="frameShadow">
-         <enum>QFrame::Plain</enum>
+         <enum>QFrame::Shadow::Plain</enum>
         </property>
         <property name="lineWidth">
          <number>0</number>
@@ -209,10 +209,10 @@
       <item>
        <widget class="QFrame" name="frame">
         <property name="frameShape">
-         <enum>QFrame::NoFrame</enum>
+         <enum>QFrame::Shape::NoFrame</enum>
         </property>
         <property name="frameShadow">
-         <enum>QFrame::Plain</enum>
+         <enum>QFrame::Shadow::Plain</enum>
         </property>
         <property name="lineWidth">
          <number>0</number>
@@ -229,12 +229,18 @@
            <property name="enabled">
             <bool>false</bool>
            </property>
+           <property name="text">
+            <string notr="true"/>
+           </property>
           </widget>
          </item>
          <item row="0" column="2">
           <widget class="QToolButton" name="notifications_exp_chooser1">
            <property name="enabled">
             <bool>false</bool>
+           </property>
+           <property name="accessibleName">
+            <string>MenuPopupToolButton</string>
            </property>
            <property name="text">
             <string/>
@@ -260,12 +266,18 @@
            <property name="enabled">
             <bool>false</bool>
            </property>
+           <property name="text">
+            <string notr="true"/>
+           </property>
           </widget>
          </item>
          <item row="1" column="2">
           <widget class="QToolButton" name="notifications_exp_chooser2">
            <property name="enabled">
             <bool>false</bool>
+           </property>
+           <property name="accessibleName">
+            <string>MenuPopupToolButton</string>
            </property>
            <property name="text">
             <string/>
@@ -287,7 +299,7 @@
       <item row="0" column="1" colspan="2">
        <widget class="QSlider" name="notifications_opacity">
         <property name="orientation">
-         <enum>Qt::Horizontal</enum>
+         <enum>Qt::Orientation::Horizontal</enum>
         </property>
        </widget>
       </item>
@@ -356,9 +368,55 @@
     </widget>
    </item>
    <item>
+    <widget class="QGroupBox" name="groupbox_discord">
+     <property name="title">
+      <string>Discord</string>
+     </property>
+     <layout class="QVBoxLayout" name="verticalLayout_3">
+      <item>
+       <widget class="QCheckBox" name="richpresence_enabled">
+        <property name="text">
+         <string>Enable Rich Presence</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QGroupBox" name="richpresence_listening_to">
+        <property name="title">
+         <string>&quot;Listening to...&quot;</string>
+        </property>
+        <layout class="QVBoxLayout" name="verticalLayout_11">
+         <item>
+          <widget class="QRadioButton" name="richpresence_listening_to_app">
+           <property name="text">
+            <string>Strawberry</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="richpresence_listening_to_artist">
+           <property name="text">
+            <string>Artist name</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QRadioButton" name="richpresence_listening_to_song">
+           <property name="text">
+            <string>Song title</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
     <spacer name="spacer_bottom">
      <property name="orientation">
-      <enum>Qt::Vertical</enum>
+      <enum>Qt::Orientation::Vertical</enum>
      </property>
      <property name="sizeHint" stdset="0">
       <size>

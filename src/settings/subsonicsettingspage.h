@@ -26,6 +26,8 @@
 #include <QString>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
+#include "constants/subsonicsettings.h"
 #include "settings/settingspage.h"
 
 class QEvent;
@@ -37,32 +39,26 @@ class SubsonicSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit SubsonicSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit SubsonicSettingsPage(SettingsDialog *dialog, const SharedPtr<SubsonicService> service, QWidget *parent = nullptr);
   ~SubsonicSettingsPage() override;
-
-  static const char *kSettingsGroup;
-
-  enum AuthMethod {
-    AuthMethod_Hex,
-    AuthMethod_MD5
-  };
 
   void Load() override;
   void Save() override;
 
   bool eventFilter(QObject *object, QEvent *event) override;
 
- signals:
-  void Test(QUrl url, QString username, QString password, SubsonicSettingsPage::AuthMethod auth_method, bool redirect = false);
+ Q_SIGNALS:
+  void Test(const QUrl &url, const QString &username, const QString &password, const SubsonicSettings::AuthMethod auth_method, const bool redirect = false);
 
- private slots:
+ private Q_SLOTS:
+  void CheckboxDownloadAlbumCoversToggled(bool enabled);
   void TestClicked();
   void TestSuccess();
   void TestFailure(const QString &failure_reason);
 
  private:
   Ui_SubsonicSettingsPage *ui_;
-  SubsonicService *service_;
+  const SharedPtr<SubsonicService> service_;
 };
 
 #endif  // SUBSONICSETTINGSPAGE_H

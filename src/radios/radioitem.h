@@ -29,21 +29,24 @@
 class RadioItem : public SimpleTreeItem<RadioItem> {
  public:
 
-  enum Type {
-    Type_LoadingIndicator,
-    Type_Root,
-    Type_Service,
-    Type_Channel,
+  enum class Type {
+    LoadingIndicator,
+    Root,
+    Service,
+    Channel
   };
 
-  explicit RadioItem(SimpleTreeModel<RadioItem> *_model) : SimpleTreeItem<RadioItem>(Type_Root, _model) {}
-  explicit RadioItem(Type _type, RadioItem *_parent = nullptr) : SimpleTreeItem<RadioItem>(_type, _parent) {}
+  explicit RadioItem(SimpleTreeModel<RadioItem> *_model) : SimpleTreeItem<RadioItem>(_model), type(Type::Root) {}
+  explicit RadioItem(const Type _type, RadioItem *_parent = nullptr) : SimpleTreeItem<RadioItem>(_parent), type(_type) {}
 
+  Type type;
   Song::Source source;
   RadioChannel channel;
 
  private:
   Q_DISABLE_COPY(RadioItem)
 };
+
+Q_DECLARE_METATYPE(RadioItem::Type)
 
 #endif  // RADIOITEM_H

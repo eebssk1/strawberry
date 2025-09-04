@@ -24,15 +24,11 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QWidget>
 #include <QObject>
 #include <QHash>
 #include <QString>
 
-#include "collectionquery.h"
-#include "collectionqueryoptions.h"
 #include "collectionmodel.h"
 
 class QTimer;
@@ -43,6 +39,7 @@ class QKeyEvent;
 
 class GroupByDialog;
 class SavedGroupingManager;
+class CollectionFilter;
 class Ui_CollectionFilterWidget;
 
 class CollectionFilterWidget : public QWidget {
@@ -52,15 +49,15 @@ class CollectionFilterWidget : public QWidget {
   explicit CollectionFilterWidget(QWidget *parent = nullptr);
   ~CollectionFilterWidget() override;
 
-  static const int kFilterDelay = 500;  // msec
-
-  enum DelayBehaviour {
+  enum class DelayBehaviour {
     AlwaysInstant,
     DelayedOnLargeLibraries,
     AlwaysDelayed,
   };
 
-  void Init(CollectionModel *model);
+  void Init(CollectionModel *model, CollectionFilter *filter);
+
+  void setFilter(CollectionFilter *filter);
 
   static QActionGroup *CreateGroupByActions(const QString &saved_groupings_settings_group, QObject *parent);
 
@@ -87,21 +84,20 @@ class CollectionFilterWidget : public QWidget {
   bool SearchFieldHasFocus() const;
   void FocusSearchField();
 
- public slots:
+ public Q_SLOTS:
   void UpdateGroupByActions();
   void SetFilterMode(CollectionFilterOptions::FilterMode filter_mode);
   void FocusOnFilter(QKeyEvent *e);
 
- signals:
+ Q_SIGNALS:
   void UpPressed();
   void DownPressed();
   void ReturnPressed();
-  void Filter(QString text);
 
  protected:
   void keyReleaseEvent(QKeyEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void GroupingChanged(const CollectionModel::Grouping g, const bool separate_albums_by_grouping);
   void GroupByClicked(QAction *action);
   void SaveGroupBy();
@@ -117,6 +113,7 @@ class CollectionFilterWidget : public QWidget {
  private:
   Ui_CollectionFilterWidget *ui_;
   CollectionModel *model_;
+  CollectionFilter *filter_;
 
   GroupByDialog *group_by_dialog_;
   SavedGroupingManager *groupings_manager_;
@@ -125,9 +122,9 @@ class CollectionFilterWidget : public QWidget {
   QMenu *group_by_menu_;
   QMenu *collection_menu_;
   QActionGroup *group_by_group_;
-  QHash<QAction*, int> filter_ages_;
+  QHash<QAction*, int> filter_max_ages_;
 
-  QTimer *filter_delay_;
+  QTimer *timer_filter_delay_;
 
   bool filter_applies_to_model_;
   DelayBehaviour delay_behaviour_;
@@ -135,7 +132,6 @@ class CollectionFilterWidget : public QWidget {
   QString settings_group_;
   QString saved_groupings_settings_group_;
   QString settings_prefix_;
-
 };
 
 #endif  // COLLECTIONFILTERWIDGET_H

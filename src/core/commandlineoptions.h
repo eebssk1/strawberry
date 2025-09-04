@@ -23,11 +23,16 @@
 
 #include "config.h"
 
+#include <QtGlobal>
 #include <QDataStream>
 #include <QByteArray>
 #include <QList>
 #include <QString>
 #include <QUrl>
+
+#ifdef Q_OS_WIN32
+#  include <windows.h>
+#endif
 
 class CommandlineOptions {
   friend QDataStream &operator<<(QDataStream &s, const CommandlineOptions &a);
@@ -36,29 +41,26 @@ class CommandlineOptions {
  public:
   explicit CommandlineOptions(int argc = 0, char **argv = nullptr);
 
-  static const char *kHelpText;
-  static const char *kVersionText;
-
   // Don't change the values or order, these get serialised and sent to
   // possibly a different version of Strawberry
-  enum UrlListAction {
-    UrlList_Append = 0,
-    UrlList_Load = 1,
-    UrlList_None = 2,
-    UrlList_CreateNew = 3,
+  enum class UrlListAction {
+    Append = 0,
+    Load = 1,
+    None = 2,
+    CreateNew = 3
   };
-  enum PlayerAction {
-    Player_None = 0,
-    Player_Play = 1,
-    Player_PlayPause = 2,
-    Player_Pause = 3,
-    Player_Stop = 4,
-    Player_Previous = 5,
-    Player_Next = 6,
-    Player_RestartOrPrevious = 7,
-    Player_StopAfterCurrent = 8,
-    Player_PlayPlaylist = 9,
-    Player_ResizeWindow = 10
+  enum class PlayerAction {
+    None = 0,
+    Play = 1,
+    PlayPause = 2,
+    Pause = 3,
+    Stop = 4,
+    Previous = 5,
+    Next = 6,
+    RestartOrPrevious = 7,
+    StopAfterCurrent = 8,
+    PlayPlaylist = 9,
+    ResizeWindow = 10
   };
 
   bool Parse();
@@ -100,12 +102,23 @@ class CommandlineOptions {
     RestartOrPrevious
   };
 
-  static QString tr(const char *source_text);
   void RemoveArg(const QString &starts_with, int count);
+
+#ifdef Q_OS_WIN32
+  static QString OptArgToString(const wchar_t *opt);
+  static QString DecodeName(wchar_t *opt);
+#else
+  static QString OptArgToString(const char *opt);
+  static QString DecodeName(char *opt);
+#endif
 
  private:
   int argc_;
+#ifdef Q_OS_WIN32
+  LPWSTR *argv_;
+#else
   char **argv_;
+#endif
 
   UrlListAction url_list_action_;
   PlayerAction player_action_;

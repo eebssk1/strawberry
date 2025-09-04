@@ -24,7 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
 #include <glib.h>
 #include <glib-object.h>
 #include <gst/gst.h>
@@ -37,10 +36,11 @@
 #include <QString>
 #include <QEvent>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 
 struct TranscoderPreset {
-  explicit TranscoderPreset() : filetype_(Song::FileType_Unknown) {}
+  explicit TranscoderPreset() : filetype_(Song::FileType::Unknown) {}
   TranscoderPreset(const Song::FileType filetype, const QString &name, const QString &extension, const QString &codec_mimetype, const QString &muxer_mimetype_ = QString());
 
   Song::FileType filetype_;
@@ -55,7 +55,7 @@ class Transcoder : public QObject {
   Q_OBJECT
 
  public:
-  explicit Transcoder(QObject *parent = nullptr, const QString &settings_postfix = "");
+  explicit Transcoder(QObject *parent = nullptr, const QString &settings_postfix = QLatin1String(""));
 
   static TranscoderPreset PresetForFileType(const Song::FileType filetype);
   static QList<TranscoderPreset> GetAllPresets();
@@ -70,13 +70,13 @@ class Transcoder : public QObject {
   QMap<QString, float> GetProgress() const;
   qint64 QueuedJobsCount() const { return queued_jobs_.count(); }
 
- public slots:
+ public Q_SLOTS:
   void Start();
   void Cancel();
 
- signals:
-  void JobComplete(QString input, QString output, bool success);
-  void LogLine(QString message);
+ Q_SIGNALS:
+  void JobComplete(const QString &input, const QString &output, const bool success);
+  void LogLine(const QString &message);
   void AllJobsComplete();
 
  protected:
@@ -122,7 +122,7 @@ class Transcoder : public QObject {
     Q_DISABLE_COPY(JobFinishedEvent)
   };
 
-  enum StartJobStatus {
+  enum class StartJobStatus {
     StartedSuccessfully,
     FailedToStart,
     NoMoreJobs,
@@ -133,14 +133,14 @@ class Transcoder : public QObject {
   bool StartJob(const Job &job);
 
   GstElement *CreateElement(const QString &factory_name, GstElement *bin = nullptr, const QString &name = QString());
-  GstElement *CreateElementForMimeType(const QString &element_type, const QString &mime_type, GstElement *bin = nullptr);
+  GstElement *CreateElementForMimeType(GstElementFactoryListType element_type, const QString &mime_type, GstElement *bin = nullptr);
   void SetElementProperties(const QString &name, GObject *object);
 
-  static void NewPadCallback(GstElement*, GstPad *pad, gpointer data);
-  static GstBusSyncReply BusCallbackSync(GstBus*, GstMessage *msg, gpointer data);
+  static void NewPadCallback(GstElement *element, GstPad *pad, gpointer data);
+  static GstBusSyncReply BusCallbackSync(GstBus *bus, GstMessage *msg, gpointer data);
 
  private:
-  using JobStateList = QList<std::shared_ptr<JobState>>;
+  using JobStateList = QList<SharedPtr<JobState>>;
 
   int max_threads_;
   QList<Job> queued_jobs_;

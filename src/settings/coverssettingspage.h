@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,10 +26,13 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
 #include "settings/settingspage.h"
 
 class QListWidgetItem;
+class QShowEvent;
 
+class CoverProviders;
 class CoverProvider;
 class SettingsDialog;
 class Ui_CoversSettingsPage;
@@ -38,13 +41,14 @@ class CoversSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit CoversSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit CoversSettingsPage(SettingsDialog *dialog, const SharedPtr<CoverProviders> cover_providers, QWidget *parent = nullptr);
   ~CoversSettingsPage() override;
-
-  static const char *kSettingsGroup;
 
   void Load() override;
   void Save() override;
+
+ protected:
+  void showEvent(QShowEvent *e) override;
 
  private:
   void NoProviderSelected();
@@ -52,21 +56,38 @@ class CoversSettingsPage : public SettingsPage {
   void DisableAuthentication();
   void DisconnectAuthentication(CoverProvider *provider) const;
   static bool ProviderCompareOrder(CoverProvider *a, CoverProvider *b);
+  void AddAlbumCoverArtType(const QString &name, const QString &description, const bool enabled);
+  QString AlbumCoverArtTypeDescription(const QString &type) const;
+  void TypesMove(const int d);
 
- private slots:
-  void CurrentItemChanged(QListWidgetItem *item_current, QListWidgetItem *item_previous);
-  void ItemSelectionChanged();
-  void ItemChanged(QListWidgetItem *item);
+ private Q_SLOTS:
+  void ProvidersCurrentItemChanged(QListWidgetItem *item_current, QListWidgetItem *item_previous);
+  void ProvidersItemSelectionChanged();
+  void ProvidersItemChanged(QListWidgetItem *item);
   void ProvidersMoveUp();
   void ProvidersMoveDown();
   void AuthenticateClicked();
   void LogoutClicked();
   void AuthenticationSuccess();
-  void AuthenticationFailure(const QStringList &errors);
+  void AuthenticationFailure(const QString &error);
+  void CoverSaveInAlbumDirChanged();
+  void TypesCurrentItemChanged(QListWidgetItem *item_current, QListWidgetItem *item_previous);
+  void TypesItemSelectionChanged();
+  void TypesItemChanged(QListWidgetItem *item);
+  void TypesMoveUp();
+  void TypesMoveDown();
 
  private:
+  enum Type_Role {
+    Type_Role_Name = Qt::UserRole + 1
+  };
+
   Ui_CoversSettingsPage *ui_;
+
+  const SharedPtr<CoverProviders> cover_providers_;
+
   bool provider_selected_;
+  bool types_selected_;
 };
 
 #endif  // COVERSSETTINGSPAGE_H

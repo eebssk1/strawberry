@@ -22,12 +22,12 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QtGlobal>
 #include <QWidget>
 #include <QDialog>
 #include <QScreen>
-#include <QWindow>
 #include <QMainWindow>
 #include <QAbstractItemModel>
 #include <QtAlgorithms>
@@ -57,22 +57,27 @@
 #include <QCloseEvent>
 
 #include "core/iconloader.h"
-#include "core/mainwindow.h"
-#include "widgets/fileview.h"
+#include "core/settings.h"
+#include "constants/filefilterconstants.h"
+#include "constants/transcodersettings.h"
+#include "utilities/screenutils.h"
 #include "transcodedialog.h"
 #include "transcoder.h"
 #include "transcoderoptionsdialog.h"
 #include "ui_transcodedialog.h"
 #include "ui_transcodelogdialog.h"
 
-// winspool.h defines this :(
-#ifdef AddJob
-#  undef AddJob
-#endif
+using namespace Qt::Literals::StringLiterals;
 
-const char *TranscodeDialog::kSettingsGroup = "Transcoder";
-const int TranscodeDialog::kProgressInterval = 500;
-const int TranscodeDialog::kMaxDestinationItems = 10;
+namespace {
+constexpr int kProgressInterval = 500;
+constexpr int kMaxDestinationItems = 10;
+}
+
+#ifdef __GNUC__
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Warray-bounds"
+#endif
 
 static bool ComparePresetsByName(const TranscoderPreset &left, const TranscoderPreset &right) {
   return left.name_ < right.name_;
@@ -102,16 +107,16 @@ TranscodeDialog::TranscodeDialog(QMainWindow *mainwindow, QWidget *parent)
   // Get presets
   QList<TranscoderPreset> presets = Transcoder::GetAllPresets();
   std::sort(presets.begin(), presets.end(), ComparePresetsByName);
-  for (const TranscoderPreset &preset : presets) {
-    ui_->format->addItem(QString("%1 (.%2)").arg(preset.name_, preset.extension_), QVariant::fromValue(preset));
+  for (const TranscoderPreset &preset : std::as_const(presets)) {
+    ui_->format->addItem(QStringLiteral("%1 (.%2)").arg(preset.name_, preset.extension_), QVariant::fromValue(preset));
   }
 
   // Load settings
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   last_add_dir_ = s.value("last_add_dir", QDir::homePath()).toString();
   last_import_dir_ = s.value("last_import_dir", QDir::homePath()).toString();
-  QString last_output_format = s.value("last_output_format", "audio/x-vorbis").toString();
+  QString last_output_format = s.value("last_output_format", u"audio/x-vorbis"_s).toString();
   s.endGroup();
 
   for (int i = 0; i < ui_->format->count(); ++i) {
@@ -186,32 +191,22 @@ void TranscodeDialog::reject() {
 
 void TranscodeDialog::LoadGeometry() {
 
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   if (s.contains("geometry")) {
     restoreGeometry(s.value("geometry").toByteArray());
   }
   s.endGroup();
 
   // Center the window on the same screen as the mainwindow.
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 14, 0))
-  QScreen *screen = mainwindow_->screen();
-#else
-  QScreen *screen = (mainwindow_->window() && mainwindow_->window()->windowHandle() ? mainwindow_->window()->windowHandle()->screen() : nullptr);
-#endif
-  if (screen) {
-    const QRect sr = screen->availableGeometry();
-    const QRect wr({}, size().boundedTo(sr.size()));
-    resize(wr.size());
-    move(sr.center() - wr.center());
-  }
+  Utilities::CenterWidgetOnScreen(Utilities::GetScreen(mainwindow_), this);
 
 }
 
 void TranscodeDialog::SaveGeometry() {
 
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   s.setValue("geometry", saveGeometry());
   s.endGroup();
 
@@ -226,10 +221,12 @@ void TranscodeDialog::SetWorking(bool working) {
   ui_->output_group->setEnabled(!working);
   ui_->progress_group->setVisible(true);
 
-  if (working)
+  if (working) {
     progress_timer_.start(kProgressInterval, this);
-  else
+  }
+  else {
     progress_timer_.stop();
+  }
 
 }
 
@@ -242,9 +239,12 @@ void TranscodeDialog::Start() {
 
   // Add jobs to the transcoder
   for (int i = 0; i < file_model->rowCount(); ++i) {
-    QString filename = file_model->index(i, 0).data(Qt::UserRole).toString();
-    QString outfilename = GetOutputFileName(filename, preset);
-    transcoder_->AddJob(filename, preset, outfilename);
+    const QString input_filepath = file_model->index(i, 0).data(Qt::UserRole).toString();
+    const QString input_import_dir = ui_->preserve_dir_structure->isChecked() ? file_model->index(i, 2).data(Qt::UserRole).toString() : QString();
+    if (input_filepath.isEmpty()) continue;
+    const QString output_filepath = GetOutputFileName(input_filepath, input_import_dir, preset);
+    if (output_filepath.isEmpty()) continue;
+    transcoder_->AddJob(input_filepath, preset, output_filepath);
   }
 
   // Set up the progressbar
@@ -261,8 +261,8 @@ void TranscodeDialog::Start() {
   transcoder_->Start();
 
   // Save the last output format
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   s.setValue("last_output_format", preset.codec_mimetype_);
   s.endGroup();
 
@@ -293,7 +293,7 @@ void TranscodeDialog::UpdateProgress() {
   int progress = (finished_success_ + finished_failed_) * 100;
 
   QMap<QString, float> current_jobs = transcoder_->GetProgress();
-  QList<float> values = current_jobs.values();
+  const QList<float> values = current_jobs.values();
   for (const float value : values) {
     progress += qBound(0, static_cast<int>(value * 100), 99);
   }
@@ -307,18 +307,18 @@ void TranscodeDialog::UpdateStatusText() {
   QStringList sections;
 
   if (queued_) {
-    sections << "<font color=\"#3467c8\">" + tr("%n remaining", "", queued_) + "</font>";
+    sections << u"<font color=\"#3467c8\">"_s + tr("%n remaining", "", queued_) + u"</font>"_s;
   }
 
   if (finished_success_) {
-    sections << "<font color=\"#02b600\">" + tr("%n finished", "", finished_success_) + "</font>";
+    sections << u"<font color=\"#02b600\">"_s + tr("%n finished", "", finished_success_) + u"</font>"_s;
   }
 
   if (finished_failed_) {
-    sections << "<font color=\"#b60000\">" + tr("%n failed", "", finished_failed_) + "</font>";
+    sections << u"<font color=\"#b60000\">"_s + tr("%n failed", "", finished_failed_) + u"</font>"_s;
   }
 
-  ui_->progress_text->setText(sections.join(", "));
+  ui_->progress_text->setText(sections.join(", "_L1));
 
 }
 
@@ -330,15 +330,15 @@ void TranscodeDialog::Add() {
 
   QStringList filenames = QFileDialog::getOpenFileNames(
       this, tr("Add files to transcode"), last_add_dir_,
-      QString("%1 (%2);;%3").arg(tr("Music"), FileView::kFileFilter, tr(MainWindow::kAllFilesFilterSpec)));
+      QStringLiteral("%1 (%2);;%3").arg(tr("Music"), QLatin1String(kFileFilter), tr(kAllFilesFilterSpec)));
 
   if (filenames.isEmpty()) return;
 
   SetFilenames(filenames);
 
   last_add_dir_ = filenames[0];
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   s.setValue("last_add_dir", last_add_dir_);
   s.endGroup();
 
@@ -352,23 +352,18 @@ void TranscodeDialog::Import() {
 
   QStringList filenames;
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-  QStringList audioTypes = QString(FileView::kFileFilter).split(" ", Qt::SkipEmptyParts);
-#else
-  QStringList audioTypes = QString(FileView::kFileFilter).split(" ", QString::SkipEmptyParts);
-#endif
-
-  QDirIterator files(path, audioTypes, QDir::Files | QDir::Readable, QDirIterator::Subdirectories);
+  const QStringList audio_types = QString::fromLatin1(kFileFilter).split(u' ', Qt::SkipEmptyParts);
+  QDirIterator files(path, audio_types, QDir::Files | QDir::Readable, QDirIterator::Subdirectories);
 
   while (files.hasNext()) {
     filenames << files.next();
   }
 
-  SetFilenames(filenames);
+  SetImportFilenames(filenames, path);
 
   last_import_dir_ = path;
-  QSettings s;
-  s.beginGroup(kSettingsGroup);
+  Settings s;
+  s.beginGroup(TranscoderSettings::kSettingsGroup);
   s.setValue("last_import_dir", last_import_dir_);
   s.endGroup();
 
@@ -377,11 +372,25 @@ void TranscodeDialog::Import() {
 void TranscodeDialog::SetFilenames(const QStringList &filenames) {
 
   for (const QString &filename : filenames) {
-    QString name = filename.section('/', -1, -1);
-    QString path = filename.section('/', 0, -2);
+    QString name = filename.section(u'/', -1, -1);
+    QString path = filename.section(u'/', 0, -2);
 
     QTreeWidgetItem *item = new QTreeWidgetItem(ui_->files, QStringList() << name << path);
     item->setData(0, Qt::UserRole, filename);
+  }
+
+}
+
+void TranscodeDialog::SetImportFilenames(const QStringList &filenames, const QString &import_dir) {
+
+  for (const QString &filename : filenames) {
+    QString name = filename.section(u'/', -1, -1);
+    QString path = filename.section(u'/', 0, -2);
+    QString output_dir = filename.section(u'/', import_dir.count(u'/'), -2);
+
+    QTreeWidgetItem *item = new QTreeWidgetItem(ui_->files, QStringList() << name << path << output_dir);
+    item->setData(0, Qt::UserRole, filename);
+    item->setData(2, Qt::UserRole, output_dir);
   }
 
 }
@@ -391,7 +400,7 @@ void TranscodeDialog::Remove() { qDeleteAll(ui_->files->selectedItems()); }
 void TranscodeDialog::LogLine(const QString &message) {
 
   QString date(QDateTime::currentDateTime().toString(Qt::TextDate));
-  log_ui_->log->appendPlainText(QString("%1: %2").arg(date, message));
+  log_ui_->log->appendPlainText(QStringLiteral("%1: %2").arg(date, message));
 
 }
 
@@ -429,7 +438,7 @@ void TranscodeDialog::AddDestination() {
       ui_->destination->removeItem(1);  // The oldest folder item.
     }
 
-    QIcon icon = IconLoader::Load("folder");
+    QIcon icon = IconLoader::Load(u"folder"_s);
     QVariant data_var = QVariant::fromValue(dir);
     // Do not insert duplicates.
     int duplicate_index = ui_->destination->findData(data_var);
@@ -446,20 +455,50 @@ void TranscodeDialog::AddDestination() {
 
 // Returns the rightmost non-empty part of 'path'.
 QString TranscodeDialog::TrimPath(const QString &path) {
-  return path.section('/', -1, -1, QString::SectionSkipEmpty);
+  return path.section(u'/', -1, -1, QString::SectionSkipEmpty);
 }
 
-QString TranscodeDialog::GetOutputFileName(const QString &input, const TranscoderPreset &preset) const {
+QString TranscodeDialog::GetOutputFileName(const QString &input_filepath, const QString &input_import_dir, const TranscoderPreset &preset) const {
 
-  QString path = ui_->destination->itemData(ui_->destination->currentIndex()).toString();
-  if (path.isEmpty()) {
+  QString destination_path = ui_->destination->itemData(ui_->destination->currentIndex()).toString();
+  QString output_filepath;
+  if (destination_path.isEmpty()) {
     // Keep the original path.
-    return input.section('.', 0, -2) + '.' + preset.extension_;
+    output_filepath = input_filepath.section(u'.', 0, -2) + u'.' + preset.extension_;
   }
   else {
-    QString file_name = TrimPath(input);
-    file_name = file_name.section('.', 0, -2);
-    return path + '/' + file_name + '.' + preset.extension_;
+    QString filename = TrimPath(input_filepath);
+    filename = filename.section(u'.', 0, -2);
+    // If checkbox for preserving import directory structure is checked validate the path exists
+    if (ui_->preserve_dir_structure->isChecked()) {
+      const QString path = destination_path + u'/' + input_import_dir;
+      const QDir dir(path);
+      if (!dir.exists()) {
+        dir.mkpath(u"."_s);
+      }
+      output_filepath = path + u'/' + filename + u'.' + preset.extension_;
+    }
+    // Otherwise no modifications to the output path
+    else {
+      output_filepath = destination_path + u'/' + filename + u'.' + preset.extension_;
+    }
   }
 
+  if (output_filepath.isEmpty()) return QString();
+
+  if (QFileInfo::exists(output_filepath)) {
+    QFileInfo fileinfo(output_filepath);
+    const QString original_filename = fileinfo.completeBaseName();
+    for (int i = 1; fileinfo.exists(); ++i) {
+      fileinfo.setFile(QStringLiteral("%1/%2-%3.%4").arg(fileinfo.path(), original_filename).arg(i).arg(fileinfo.suffix()));
+    }
+    output_filepath = fileinfo.filePath();
+  }
+
+  return output_filepath;
+
 }
+
+#ifdef __GNUC__
+#pragma GCC diagnostic pop
+#endif

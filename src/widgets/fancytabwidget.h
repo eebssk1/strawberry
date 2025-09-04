@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2018, Vikram Ambrose <ambroseworks@gmail.com>
- * Copyright 2018, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,24 +22,18 @@
 #ifndef FANCYTABWIDGET_H
 #define FANCYTABWIDGET_H
 
-#include <QObject>
 #include <QTabWidget>
 #include <QHash>
 #include <QString>
 #include <QIcon>
 #include <QPixmap>
-#include <QSize>
 #include <QColor>
 
 class QMenu;
 class QActionGroup;
 class QContextMenuEvent;
 class QPaintEvent;
-class QProxyStyle;
-class TabData;
-
-namespace Core {
-namespace Internal {
+class FancyTabData;
 
 class FancyTabWidget : public QTabWidget {
   Q_OBJECT
@@ -48,51 +42,46 @@ class FancyTabWidget : public QTabWidget {
   explicit FancyTabWidget(QWidget *parent = nullptr);
   ~FancyTabWidget() override;
 
-  void AddTab(QWidget *widget_view, const QString &name, const QIcon &icon, const QString &label);
-  bool EnableTab(QWidget *widget_view);
-  bool DisableTab(QWidget *widget_view);
-  int insertTab(const int idx, QWidget *page, const QIcon &icon, const QString &label);
-  void addBottomWidget(QWidget *widget_view);
-  int IndexOfTab(QWidget *widget);
-
-  void setBackgroundPixmap(const QPixmap &pixmap);
-  void addSpacer();
-
-  void Load(const QString &kSettingsGroup);
-  void SaveSettings(const QString &kSettingsGroup);
-  void ReloadSettings();
-
-  //  Values are persisted - only add to the end
-  enum Mode {
-    Mode_None = 0,
-    Mode_LargeSidebar,
-    Mode_SmallSidebar,
-    Mode_Tabs,
-    Mode_IconOnlyTabs,
-    Mode_PlainSidebar,
+  enum class Mode {
+    None = 0,
+    LargeSidebar,
+    SmallSidebar,
+    Tabs,
+    IconOnlyTabs,
+    PlainSidebar,
+    IconsSidebar,
   };
-
-  static const int TabSize_LargeSidebarMinWidth;
-  static const int IconSize_LargeSidebar;
-  static const int IconSize_SmallSidebar;
 
   Mode mode() const { return mode_; }
   int iconsize_smallsidebar() const { return iconsize_smallsidebar_; }
   int iconsize_largesidebar() const { return iconsize_largesidebar_; }
 
- signals:
-  void ModeChanged(FancyTabWidget::Mode mode);
-  void CurrentChanged(int);
+  void AddTab(QWidget *widget_view, const QString &name, const QIcon &icon, const QString &label);
 
- public slots:
-  void setCurrentIndex(int idx);
-  void SetMode(Core::Internal::FancyTabWidget::Mode mode);
-  // Mapper mapped signal needs this convenience function
-  void SetMode(int mode) { SetMode(Mode(mode)); }
+  void LoadSettings(const QString &settings_group);
+  void SaveSettings(const QString &settings_group);
+  void ReloadSettings();
 
- private slots:
-  void tabBarUpdateGeometry();
-  void currentTabChanged(int);
+  int InsertTab(const int preffered_index, FancyTabData *tab);
+  int InsertTab(const int idx, QWidget *page, const QIcon &icon, const QString &label);
+
+  bool EnableTab(QWidget *widget_view);
+  bool DisableTab(QWidget *widget_view);
+
+  void AddSpacer();
+  void AddBottomWidget(QWidget *widget_view);
+  void SetBackgroundPixmap(const QPixmap &pixmap);
+  int IndexOfTab(QWidget *widget);
+
+  static QColor DefaultTabbarBgColor();
+
+ public Q_SLOTS:
+  void SetMode(const Mode mode);
+  void SetCurrentIndex(int idx);
+
+ private Q_SLOTS:
+  void TabBarUpdateGeometry();
+  void CurrentTabChangedSlot(const int idx);
 
  protected:
   void paintEvent(QPaintEvent*) override;
@@ -101,25 +90,23 @@ class FancyTabWidget : public QTabWidget {
  private:
   void addMenuItem(QActionGroup *group, const QString &text, Mode mode);
 
-  QProxyStyle *style_;
+ Q_SIGNALS:
+  void ModeChanged(const Mode mode);
+  void CurrentTabChanged(const int idx);
+
+ private:
   QPixmap background_pixmap_;
   QMenu *menu_;
   Mode mode_;
   QWidget *bottom_widget_;
 
-  QHash<QWidget*, TabData*> tabs_;
+  QHash<QWidget*, FancyTabData*> tabs_;
 
   bool bg_color_system_;
   bool bg_gradient_;
   QColor bg_color_;
   int iconsize_smallsidebar_;
   int iconsize_largesidebar_;
-
 };
-
-}  // namespace Internal
-}  // namespace Core
-
-using Core::Internal::FancyTabWidget;
 
 #endif  // FANCYTABWIDGET_H

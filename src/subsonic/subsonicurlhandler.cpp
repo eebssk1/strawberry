@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,7 +19,6 @@
 
 #include "config.h"
 
-#include <QtGlobal>
 #include <QUrl>
 #include <QUrlQuery>
 
@@ -27,26 +26,24 @@
 #include "subsonicbaserequest.h"
 #include "subsonicurlhandler.h"
 
-class Application;
+using namespace Qt::Literals::StringLiterals;
 
-SubsonicUrlHandler::SubsonicUrlHandler(Application *app, SubsonicService *service) : UrlHandler(service), service_(service) {
-  Q_UNUSED(app);
-}
+SubsonicUrlHandler::SubsonicUrlHandler(SubsonicService *service) : UrlHandler(service), service_(service) {}
 
 UrlHandler::LoadResult SubsonicUrlHandler::StartLoading(const QUrl &url) {
 
   if (!server_url().isValid()) {
-    return LoadResult(url, LoadResult::Error, tr("Subsonic server URL is invalid."));
+    return LoadResult(url, LoadResult::Type::Error, tr("Subsonic server URL is invalid."));
   }
 
   if (username().isEmpty() || password().isEmpty()) {
-    return LoadResult(url, LoadResult::Error, tr("Missing Subsonic username or password."));
+    return LoadResult(url, LoadResult::Type::Error, tr("Missing Subsonic username or password."));
   }
 
   using Param = QPair<QString, QString>;
   using ParamList = QList<Param>;
-  const QUrl stream_url = SubsonicBaseRequest::CreateUrl(server_url(), auth_method(), username(), password(), "stream", ParamList() << Param("id", url.path()));
+  const QUrl stream_url = SubsonicBaseRequest::CreateUrl(server_url(), auth_method(), username(), password(), u"stream"_s, ParamList() << Param(u"id"_s, url.path()));
 
-  return LoadResult(url, LoadResult::TrackAvailable, stream_url);
+  return LoadResult(url, LoadResult::Type::TrackAvailable, stream_url);
 
 }

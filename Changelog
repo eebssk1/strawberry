@@ -2,6 +2,469 @@ Strawberry Music Player
 =======================
 ChangeLog
 
+Version 1.2.13 (2025.08.31):
+
+  Bugfixes:
+    * Fixed playlist alternating row colors no longer working with some styles (#1806)
+    * Fixed "Open Audio CD" no longer working (#1803)
+    * Fixed systemtray icon playback status not working with scaling (#1782)
+    * Fixed build without MusicBrainz (#1799)
+    * Fixed build without MTP (#1804)
+
+  Enhancements:
+    * Added Discord status text option (#1796)
+    * Read Vorbis/FLAC "Other" embedded covers if front cover is not available (#1793)
+
+Version 1.2.12 (2025.08.12):
+
+  Bugfixes:
+    * Fixed scrobbling for radio streams.
+    * Fixed CDDA memory leaks.
+    * Fixed device view CDDA loading (#1676).
+    * Fixed collection directory editing (#1767).
+    * Fixed devices sometimes being duplicated in the database.
+    * Fixed alternating playlist row colors with Windows 11 style.
+    * Fixed broken file filter for GME formats.
+    * Fixed collection scanning for GME formats.
+    * Fixed Chartlyrics.
+    * Fixed network cache file descriptor leak on lyrics search with workaround for QTBUG-135641.
+    * Fixed parsing Tidal urls with certain stream URL replies.
+    * Fixed pixelated window icon on Wayland (#1753).
+    * Fixed saving collection grouping with special characters in the name (#1758).
+    * Fixed Spotify token not automatically updated on renewal when playing (#1769).
+    * (macOS/Windows) Fixed network cache file descriptor leak with patch for QTBUG-135641.
+    * (Windows|MSVC) Fixed installer to not restart the computer after installing Visual C++ Redistributable.
+
+  Enhancements:
+    * Implemented edit tag dialog reset for year, track, disc and rating.
+    * Added ALAC to supported filetypes for iPods.
+    * Added CD-TEXT support.
+    * Added back Genius lyrics.
+    * Added support for reporting more info to ListenBrainz.
+    * Added support for BPM, mood and initial key tags.
+    * Added support for sort tags to collection, playlists and smart playlists.
+
+Version 1.2.11 (2025.05.15):
+
+    * Fixed playlist songs sometimes not updated with new cover.
+    * Fixed context album cover showing even when it's disabled in the setting (#1744).
+    * Fixed crash when dragging songs to a closed playlist (#1741).
+    * Enable startup notify in desktop file.
+    * (Windows|MSVC) Add experimental support for native ARM64 builds.
+    * (Windows|MinGW) Fixed crash on exit.
+
+Version 1.2.10 (2025.04.18):
+
+  Bugfixes:
+    * Fixed Discord rich presence showing bogus artist and album.
+    * Fixed incorrect ID3v2 comment tag.
+    * (macOS|Windows MSVC) Fixed stuck playback of some streams.
+
+  Enhancements:
+    * Removed Genius lyrics (longer working properly because of website changes).
+    * (macOS|Windows MSVC) Added back Spotify
+
+Version 1.2.9 (2025.04.08):
+
+  Bugfixes:
+    * Fixed subsonic parse error (#1719).
+    * Fixed Deezer cover provider parse error (#1716).
+    * Fixed last.fm import progress.
+    * (Windows|MinGW) Switched from winpthreads to win32 threads, winpthreads are no longer working with Qt as of version 6.9 (QTBUG-131892).
+
+  Enhancements:
+    * Added option to disable playbin3.
+
+Version 1.2.8 (2025.04.05):
+
+  Bugfixes:
+    * Added "HI_RES_LOSSLESS" for Tidal quality setting.
+    * Increased backend settings device lineedit height.
+    * Possible fix for KGlobalAccel shortcuts sometimes not working.
+
+  Enhancements:
+     * Removed deprecated Tidal username/password login.
+     * Turned off "Grey out unavailable songs in playlists on startup" by default.
+     * Added support for reading tags from streams.
+     * Added tooltips in equalizer, backend and appearance settings.
+     * Added full tag support for AIFF including embedded covers.
+     * Use card ID instead of index for ALSA devices.
+     * Removed KDSingleApplication from 3rdparty.
+     * Support arbitrarily large EBU R 128 loudness normalization.
+
+  New features:
+     * Added Discord rich presence support.
+
+Version 1.2.7 (2025.01.31):
+
+   Bugfixes:
+     * Fixed strawberry exiting when clicking tray icon.
+     * Fixed Clementine import script errors.
+     * Disabled OSD Pretty on Wayland since it's not working properly.
+
+  Enhancements:
+     * Only maximize error dialog if Strawberry is the active window (#1627).
+     * Added QPA Platform Native Interface as optional component.
+
+Version 1.2.6 (2025.01.17):
+
+   Bugfixes:
+    * Fixed dragging songs from playlist to queue.
+
+Version 1.2.5 (2025.01.17):
+
+  Bugfixes:
+    * Fixed crash when saving playcount or rating to file (#1633).
+    * Fixed QFile::open failing in unit tests.
+    * Fixed playlist sequence settings saved to wrong configuration file (#1649).
+
+  Enhancements:
+    * Fixed use of deprecated GIO functions with GLib 2.84 and newer.
+    * (macOS) Added back Sparkle updater to check for new releases.
+
+Version 1.2.4 (2025.01.10):
+
+  Bugfixes:
+     * Fixed Spotify songs not being available for scrobbling.
+     * Fixed leading "A" and "The" articles being skipped for album sort text.
+     * Fixed thread safety issue when validating playlist songs on startup.
+     * Fixed filter search not ignoring space after colon when using column based search.
+     * Fixed KGlobalAccel to use capitalized application name.
+     * Fixed slash not properly handled when saving a playlist (#1624).
+     * (Unix) Fixed collection scanner so it ignores special filesystem paths (/sys, /proc, /run, etc) (#1615).
+     * (Windows) Fixed smart playlist wizard not respecting dark mode with Windows 11 style (#1639).
+
+  Enhancements:
+     * Use XSPF "title" as playlist name when loading and saving playlists (#1624).
+     * Added support for using album ID when receving album covers for Subsonic songs (#1636).
+     * Added option for preserving directory structure when trascoding songs (#1637).
+     * (Windows) Always run MSVC runtime installer to possible fix issues when there is an older runtime installed.
+
+Version 1.2.3 (2024.12.08):
+
+  Bugfixes:
+    * Fixed libcdio NULL related compilation error on FreeBSD (#1610).
+    * Fixed missing seek when starting playback of a CUE song (#1568).
+    * Fixed "QDBusObjectPath: invalid path" error.
+
+Version 1.2.2 (2024.11.23):
+
+  Bugfixes:
+
+    * Fixed crash when creating a new smart playlist (#1609).
+    * Fixed last playlist column being added when dragging a song and switching playlists.
+
+Version 1.2.1 (2024.11.21):
+
+This release features major restructuring of the codebase, moving source files,
+rewriting CMake build files, dropping Qt 5 support, external tagreader,
+and dropping some unmaintained parts such as VLC.
+
+  Bugfixes:
+
+    * Fixed playback of CUE continuing to play from the same file after the song has finished playing (#1568).
+    * Fixed updating collection song sort text when disc is changed.
+    * Fixed current playing file left open when the next track errored (#1582).
+    * Fixed filter search not finding song containing uppercase "A" (#1599).
+    * Fixed crash when removing album from playlist when using shuffle albums (#1588).
+    * Fixed IDv3 MBID's tags with multiple entries being ignored.
+    * Fixed crash when enabling Tidal, Spotify, Qobuz or Subsonic services.
+    * Fixed passing filenames to strawberry on command line not resolving to absolute paths.
+    * (macOS) Fixed program not starting for users with long usernames.
+    * (macoS) Fixed crash when pressing caps lock (#1606).
+    * (macOS) Remove "song progress on taskbar" option in behaviour settings.
+
+  Enhancements:
+
+    * Resolve symbolic links when dragging files to the playlist to match collection song.
+    * Replaced Spotify username/password with access token.
+    * Require Qt 6.4 or higher and drop support for Qt 5.
+    * Require TagLib 1.12 or higher.
+    * Use Qt stringliterals.
+    * Move gstfastspectrum to src.
+    * Use standard user temp location for current album cover.
+    * Removed old MacFSListener.
+    * Removed external tagreader and protobuf dependency.
+    * Removed VLC support.
+    * Ported to Qt translation (.ts) files and removed gettext dependency.
+    * Removed deprecated Gnome/Mate SettingsDaemon global shortcuts.
+
+Version 1.1.3 (2024.09.21):
+
+  Bugfixes:
+    * Fixed gstreamer registry lookup leak in Spotify settings.
+    * Fixed all songs in a CUE sheet starting playback at the zero position (#1549).
+    * Fixed playback going to pause and back to play on song change.
+    * Fixed Genius Lyrics login not working (#1554).
+    * Fixed slow collection filter search.
+
+Version 1.1.2 (2024.09.12):
+
+  Bugfixes:
+    * Fixed Tidal Open API cover provider to only login when needed instead of on startup.
+    * Fixed KDE added keyboard accelerator characters (ampersands) appearing in sidebar (#1400, #1389, #1476).
+    * Fixed KDE added keyboard accelerator characters (ampersands) appearing when editing playlist name (#1499).
+    * Fixed collection "Search for this" adding prefix without value (#1510).
+    * Fixed play (-p) command line option not working on startup (#1465).
+    * Fixed scan transaction being started when "Update the collection when Strawberry starts" option is unchecked (#1469)
+    * Fixed Spotify bitrate being limited 128kbit/s.
+    * Fixed Spotify returning too many artists and albums.
+    * Fixed manually switching Spotify songs blocking UI.
+    * Fixed analyzer not being set.
+    * Fixed context top text being updated causing selected text to be unselected.
+    * Fixed filter search to use filename for songs with empty title.
+    * Fixed missing developer in Appstream appdata file.
+    * Fixed MPRIS2 DesktopEntry to return desktop file entry without ".desktop" (#1516)
+    * Fixed WavPack .wvc accepted as valid audio files (#1525).
+    * Fixed dynamic playlist controls not following system colors (#1483).
+    * Fixed freeze on playlist right click (#1478).
+    * Fixed copying songs to a iPod device keeping too many files open (#1527).
+    * Fixed MBIDs from MP4 being parsed incorrectly causing ListenBrainz errors (#1531).
+    * Fixed playlist sorting after filename (#1538).
+
+  Enhancements:
+    * Improved volume adjustment and track seeking using touchpad (#1498).
+    * Use own thread for lyrics parsing.
+    * Added url and filename columns to collection and playlist filter search.
+    * (macOS) Added Spotify.
+
+Version 1.1.1 (2024.07.22):
+
+  Bugfixes:
+    * Fixed compilation songs being split into different albums when using album grouping.
+    * Fixed adding playlist columns not working when stretch mode is disabled (#1085).
+    * Fixed resetting playlist columns.
+    * Fixed adding songs to playlist adding all songs instead of filtered songs.
+    * Fixed collection filter matching entire text instead of individual words.
+
+  Enhancements:
+    * Use same code for collection and playlist filter search.
+
+Version 1.1.0 (2024.07.14):
+
+  Bugfixes:
+    * Fixed crash when pressing CTRL + C (#1359).
+    * Pass on scroll events to page in settings to avoid changing settings when scrolling with mouse (#1380).
+    * Fixed misredered playlist search field with Wayland using scaling (#1255).
+    * Fixed Azlyrics lyrics provider because of website changes.
+    * Fixed Musixmatch lyrics provider because of website changes.
+    * Fixed application exiting when closing file dialog (#1401).
+    * Fixed playlist shuffle randomness (#707).
+    * Fixed playlist shuffle order always the same when restarting playback (#1381).
+    * Fixed dynamic random mix not always ignoring shuffle and repeat mode (#1366).
+    * Fixed manual shuffle while playing not setting current song to new index (##1353).
+    * Fixed volume sync with PA when output is set to auto (#1123).
+    * Fixed mpris:trackid type with KDE 6 (#1397).
+    * Fixed open in file manager feature not handling missing XDG_DATA_DIRS variable.
+    * Fixed collection pixmap disk cache and moodbar cache with newer Qt versions.
+    * Fixed reading common metadata CUE's with multiple files (#1463).
+    * Fixed playlist header stretch mode to only resize the right column of the column being resized.
+    * Fixed adding columns to playlist header not working when not using stretch mode (#1085).
+    * Fixed severe memory leak (!) in context album cover fading (#1464).
+    * Separate albums by different artist in album groupings (#1276).
+    * Removed -new-window parameter from dolphin command for open in file manager (#1412).
+    * Only use playbin3 with GStreamer 1.24 and higher, not with GStreamer 1.22 or lower.
+    * (macOS/Windows) Fixed dash and hls streaming, plugins were missing.
+    * (Windows) Fixed incorrect colors in smart playlist wizard with Fusion in dark mode (#1399).
+    * (Windows) Fixed update window blocking sponsor window on startup.
+
+  Enhancements:
+    * Improve error messages when connecting and copying to devices.
+    * Allow enter to be used with multiselection to add songs to playlist (#1360)
+    * Add song progress to taskbar using D-Bus.
+    * Use API to receive Radio Paradise channels.
+    * Added button for fetching lyrics to tag editor (#1391).
+    * Added option not to skip "A", "An" and "The” when sorting artist names in collection (#1393).
+    * Improved album and title disc, remastered, etc matching and stripping (#1387).
+    * Save volume to settings when adjusting (#1272).
+    * Resolve song from collection using track with Cue in XSPF (#1181).
+    * Added background image to sidebar.
+    * Read metadata from RIFF WAV files (#1424).
+    * Use original path instead of canonical path when adding directories to the collection.
+    * Only apply added/removed collection directories when settings are saved.
+    * Detect and handle different text encodings when reading CUE files (#1429).
+    * The collection has been rewritten and improved (model/filter/search) (#392).
+    * Improve error messages from tag reader.
+    * (Unix) Add experimental GStreamer pipewire support.
+    * (Windows) Add experimental exclusive mode for WASAPI.
+    * (Windows MSVC) Added experimental ASIO support.
+    * (Windows MSVC) Add back WASAPI2.
+
+  New features:
+    * Letras lyrics provider.
+    * Open Tidal API (openapi.tidal.com) cover provider.
+    * Turbine analyzer.
+    * WaveRubber analyzer.
+    * Spotify streaming support.
+
+  Removed features:
+    * Removed now broken lyricsmode.com lyrics provider because of website changes.
+
+Version 1.0.23 (2024.01.11):
+
+  Bugfixes:
+    * Fixed possible duplication of song entries after organizing (#1341).
+    * Fixed possible crash when connecting devices (#1313).
+    * Fixed playlist sorting of original year (#1349).
+    * (macOS) Fixed crash when adding collection directory (QTBUG-120469) (#1350).
+
+  Enhancements:
+    * Treat all stream errors as non-fatal (#1347).
+    * Require KDSingleApplication 1.1.0.
+    * Fix logging of restored unavailable songs.
+
+Version 1.0.22 (2023.12.09):
+
+  Bugfixes:
+    * Fixed KDSingleApplication cmake version check.
+    * Fixed KDSingleApplication Qt 5 detection (#1299).
+    * Fixed timer started in wrong thread (#1302).
+    * Fixed erratic seeking behaviour if buffer duration is set to zero (#1302).
+    * Fixed SCollection related crash on exit with Qt 5 (#1316).
+    * Fixed track about to end related crash on playback failure (#1332).
+    * Fixed playlist column widths not remembered if stretch mode is off with Qt 6.6.1 and higher (#1328).
+    * (Windows) Properly handle silent uninstall (#1323).
+
+  Enhancements:
+    * Increase thread priority for playback threads.
+    * Allow drag and drop of songs to favorite playlists.
+
+Version 1.0.21 (2023.10.21):
+
+  Bugfixes:
+    * Fixed seekbar position resetting to zero before showing actual position when seeking.
+    * Fixed compressed files showing up in collection (#1274).
+    * Fixed connecting devices (#1288).
+    * Fixed device schema missing ebur128 fields.
+    * Fixed collection search by tag not working with space between colon and search term (#1290).
+    * Fixed seeking when 5 seconds is remaining of the song resetting position to beginning (#1258).
+    * Fixed intermittent crash when seeking with Auto as output (#1123).
+    * (Windows) Fixed playlist header colors in dark mode (#1275).
+
+  Enhancements:
+    * Support using system KDSingleApplication when available.
+    * Improved lyrics matching.
+    * (macOS) Fully codesign binaries and DMG.
+
+Version 1.0.20 (2023.09.24):
+
+  Bugfixes:
+    * Fixed appdata validation.
+
+Version 1.0.19 (2023.09.24):
+
+  Bugfixes:
+    * Use shared pointers for objects to fix potential crashes on exit (#1239).
+    * Fixed smart playlist search not matching unrated songs (#1244).
+    * Fixed reading FMPS_Playcount for MP3 ID3v2 tags (#1248).
+    * Always stop playing after 100 errors to prevent flooding the error dialog (#1220).
+    * Fixed volume going to 100% when decreasing volume beyond zero (#1262).
+    * Fixed error dialog sometimes showing empty.
+    * (Windows) Removed broken volume sync (#1220).
+    * (Windows) Fixed shuttering / choppy audio (#1227).
+    * (macOS) Fixed missing search bars (#1221).
+
+  Enhancements:
+    * Add Mpris2 property to read/write rating (#1246).
+    * Capitalize playlist column names (#1264).
+    * Added lyrics from songlyrics.com, azlyrics.com, elyrics.net and lyricsmode.com.
+    * (Windows) Add gst-play-1.0.exe for debugging purposes.
+
+  New features
+    * Support performing song loudness analysis using `libebur128` (#1216).
+    * Support song playback loudness normalization, as per EBU R 128 (#1216).
+
+  Other:
+    * Removed last.fm HTTPS workaround and GnuTLS dependency
+    * Removed broken lyrics.com lyrics provider.
+    * (Windows) Use DirectSound as default sink.
+    * (Windows) Remove WASPI2 plugin because of GStreamer bug.
+
+Version 1.0.18 (2023.07.02):
+
+  Bugfixes:
+    * Fixed reading disc from QObuz songs (#1168).
+    * Fixed volume being reset on playback with PulseAudio (#1174).
+    * Fixed <br> tags in SQL query error message.
+    * Fixed compile with Qt 6 without XCB (QX11Application).
+    * Fixed smart playlist editor not properly loading search terms (#1172).
+    * Fixed use of fixed icon for playlist favorite star icon (#1178).
+    * Possible fix for collection thumbnails using disk cache having identical covers for albums with hashtag (#) in the album title (#1183).
+    * Fixed listenbrainz scrobbling for songs with multiple artist mbids.
+    * Fixed listenbrainz scrobbling for songs without duration.
+    * Fixed gapless playback sometimes not working.
+    * Fixed writing PNG images as embedded covers (#1209).
+    * Fixed greyscale album covers not working in OSD D-Bus (#1205).
+    * Fixed collection thumbnail disk cache with Qt 6.5.1 and newer.
+    * Fixed moodbar disk cache with Qt 6.5.1 and newer.
+    * Fixed playlist edit tag F2 shortcut only working for title tag (#1210).
+    * Append number to filename if the destination file already exist when transcoding audio (#1200).
+    * Fixed abseil linking issues with protobuf 1.22.0 and newer.
+    * (macOS) Fixed "Show this message" checkbox having no affect on Rosetta warning dialog (#1180).
+    * (macOS) Disable unused D-Bus.
+    * (Windows) Fixed command line options not working with diacritics (#1191).
+    * (Windows) Fixed issue with saving album covers in album directory being saved in temp directory instead.
+    * (Windows) Fixed crash when trying a play a song which doesn't exist, gstreamer issue #1683 (#1214).
+
+  Enhancements:
+    * Reduce memory overhead with album cover handling (#1046).
+    * Improved listenbrainz error handling.
+    * Show error dialog for listenbrainz errors similar to last.fm/libre.fm.
+    * Reduce NetworkAccessManager instances.
+    * Replace SingleApplication with KDSingleApplication.
+    * Require Qt 5.12 or higher.
+    * Add new database fields for art_embedded and art_unset.
+    * Rewrite album cover loader.
+    * Move cover filename settings from collection to covers settings.
+    * Add setting to set priorities for album cover types.
+    * Add rating filtering to playlist search (#1212).
+    * (Windows|MSVC) Add WSAPI2 plugin.
+
+Version 1.0.17 (2023.03.29):
+
+  Bugfixes:
+    * Fixed over-sized context album cover with device pixel ratio higher than 1.0 (#1166).
+    * Fixed playing widget fading from a blurry previous cover with device pixel ratio higher than 1.0.
+    * Made playlist source icon, album cover manager and OSD pretty cover respect device pixel ratio.
+
+Version 1.0.16 (2023.03.27):
+
+  Bugfixes:
+    * Fixed lyrics from Musixmatch.
+    * Fixed possible file corruption when saving both tags and embedded cover using the tag editor (#1158).
+    * Fixed compile without GStreamer.
+    * Fixed context and playing now album art rendering on High DPI displays (#1161).
+    * Fixed setting source properties (device, user-agent, ssl-strict) with GStreamer 1.22 (playbin3) and higher (#1148).
+    * Fixed rescan songs feature not ignoring mtime.
+    * Search lyrics by artist instead of album artist by default.
+
+  Code improvements:
+    * Replace use of deprecated QSqlDatabase::exec().
+
+  Added features:
+    * Added backend setting for strict SSL mode.
+    * Read AcoustID and MusicBrainz tags.
+    * Submit MusicBrainz tags with ListenBrainz.
+
+Version 1.0.15 (2023.03.04):
+
+  Bugfixes:
+    * Fixed playlist column showing invalid last played date for streams.
+    * Fixed crash when the audio bin failed to initialize (#1123, #1133).
+    * Fixed duplicated filename when organizing files using dot in the filename (#1136).
+    * Fixed tag inline editing for streams (#1130).
+    * Fixed resetting play statistics using tag edit dialog (#1124).
+    * Fixed compilation songs not showing if group by was set to other than (Album) Artist / Album (#1140).
+
+  Enhancements:
+    * Added lyrics from stands4 (lyrics.com).
+    * Added Sonogram analyzer.
+    * Use GStreamer playbin3 with GStreamer 1.22.0 and higher.
+
+  Code improvements:
+    * Made use of C++11 enum class where possible.
+    * Use new QNativeIpcKey based QSharedMemory constructor with Qt 6.6 and higher.
+
 Version 1.0.14 (2023.01.13):
 
   Bugfixes:

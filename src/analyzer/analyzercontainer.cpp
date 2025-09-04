@@ -39,24 +39,30 @@
 #include "analyzerbase.h"
 #include "blockanalyzer.h"
 #include "boomanalyzer.h"
+#include "turbineanalyzer.h"
+#include "sonogramanalyzer.h"
+#include "waverubberanalyzer.h"
 #include "rainbowanalyzer.h"
-#include "sonogram.h"
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
+#include "core/settings.h"
 #include "engine/enginebase.h"
-#include "engine/enginetype.h"
 
 using namespace std::chrono_literals;
+using namespace Qt::Literals::StringLiterals;
 
 const char *AnalyzerContainer::kSettingsGroup = "Analyzer";
 const char *AnalyzerContainer::kSettingsFramerate = "framerate";
 
 // Framerates
-const int AnalyzerContainer::kLowFramerate = 20;
-const int AnalyzerContainer::kMediumFramerate = 25;
-const int AnalyzerContainer::kHighFramerate = 30;
-const int AnalyzerContainer::kHigherFramerate = 48;
-const int AnalyzerContainer::kSuperHighFramerate = 60;
+namespace {
+constexpr int kLowFramerate = 20;
+constexpr int kMediumFramerate = 25;
+constexpr int kHighFramerate = 30;
+constexpr int kHigherFramerate = 48;
+constexpr int kSuperHighFramerate = 60;
+} // namespace
 
 AnalyzerContainer::AnalyzerContainer(QWidget *parent)
     : QWidget(parent),
@@ -86,9 +92,11 @@ AnalyzerContainer::AnalyzerContainer(QWidget *parent)
 
   AddAnalyzerType<BlockAnalyzer>();
   AddAnalyzerType<BoomAnalyzer>();
-  AddAnalyzerType<Rainbow::NyanCatAnalyzer>();
-  AddAnalyzerType<Rainbow::RainbowDashAnalyzer>();
-  AddAnalyzerType<Sonogram>();
+  AddAnalyzerType<TurbineAnalyzer>();
+  AddAnalyzerType<SonogramAnalyzer>();
+  AddAnalyzerType<WaveRubberAnalyzer>();
+  AddAnalyzerType<RainbowDashAnalyzer>();
+  AddAnalyzerType<NyanCatAnalyzer>();
 
   disable_action_ = context_menu_->addAction(tr("No analyzer"), this, &AnalyzerContainer::DisableAnalyzer);
   disable_action_->setCheckable(true);
@@ -106,16 +114,8 @@ AnalyzerContainer::AnalyzerContainer(QWidget *parent)
 
 void AnalyzerContainer::mouseReleaseEvent(QMouseEvent *e) {
 
-  if (engine_->type() != Engine::EngineType::GStreamer) {
-    return;
-  }
-
   if (e->button() == Qt::RightButton) {
-#if (QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
     context_menu_->popup(e->globalPosition().toPoint());
-#else
-    context_menu_->popup(e->globalPos());
-#endif
   }
 
 }
@@ -125,10 +125,10 @@ void AnalyzerContainer::ShowPopupMenu() {
 }
 
 void AnalyzerContainer::wheelEvent(QWheelEvent *e) {
-  emit WheelEvent(e->angleDelta().y());
+  Q_EMIT WheelEvent(e->angleDelta().y());
 }
 
-void AnalyzerContainer::SetEngine(EngineBase *engine) {
+void AnalyzerContainer::SetEngine(SharedPtr<EngineBase> engine) {
 
   if (current_analyzer_) current_analyzer_->set_engine(engine);
   engine_ = engine;
@@ -136,15 +136,17 @@ void AnalyzerContainer::SetEngine(EngineBase *engine) {
 }
 
 void AnalyzerContainer::DisableAnalyzer() {
+
   delete current_analyzer_;
   current_analyzer_ = nullptr;
 
   Save();
+
 }
 
 void AnalyzerContainer::ChangeAnalyzer(const int id) {
 
-  QObject *instance = analyzer_types_[id]->newInstance(Q_ARG(QWidget*, this));
+  QObject *instance = analyzer_types_.at(id)->newInstance(Q_ARG(QWidget*, this));
 
   if (!instance) {
     qLog(Warning) << "Couldn't initialize a new" << analyzer_types_[id]->className();
@@ -152,7 +154,7 @@ void AnalyzerContainer::ChangeAnalyzer(const int id) {
   }
 
   delete current_analyzer_;
-  current_analyzer_ = qobject_cast<Analyzer::Base*>(instance);
+  current_analyzer_ = qobject_cast<AnalyzerBase*>(instance);
   current_analyzer_->set_engine(engine_);
   // Even if it is not supposed to happen, I don't want to get a dbz error
   current_framerate_ = current_framerate_ == 0 ? kMediumFramerate : current_framerate_;
@@ -180,9 +182,9 @@ void AnalyzerContainer::ChangeFramerate(int new_framerate) {
 
 void AnalyzerContainer::Load() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  QString type = s.value("type", "BlockAnalyzer").toString();
+  QString type = s.value("type", u"BlockAnalyzer"_s).toString();
   current_framerate_ = s.value(kSettingsFramerate, kMediumFramerate).toInt();
   s.endGroup();
 
@@ -193,20 +195,27 @@ void AnalyzerContainer::Load() {
   }
   else {
     for (int i = 0; i < analyzer_types_.count(); ++i) {
-      if (type == analyzer_types_[i]->className()) {
+      if (type == QString::fromLatin1(analyzer_types_[i]->className())) {
         ChangeAnalyzer(i);
-        actions_[i]->setChecked(true);
+        QAction *action = actions_.value(i);
+        action->setChecked(true);
         break;
       }
+    }
+    if (!current_analyzer_) {
+      ChangeAnalyzer(0);
+      QAction *action = actions_.value(0);
+      action->setChecked(true);
     }
   }
 
   // Framerate
-  QList<QAction*> actions = group_framerate_->actions();
+  const QList<QAction*> actions = group_framerate_->actions();
   for (int i = 0; i < framerate_list_.count(); ++i) {
-    if (current_framerate_ == framerate_list_[i]) {
+    if (current_framerate_ == framerate_list_.value(i)) {
       ChangeFramerate(current_framerate_);
-      actions[i]->setChecked(true);
+      QAction *action = actions[i];
+      action->setChecked(true);
       break;
     }
   }
@@ -217,7 +226,7 @@ void AnalyzerContainer::SaveFramerate(const int framerate) {
 
   // For now, framerate is common for all analyzers. Maybe each analyzer should have its own framerate?
   current_framerate_ = framerate;
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
   s.setValue(kSettingsFramerate, current_framerate_);
   s.endGroup();
@@ -226,9 +235,9 @@ void AnalyzerContainer::SaveFramerate(const int framerate) {
 
 void AnalyzerContainer::Save() {
 
-  QSettings s;
+  Settings s;
   s.beginGroup(kSettingsGroup);
-  s.setValue("type", current_analyzer_ ? current_analyzer_->metaObject()->className() : QVariant());
+  s.setValue("type", current_analyzer_ ? QString::fromLatin1(current_analyzer_->metaObject()->className()) : QVariant());
   s.endGroup();
 
 }

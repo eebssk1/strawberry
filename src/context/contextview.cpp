@@ -19,6 +19,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QtGlobal>
 #include <QObject>
 #include <QWidget>
@@ -48,40 +50,33 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 
-#include "core/application.h"
-#include "core/player.h"
 #include "core/song.h"
-#include "core/iconloader.h"
+#include "core/settings.h"
 #include "utilities/strutils.h"
 #include "utilities/timeutils.h"
 #include "widgets/resizabletextedit.h"
-#include "engine/engine_fwd.h"
-#include "engine/enginebase.h"
-#include "engine/enginetype.h"
-#include "engine/devicefinders.h"
-#include "engine/devicefinder.h"
-#include "collection/collectionbackend.h"
-#include "collection/collectionquery.h"
 #include "collection/collectionview.h"
 #include "covermanager/albumcoverchoicecontroller.h"
 #include "lyrics/lyricsfetcher.h"
-#include "settings/contextsettingspage.h"
+#include "constants/contextsettings.h"
 
 #include "contextview.h"
 #include "contextalbum.h"
 
-const int ContextView::kWidgetSpacing = 50;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kWidgetSpacing = 50;
+}  // namespace
 
 ContextView::ContextView(QWidget *parent)
     : QWidget(parent),
-      app_(nullptr),
       collectionview_(nullptr),
       album_cover_choice_controller_(nullptr),
       lyrics_fetcher_(nullptr),
       menu_options_(new QMenu(this)),
       action_show_album_(nullptr),
       action_show_data_(nullptr),
-      action_show_output_(nullptr),
       action_show_lyrics_(nullptr),
       action_search_lyrics_(nullptr),
       layout_container_(new QVBoxLayout()),
@@ -97,56 +92,47 @@ ContextView::ContextView(QWidget *parent)
       layout_play_(new QVBoxLayout()),
       label_stop_summary_(new QLabel(this)),
       widget_play_data_(new QWidget(this)),
-      widget_play_output_(new QWidget(this)),
       layout_play_data_(new QGridLayout()),
-      layout_play_output_(new QGridLayout()),
       textedit_play_lyrics_(new ResizableTextEdit(this)),
-      spacer_play_output_(new QSpacerItem(20, 20, QSizePolicy::Fixed, QSizePolicy::Fixed)),
       spacer_play_data_(new QSpacerItem(20, 20, QSizePolicy::Fixed, QSizePolicy::Fixed)),
       label_filetype_title_(new QLabel(this)),
       label_length_title_(new QLabel(this)),
       label_samplerate_title_(new QLabel(this)),
       label_bitdepth_title_(new QLabel(this)),
       label_bitrate_title_(new QLabel(this)),
+      label_ebur128_integrated_loudness_title_(new QLabel(this)),
+      label_ebur128_loudness_range_title_(new QLabel(this)),
       label_filetype_(new QLabel(this)),
       label_length_(new QLabel(this)),
       label_samplerate_(new QLabel(this)),
       label_bitdepth_(new QLabel(this)),
       label_bitrate_(new QLabel(this)),
-      label_device_title_(new QLabel(this)),
-      label_engine_title_(new QLabel(this)),
-      label_device_space_(new QLabel(this)),
-      label_engine_space_(new QLabel(this)),
-      label_device_(new QLabel(this)),
-      label_engine_(new QLabel(this)),
-      label_device_icon_(new QLabel(this)),
-      label_engine_icon_(new QLabel(this)),
+      label_ebur128_integrated_loudness_(new QLabel(this)),
+      label_ebur128_loudness_range_(new QLabel(this)),
       lyrics_tried_(false),
-      lyrics_id_(-1),
-      font_size_headline_(0),
-      font_size_normal_(0) {
+      lyrics_id_(-1) {
 
   setLayout(layout_container_);
 
-  layout_container_->setObjectName("context-layout-container");
+  layout_container_->setObjectName(u"context-layout-container"_s);
   layout_container_->setContentsMargins(0, 0, 0, 0);
   layout_container_->addWidget(scrollarea_);
 
-  scrollarea_->setObjectName("context-scrollarea");
+  scrollarea_->setObjectName(u"context-scrollarea"_s);
   scrollarea_->setWidgetResizable(true);
   scrollarea_->setWidget(widget_scrollarea_);
   scrollarea_->setContentsMargins(0, 0, 0, 0);
   scrollarea_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   scrollarea_->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
 
-  widget_scrollarea_->setObjectName("context-widget-scrollarea");
+  widget_scrollarea_->setObjectName(u"context-widget-scrollarea"_s);
   widget_scrollarea_->setLayout(layout_scrollarea_);
   widget_scrollarea_->setContentsMargins(0, 0, 0, 0);
 
   textedit_top_->setReadOnly(true);
   textedit_top_->setFrameShape(QFrame::NoFrame);
 
-  layout_scrollarea_->setObjectName("context-layout-scrollarea");
+  layout_scrollarea_->setObjectName(u"context-layout-scrollarea"_s);
   layout_scrollarea_->setContentsMargins(15, 15, 15, 15);
   layout_scrollarea_->addWidget(textedit_top_);
   layout_scrollarea_->addWidget(widget_album_);
@@ -175,53 +161,29 @@ ContextView::ContextView(QWidget *parent)
 
   // Playing
 
-  label_engine_title_->setText(tr("Engine"));
-  label_device_title_->setText(tr("Device"));
-  label_engine_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  label_device_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  label_engine_space_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  label_device_space_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  label_engine_space_->setMinimumWidth(24);
-  label_device_space_->setMinimumWidth(24);
-  label_engine_icon_->setMinimumSize(32, 32);
-  label_device_icon_->setMaximumSize(32, 32);
-  label_engine_icon_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-  label_device_icon_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
-
-  label_engine_->setWordWrap(true);
-  label_device_->setWordWrap(true);
-
-  layout_play_output_->setContentsMargins(0, 0, 0, 0);
-
-  layout_play_output_->addWidget(label_engine_title_, 0, 0);
-  layout_play_output_->addWidget(label_engine_space_, 0, 1);
-  layout_play_output_->addWidget(label_engine_icon_, 0, 2);
-  layout_play_output_->addWidget(label_engine_, 0, 3);
-
-  layout_play_output_->addWidget(label_device_title_, 1, 0);
-  layout_play_output_->addWidget(label_device_space_, 1, 1);
-  layout_play_output_->addWidget(label_device_icon_, 1, 2);
-  layout_play_output_->addWidget(label_device_, 1, 3);
-
-  widget_play_output_->setLayout(layout_play_output_);
-
   label_filetype_title_->setText(tr("Filetype"));
   label_length_title_->setText(tr("Length"));
   label_samplerate_title_->setText(tr("Samplerate"));
   label_bitdepth_title_->setText(tr("Bit depth"));
   label_bitrate_title_->setText(tr("Bitrate"));
+  label_ebur128_integrated_loudness_title_->setText(tr("EBU R 128 Integrated Loudness"));
+  label_ebur128_loudness_range_title_->setText(tr("EBU R 128 Loudness Range"));
 
   label_filetype_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   label_length_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   label_samplerate_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   label_bitdepth_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
   label_bitrate_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+  label_ebur128_integrated_loudness_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+  label_ebur128_loudness_range_title_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
 
   label_filetype_->setWordWrap(true);
   label_length_->setWordWrap(true);
   label_samplerate_->setWordWrap(true);
   label_bitdepth_->setWordWrap(true);
   label_bitrate_->setWordWrap(true);
+  label_ebur128_integrated_loudness_->setWordWrap(true);
+  label_ebur128_loudness_range_->setWordWrap(true);
 
   layout_play_data_->setContentsMargins(0, 0, 0, 0);
   layout_play_data_->addWidget(label_filetype_title_, 0, 0);
@@ -235,6 +197,11 @@ ContextView::ContextView(QWidget *parent)
   layout_play_data_->addWidget(label_bitrate_title_, 4, 0);
   layout_play_data_->addWidget(label_bitrate_, 4, 1);
 
+  layout_play_data_->addWidget(label_ebur128_integrated_loudness_title_, 5, 0);
+  layout_play_data_->addWidget(label_ebur128_integrated_loudness_, 5, 1);
+  layout_play_data_->addWidget(label_ebur128_loudness_range_title_, 6, 0);
+  layout_play_data_->addWidget(label_ebur128_loudness_range_, 6, 1);
+
   widget_play_data_->setLayout(layout_play_data_);
 
   textedit_play_lyrics_->setReadOnly(true);
@@ -242,30 +209,26 @@ ContextView::ContextView(QWidget *parent)
   textedit_play_lyrics_->hide();
 
   layout_play_->setContentsMargins(0, 0, 0, 0);
-  layout_play_->addWidget(widget_play_output_);
-  layout_play_->addSpacerItem(spacer_play_output_);
   layout_play_->addWidget(widget_play_data_);
   layout_play_->addSpacerItem(spacer_play_data_);
   layout_play_->addWidget(textedit_play_lyrics_);
   layout_play_->addSpacerItem(new QSpacerItem(20, 20, QSizePolicy::Expanding, QSizePolicy::Expanding));
 
-  labels_play_ << label_engine_title_
-               << label_device_title_
-               << label_filetype_title_
+  labels_play_ << label_filetype_title_
                << label_length_title_
                << label_samplerate_title_
                << label_bitdepth_title_
-               << label_bitrate_title_;
+               << label_bitrate_title_
+               << label_ebur128_integrated_loudness_title_
+               << label_ebur128_loudness_range_title_;
 
-  labels_play_data_ << label_engine_icon_
-                    << label_engine_
-                    << label_device_
-                    << label_device_icon_
-                    << label_filetype_
+  labels_play_data_ << label_filetype_
                     << label_length_
                     << label_samplerate_
                     << label_bitdepth_
-                    << label_bitrate_;
+                    << label_bitrate_
+                    << label_ebur128_integrated_loudness_
+                    << label_ebur128_loudness_range_;
 
   labels_play_all_ = labels_play_ << labels_play_data_;
 
@@ -275,14 +238,13 @@ ContextView::ContextView(QWidget *parent)
 
 }
 
-void ContextView::Init(Application *app, CollectionView *collectionview, AlbumCoverChoiceController *album_cover_choice_controller) {
+void ContextView::Init(CollectionView *collectionview, AlbumCoverChoiceController *album_cover_choice_controller, SharedPtr<LyricsProviders> lyrics_providers) {
 
-  app_ = app;
   collectionview_ = collectionview;
   album_cover_choice_controller_ = album_cover_choice_controller;
 
   widget_album_->Init(this, album_cover_choice_controller_);
-  lyrics_fetcher_ = new LyricsFetcher(app_->lyrics_providers(), this);
+  lyrics_fetcher_ = new LyricsFetcher(lyrics_providers, this);
 
   QObject::connect(collectionview_, &CollectionView::TotalSongCountUpdated_, this, &ContextView::UpdateNoSong);
   QObject::connect(collectionview_, &CollectionView::TotalArtistCountUpdated_, this, &ContextView::UpdateNoSong);
@@ -303,10 +265,6 @@ void ContextView::AddActions() {
   action_show_data_->setCheckable(true);
   action_show_data_->setChecked(true);
 
-  action_show_output_ = new QAction(tr("Show engine and device"), this);
-  action_show_output_->setCheckable(true);
-  action_show_output_->setChecked(true);
-
   action_show_lyrics_ = new QAction(tr("Show song lyrics"), this);
   action_show_lyrics_->setCheckable(true);
   action_show_lyrics_->setChecked(true);
@@ -317,7 +275,6 @@ void ContextView::AddActions() {
 
   menu_options_->addAction(action_show_album_);
   menu_options_->addAction(action_show_data_);
-  menu_options_->addAction(action_show_output_);
   menu_options_->addAction(action_show_lyrics_);
   menu_options_->addAction(action_search_lyrics_);
   menu_options_->addSeparator();
@@ -326,7 +283,6 @@ void ContextView::AddActions() {
 
   QObject::connect(action_show_album_, &QAction::triggered, this, &ContextView::ActionShowAlbum);
   QObject::connect(action_show_data_, &QAction::triggered, this, &ContextView::ActionShowData);
-  QObject::connect(action_show_output_, &QAction::triggered, this, &ContextView::ActionShowOutput);
   QObject::connect(action_show_lyrics_, &QAction::triggered, this, &ContextView::ActionShowLyrics);
   QObject::connect(action_search_lyrics_, &QAction::triggered, this, &ContextView::ActionSearchLyrics);
 
@@ -334,19 +290,28 @@ void ContextView::AddActions() {
 
 void ContextView::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  title_fmt_ = s.value(ContextSettingsPage::kSettingsTitleFmt, "%title% - %artist%").toString();
-  summary_fmt_ = s.value(ContextSettingsPage::kSettingsSummaryFmt, "%album%").toString();
-  action_show_album_->setChecked(s.value(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::ALBUM], true).toBool());
-  action_show_data_->setChecked(s.value(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::TECHNICAL_DATA], false).toBool());
-  action_show_output_->setChecked(s.value(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::ENGINE_AND_DEVICE], false).toBool());
-  action_show_lyrics_->setChecked(s.value(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::SONG_LYRICS], true).toBool());
-  action_search_lyrics_->setChecked(s.value(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::SEARCH_LYRICS], true).toBool());
-  font_headline_ = s.value("font_headline", font().family()).toString();
-  font_normal_ = s.value("font_normal", font().family()).toString();
-  font_size_headline_ = s.value("font_size_headline", ContextSettingsPage::kDefaultFontSizeHeadline).toReal();
-  font_size_normal_ = s.value("font_size_normal", font().pointSizeF()).toReal();
+  QString default_font;
+  if (QFontDatabase::families().contains(QLatin1String(ContextSettings::kDefaultFontFamily))) {
+    default_font = QLatin1String(ContextSettings::kDefaultFontFamily);
+  }
+  else {
+    default_font = font().family();
+  }
+
+  Settings s;
+  s.beginGroup(ContextSettings::kSettingsGroup);
+  title_fmt_ = s.value(ContextSettings::kSettingsTitleFmt, u"%title% - %artist%"_s).toString();
+  summary_fmt_ = s.value(ContextSettings::kSettingsSummaryFmt, u"%album%"_s).toString();
+  action_show_album_->setChecked(s.value(ContextSettings::kAlbum, true).toBool());
+  action_show_data_->setChecked(s.value(ContextSettings::kTechnicalData, false).toBool());
+  action_show_lyrics_->setChecked(s.value(ContextSettings::kSongLyrics, true).toBool());
+  action_search_lyrics_->setChecked(s.value(ContextSettings::kSearchLyrics, true).toBool());
+  font_headline_.setFamily(s.value(ContextSettings::kFontHeadline, default_font).toString());
+  font_headline_.setPointSizeF(s.value(ContextSettings::kFontSizeHeadline, ContextSettings::kDefaultFontSizeHeadline).toReal());
+  font_nosong_.setFamily(font_headline_.family());
+  font_nosong_.setPointSizeF(font_headline_.pointSizeF() * 1.6F);
+  font_normal_.setFamily(s.value(ContextSettings::kFontNormal, default_font).toString());
+  font_normal_.setPointSizeF(s.value(ContextSettings::kFontSizeNormal, font().pointSizeF()).toReal());
   s.endGroup();
 
   UpdateFonts();
@@ -407,7 +372,7 @@ void ContextView::SearchLyrics() {
   if (lyrics_.isEmpty() && action_show_lyrics_->isChecked() && action_search_lyrics_->isChecked() && !song_playing_.artist().isEmpty() && !song_playing_.title().isEmpty() && !lyrics_tried_ && lyrics_id_ == -1) {
     lyrics_fetcher_->Clear();
     lyrics_tried_ = true;
-    lyrics_id_ = static_cast<qint64>(lyrics_fetcher_->Search(song_playing_.effective_albumartist(), song_playing_.album(), song_playing_.title()));
+    lyrics_id_ = static_cast<qint64>(lyrics_fetcher_->Search(song_playing_.effective_albumartist(), song_playing_.artist(), song_playing_.album(), song_playing_.title()));
   }
 
 }
@@ -422,7 +387,7 @@ void ContextView::FadeStopFinished() {
 }
 
 void ContextView::SetLabelText(QLabel *label, int value, const QString &suffix, const QString &def) {
-  label->setText(value <= 0 ? def : (QString::number(value) + " " + suffix));
+  label->setText(value <= 0 ? def : (QString::number(value) + QLatin1Char(' ') + suffix));
 }
 
 void ContextView::UpdateNoSong() {
@@ -431,61 +396,59 @@ void ContextView::UpdateNoSong() {
 
 void ContextView::NoSong() {
 
-  if (!widget_album_->isVisible()) {
+  if (!widget_album_->isVisibleTo(this)) {
     widget_album_->show();
   }
 
-  textedit_top_->setFont(QFont(font_headline_, font_size_headline_ * 1.6));
+  textedit_top_->setFont(font_nosong_);
   textedit_top_->SetText(tr("No song playing"));
 
   QString html;
   if (collectionview_->TotalSongs() == 1) html += tr("%1 song").arg(collectionview_->TotalSongs());
   else html += tr("%1 songs").arg(collectionview_->TotalSongs());
-  html += "<br />";
+  html += "<br />"_L1;
 
   if (collectionview_->TotalArtists() == 1) html += tr("%1 artist").arg(collectionview_->TotalArtists());
   else html += tr("%1 artists").arg(collectionview_->TotalArtists());
-  html += "<br />";
+  html += "<br />"_L1;
 
   if (collectionview_->TotalAlbums() == 1) html += tr("%1 album").arg(collectionview_->TotalAlbums());
   else html += tr("%1 albums").arg(collectionview_->TotalAlbums());
-  html += "<br />";
+  html += "<br />"_L1;
 
-  label_stop_summary_->setFont(QFont(font_normal_, font_size_normal_));
+  label_stop_summary_->setFont(font_normal_);
   label_stop_summary_->setText(html);
 
 }
 
 void ContextView::UpdateFonts() {
 
-  QFont font(font_normal_, font_size_normal_);
-  font.setBold(false);
-  for (QLabel *l : labels_play_all_) {
-    l->setFont(font);
+  for (QLabel *l : std::as_const(labels_play_all_)) {
+    l->setFont(font_normal_);
   }
-  for (QTextEdit *e : textedit_play_) {
-    e->setFont(font);
+  for (QTextEdit *e : std::as_const(textedit_play_)) {
+    e->setFont(font_normal_);
   }
 
 }
 
 void ContextView::SetSong() {
 
-  textedit_top_->setFont(QFont(font_headline_, font_size_headline_));
-  textedit_top_->SetText(QString("<b>%1</b><br />%2").arg(Utilities::ReplaceMessage(title_fmt_, song_playing_, "<br />", true), Utilities::ReplaceMessage(summary_fmt_, song_playing_, "<br />", true)));
+  textedit_top_->setFont(font_headline_);
+  textedit_top_->SetText(QStringLiteral("<b>%1</b><br />%2").arg(Utilities::ReplaceMessage(title_fmt_, song_playing_, u"<br />"_s, true), Utilities::ReplaceMessage(summary_fmt_, song_playing_, u"<br />"_s, true)));
 
   label_stop_summary_->clear();
 
   bool widget_album_changed = !song_prev_.is_valid();
-  if (action_show_album_->isChecked() && !widget_album_->isVisible()) {
+  if (action_show_album_->isChecked() && !widget_album_->isVisibleTo(this)) {
     widget_album_->show();
     widget_album_changed = true;
   }
-  else if (!action_show_album_->isChecked() && widget_album_->isVisible()) {
+  else if (!action_show_album_->isChecked() && widget_album_->isVisibleTo(this)) {
     widget_album_->hide();
     widget_album_changed = true;
   }
-  if (widget_album_changed) emit AlbumEnabledChanged();
+  if (widget_album_changed) Q_EMIT AlbumEnabledChanged();
 
   if (action_show_data_->isChecked()) {
     widget_play_data_->show();
@@ -508,7 +471,7 @@ void ContextView::SetSong() {
     else {
       label_samplerate_title_->show();
       label_samplerate_->show();
-      SetLabelText(label_samplerate_, song_playing_.samplerate(), "Hz");
+      SetLabelText(label_samplerate_, song_playing_.samplerate(), u"Hz"_s);
     }
     if (song_playing_.bitdepth() <= 0) {
       label_bitdepth_title_->hide();
@@ -518,7 +481,7 @@ void ContextView::SetSong() {
     else {
       label_bitdepth_title_->show();
       label_bitdepth_->show();
-      SetLabelText(label_bitdepth_, song_playing_.bitdepth(), "Bit");
+      SetLabelText(label_bitdepth_, song_playing_.bitdepth(), u"Bit"_s);
     }
     if (song_playing_.bitrate() <= 0) {
       label_bitrate_title_->hide();
@@ -530,6 +493,26 @@ void ContextView::SetSong() {
       label_bitrate_->show();
       SetLabelText(label_bitrate_, song_playing_.bitrate(), tr("kbps"));
     }
+    if (!song_playing_.ebur128_integrated_loudness_lufs()) {
+      label_ebur128_integrated_loudness_title_->hide();
+      label_ebur128_integrated_loudness_->hide();
+      label_ebur128_integrated_loudness_->clear();
+    }
+    else {
+      label_ebur128_integrated_loudness_title_->show();
+      label_ebur128_integrated_loudness_->show();
+      label_ebur128_integrated_loudness_->setText(song_playing_.Ebur128LoudnessLUFSToText());
+    }
+    if (!song_playing_.ebur128_loudness_range_lu()) {
+      label_ebur128_loudness_range_title_->hide();
+      label_ebur128_loudness_range_->hide();
+      label_ebur128_loudness_range_->clear();
+    }
+    else {
+      label_ebur128_loudness_range_title_->show();
+      label_ebur128_loudness_range_->show();
+      label_ebur128_loudness_range_->setText(song_playing_.Ebur128LoudnessRangeLUToText());
+    }
     spacer_play_data_->changeSize(20, 20, QSizePolicy::Fixed);
   }
   else {
@@ -539,50 +522,9 @@ void ContextView::SetSong() {
     label_samplerate_->clear();
     label_bitdepth_->clear();
     label_bitrate_->clear();
+    label_ebur128_integrated_loudness_->clear();
+    label_ebur128_loudness_range_->clear();
     spacer_play_data_->changeSize(0, 0, QSizePolicy::Fixed);
-  }
-
-  if (action_show_output_->isChecked()) {
-    widget_play_output_->show();
-    Engine::EngineType enginetype(Engine::None);
-    if (app_->player()->engine()) enginetype = app_->player()->engine()->type();
-    QIcon icon_engine = IconLoader::Load(EngineName(enginetype), true, 32);
-
-    label_engine_icon_->setPixmap(icon_engine.pixmap(QSize(32, 32)));
-    label_engine_->setText(EngineDescription(enginetype));
-    spacer_play_output_->changeSize(20, 20, QSizePolicy::Fixed);
-
-    DeviceFinder::Device device;
-    for (DeviceFinder *f : app_->device_finders()->ListFinders()) {
-      for (const DeviceFinder::Device &d : f->ListDevices()) {
-        if (d.value != app_->player()->engine()->device()) continue;
-        device = d;
-        break;
-      }
-    }
-    if (device.value.isValid()) {
-      label_device_title_->show();
-      label_device_icon_->show();
-      label_device_->show();
-      QIcon icon_device = IconLoader::Load(device.iconname, true, 32);
-      label_device_icon_->setPixmap(icon_device.pixmap(QSize(32, 32)));
-      label_device_->setText(device.description);
-    }
-    else {
-      label_device_title_->hide();
-      label_device_icon_->hide();
-      label_device_->hide();
-      label_device_icon_->clear();
-      label_device_->clear();
-    }
-  }
-  else {
-    widget_play_output_->hide();
-    label_engine_icon_->clear();
-    label_engine_->clear();
-    label_device_icon_->clear();
-    label_device_->clear();
-    spacer_play_output_->changeSize(0, 0, QSizePolicy::Fixed);
   }
 
   if (action_show_lyrics_->isChecked() && !lyrics_.isEmpty()) {
@@ -601,7 +543,10 @@ void ContextView::SetSong() {
 
 void ContextView::UpdateSong(const Song &song) {
 
-  textedit_top_->SetText(QString("<b>%1</b><br />%2").arg(Utilities::ReplaceMessage(title_fmt_, song, "<br />", true), Utilities::ReplaceMessage(summary_fmt_, song, "<br />", true)));
+  const QString top_text = QStringLiteral("<b>%1</b><br />%2").arg(Utilities::ReplaceMessage(title_fmt_, song, u"<br />"_s, true), Utilities::ReplaceMessage(summary_fmt_, song, u"<br />"_s, true));
+  if (top_text != textedit_top_->Text()) {
+    textedit_top_->SetText(top_text);
+  }
 
   if (action_show_data_->isChecked()) {
     if (song.filetype() != song_playing_.filetype()) label_filetype_->setText(song.TextForFiletype());
@@ -626,7 +571,7 @@ void ContextView::UpdateSong(const Song &song) {
       else {
         label_samplerate_title_->show();
         label_samplerate_->show();
-        SetLabelText(label_samplerate_, song.samplerate(), "Hz");
+        SetLabelText(label_samplerate_, song.samplerate(), u"Hz"_s);
       }
     }
     if (song.bitdepth() != song_playing_.bitdepth()) {
@@ -638,7 +583,7 @@ void ContextView::UpdateSong(const Song &song) {
       else {
         label_bitdepth_title_->show();
         label_bitdepth_->show();
-        SetLabelText(label_bitdepth_, song.bitdepth(), "Bit");
+        SetLabelText(label_bitdepth_, song.bitdepth(), u"Bit"_s);
       }
     }
     if (song.bitrate() != song_playing_.bitrate()) {
@@ -653,6 +598,12 @@ void ContextView::UpdateSong(const Song &song) {
         SetLabelText(label_bitrate_, song.bitrate(), tr("kbps"));
       }
     }
+    if (song.ebur128_integrated_loudness_lufs() != song_playing_.ebur128_integrated_loudness_lufs()) {
+      label_ebur128_integrated_loudness_->setText(song_playing_.Ebur128LoudnessLUFSToText());
+    }
+    if (song.ebur128_loudness_range_lu() != song_playing_.ebur128_loudness_range_lu()) {
+      label_ebur128_loudness_range_->setText(song_playing_.Ebur128LoudnessRangeLUToText());
+    }
   }
 
   song_playing_ = song;
@@ -663,15 +614,14 @@ void ContextView::UpdateSong(const Song &song) {
 
 void ContextView::ResetSong() {
 
-  for (QLabel *l : labels_play_data_) {
+  for (QLabel *l : std::as_const(labels_play_data_)) {
     l->clear();
   }
 
-  for (QTextEdit *l : textedit_play_) {
+  for (QTextEdit *l : std::as_const(textedit_play_)) {
     l->clear();
   }
 
-  widget_play_output_->hide();
   widget_play_data_->hide();
   textedit_play_lyrics_->hide();
 
@@ -681,7 +631,12 @@ void ContextView::UpdateLyrics(const quint64 id, const QString &provider, const 
 
   if (static_cast<qint64>(id) != lyrics_id_) return;
 
-  lyrics_ = lyrics + "\n\n(Lyrics from " + provider + ")\n";
+  if (lyrics.isEmpty()) {
+    lyrics_ = "No lyrics found.\n"_L1;
+  }
+  else {
+    lyrics_ = lyrics + "\n\n(Lyrics from "_L1 + provider + ")\n"_L1;
+  }
   lyrics_id_ = -1;
 
   if (action_show_lyrics_->isChecked() && !lyrics_.isEmpty()) {
@@ -737,39 +692,31 @@ void ContextView::AlbumCoverLoaded(const Song &song, const QImage &image) {
 
 void ContextView::ActionShowAlbum() {
 
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  s.setValue(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::ALBUM], action_show_album_->isChecked());
+  Settings s;
+  s.beginGroup(ContextSettings::kSettingsGroup);
+  s.setValue(ContextSettings::kAlbum, action_show_album_->isChecked());
   s.endGroup();
+
   if (song_playing_.is_valid()) SetSong();
 
 }
 
 void ContextView::ActionShowData() {
 
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  s.setValue(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::TECHNICAL_DATA], action_show_data_->isChecked());
+  Settings s;
+  s.beginGroup(ContextSettings::kSettingsGroup);
+  s.setValue(ContextSettings::kTechnicalData, action_show_data_->isChecked());
   s.endGroup();
-  if (song_playing_.is_valid()) SetSong();
 
-}
-
-void ContextView::ActionShowOutput() {
-
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  s.setValue(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::ENGINE_AND_DEVICE], action_show_output_->isChecked());
-  s.endGroup();
   if (song_playing_.is_valid()) SetSong();
 
 }
 
 void ContextView::ActionShowLyrics() {
 
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  s.setValue(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::SONG_LYRICS], action_show_lyrics_->isChecked());
+  Settings s;
+  s.beginGroup(ContextSettings::kSettingsGroup);
+  s.setValue(ContextSettings::kSongLyrics, action_show_lyrics_->isChecked());
   s.endGroup();
 
   if (song_playing_.is_valid()) SetSong();
@@ -780,9 +727,9 @@ void ContextView::ActionShowLyrics() {
 
 void ContextView::ActionSearchLyrics() {
 
-  QSettings s;
-  s.beginGroup(ContextSettingsPage::kSettingsGroup);
-  s.setValue(ContextSettingsPage::kSettingsGroupEnable[ContextSettingsPage::ContextSettingsOrder::SEARCH_LYRICS], action_search_lyrics_->isChecked());
+  Settings s;
+  s.beginGroup(ContextSettings::kSettingsGroup);
+  s.setValue(ContextSettings::kSearchLyrics, action_search_lyrics_->isChecked());
   s.endGroup();
 
   if (song_playing_.is_valid()) SetSong();

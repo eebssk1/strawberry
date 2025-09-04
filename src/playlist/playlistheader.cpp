@@ -37,8 +37,9 @@
 #include "playlistheader.h"
 #include "playlistview.h"
 
+#include "core/settings.h"
 #include "widgets/stretchheaderview.h"
-#include "settings/playlistsettingspage.h"
+#include "constants/playlistsettings.h"
 
 PlaylistHeader::PlaylistHeader(Qt::Orientation orientation, PlaylistView *view, QWidget *parent)
     : StretchHeaderView(orientation, parent),
@@ -81,9 +82,9 @@ PlaylistHeader::PlaylistHeader(Qt::Orientation orientation, PlaylistView *view, 
 
   QObject::connect(this, &PlaylistHeader::StretchEnabledChanged, action_stretch_, &QAction::setChecked);
 
-  QSettings s;
-  s.beginGroup(PlaylistSettingsPage::kSettingsGroup);
-  action_rating_lock_->setChecked(s.value("rating_locked", false).toBool());
+  Settings s;
+  s.beginGroup(PlaylistSettings::kSettingsGroup);
+  action_rating_lock_->setChecked(s.value(PlaylistSettings::kRatingLocked, false).toBool());
   s.endGroup();
 
 }
@@ -107,7 +108,7 @@ void PlaylistHeader::contextMenuEvent(QContextMenuEvent *e) {
     else if (alignment & Qt::AlignRight)   action_align_right_->setChecked(true);
 
     // Show rating lock action only for ratings section
-    action_rating_lock_->setVisible(menu_section_ == Playlist::Column_Rating);
+    action_rating_lock_->setVisible(menu_section_ == static_cast<int>(Playlist::Column::Rating));
 
   }
 
@@ -121,10 +122,10 @@ void PlaylistHeader::contextMenuEvent(QContextMenuEvent *e) {
 
 }
 
-void PlaylistHeader::AddColumnAction(int index) {
+void PlaylistHeader::AddColumnAction(const int index) {
 
 #ifndef HAVE_MOODBAR
-  if (index == Playlist::Column_Mood) {
+  if (index == static_cast<int>(Playlist::Column::Mood)) {
     return;
   }
 #endif
@@ -160,15 +161,12 @@ void PlaylistHeader::SetColumnAlignment(QAction *action) {
 
 void PlaylistHeader::ToggleVisible(const int section) {
   SetSectionHidden(section, !isSectionHidden(section));
-  emit SectionVisibilityChanged(section, !isSectionHidden(section));
+  Q_EMIT SectionVisibilityChanged(section, !isSectionHidden(section));
 }
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
-void PlaylistHeader::enterEvent(QEnterEvent*) {
-#else
-void PlaylistHeader::enterEvent(QEvent*) {
-#endif
-  emit MouseEntered();
+void PlaylistHeader::enterEvent(QEnterEvent *e) {
+  Q_UNUSED(e)
+  Q_EMIT MouseEntered();
 }
 
 void PlaylistHeader::ResetColumns() {
@@ -176,5 +174,5 @@ void PlaylistHeader::ResetColumns() {
 }
 
 void PlaylistHeader::ToggleRatingEditStatus() {
-  emit SectionRatingLockStatusChanged(action_rating_lock_->isChecked());
+  Q_EMIT SectionRatingLockStatusChanged(action_rating_lock_->isChecked());
 }

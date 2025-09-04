@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -29,6 +29,8 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
+
 class QNetworkReply;
 class NetworkAccessManager;
 class NetworkTimeouts;
@@ -43,7 +45,7 @@ class AcoustidClient : public QObject {
   // IDs are provided by the caller when a request is started and included in the Finished signal - they have no meaning to AcoustidClient.
 
  public:
-  explicit AcoustidClient(QObject *parent = nullptr);
+  explicit AcoustidClient(SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
   ~AcoustidClient() override;
 
   // Network requests will be aborted after this interval.
@@ -58,21 +60,16 @@ class AcoustidClient : public QObject {
   // Cancels all requests.  Finished() will never be emitted for any pending requests.
   void CancelAll();
 
- signals:
-  void Finished(int id, QStringList mbid_list, QString error = QString());
+ Q_SIGNALS:
+  void Finished(const int id, const QStringList &mbid_list, const QString &error = QString());
 
- private slots:
+ private Q_SLOTS:
   void RequestFinished(QNetworkReply *reply, const int id);
 
  private:
-  static const char *kClientId;
-  static const char *kUrl;
-  static const int kDefaultTimeout;
-
-  NetworkAccessManager *network_;
+  SharedPtr<NetworkAccessManager> network_;
   NetworkTimeouts *timeouts_;
   QMap<int, QNetworkReply*> requests_;
-
 };
 
 #endif  // ACOUSTIDCLIENT_H

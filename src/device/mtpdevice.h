@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QMutex>
 #include <QList>
@@ -33,13 +31,18 @@
 #include <QStringList>
 #include <QUrl>
 
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "connecteddevice.h"
 
 class QThread;
-class Application;
 class DeviceLister;
 class DeviceManager;
+class TaskManager;
+class Database;
+class TagReaderClient;
+class AlbumCoverLoader;
 class MtpLoader;
 class MtpConnection;
 struct LIBMTP_mtpdevice_struct;
@@ -48,10 +51,21 @@ class MtpDevice : public ConnectedDevice {
   Q_OBJECT
 
  public:
-  Q_INVOKABLE MtpDevice(const QUrl &url, DeviceLister *lister, const QString &unique_id, DeviceManager *manager, Application *app, const int database_id, const bool first_time, QObject *parent = nullptr);
+  Q_INVOKABLE MtpDevice(const QUrl &url,
+                        DeviceLister *lister,
+                        const QString &unique_id,
+                        DeviceManager *device_manager,
+                        const SharedPtr<TaskManager> task_manager,
+                        const SharedPtr<Database> database,
+                        const SharedPtr<TagReaderClient> tagreader_client,
+                        const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                        const int database_id,
+                        const bool first_time,
+                        QObject *parent = nullptr);
+
   ~MtpDevice() override;
 
-  static QStringList url_schemes() { return QStringList() << "mtp"; }
+  static QStringList url_schemes() { return QStringList() << QStringLiteral("mtp"); }
 
   bool Init() override;
   void ConnectAsync() override;
@@ -63,14 +77,14 @@ class MtpDevice : public ConnectedDevice {
   int GetCapacity();
 
   bool StartCopy(QList<Song::FileType> *supported_types) override;
-  bool CopyToStorage(const CopyJob &job) override;
-  void FinishCopy(const bool success) override;
+  bool CopyToStorage(const CopyJob &job, QString &error_text) override;
+  bool FinishCopy(const bool success, QString &error_text) override;
 
   void StartDelete() override;
   bool DeleteFromStorage(const DeleteJob &job) override;
-  void FinishDelete(const bool success) override;
+  bool FinishDelete(const bool success, QString &error_text) override;
 
- private slots:
+ private Q_SLOTS:
   void LoadFinished(bool success, MtpConnection *connection);
   void LoaderError(const QString &message);
 
@@ -82,6 +96,8 @@ class MtpDevice : public ConnectedDevice {
  private:
   static bool sInitializedLibMTP;
 
+  const SharedPtr<TaskManager> task_manager_;
+
   MtpLoader *loader_;
   QThread *loader_thread_;
   bool closing_;
@@ -90,8 +106,7 @@ class MtpDevice : public ConnectedDevice {
   SongList songs_to_add_;
   SongList songs_to_remove_;
 
-  std::unique_ptr<MtpConnection> connection_;
-
+  ScopedPtr<MtpConnection> connection_;
 };
 
 #endif  // MTPDEVICE_H

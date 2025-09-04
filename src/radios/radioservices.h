@@ -23,13 +23,16 @@
 #include <QObject>
 #include <QMap>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "radiochannel.h"
 
 class QSortFilterProxyModel;
 
-class Application;
+class TaskManager;
+class Database;
 class NetworkAccessManager;
+class AlbumCoverLoader;
 class RadioBackend;
 class RadioModel;
 class RadioService;
@@ -38,8 +41,11 @@ class RadioServices : public QObject {
   Q_OBJECT
 
  public:
-  explicit RadioServices(Application *app, QObject *parent = nullptr);
-  ~RadioServices();
+  explicit RadioServices(const SharedPtr<TaskManager> task_manager,
+                         const SharedPtr<NetworkAccessManager> network,
+                         const SharedPtr<Database> database,
+                         const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                         QObject *parent = nullptr);
 
   void AddService(RadioService *service);
   void RemoveService(RadioService *service);
@@ -53,21 +59,21 @@ class RadioServices : public QObject {
 
   void ReloadSettings();
 
-  RadioBackend *radio_backend() const { return backend_; }
+  SharedPtr<RadioBackend> radio_backend() const { return backend_; }
   QSortFilterProxyModel *sort_model() const { return sort_model_; }
 
- private slots:
+ private Q_SLOTS:
   void ServiceDeleted();
   void GotChannelsFromBackend(const RadioChannelList &channels);
   void GotChannelsFromService(const RadioChannelList &channels);
 
- public slots:
+ public Q_SLOTS:
   void GetChannels();
   void RefreshChannels();
 
  private:
-  NetworkAccessManager *network_;
-  RadioBackend *backend_;
+  const SharedPtr<NetworkAccessManager> network_;
+  SharedPtr<RadioBackend> backend_;
   RadioModel *model_;
   QSortFilterProxyModel *sort_model_;
   QMap<Song::Source, RadioService*> services_;

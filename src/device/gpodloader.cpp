@@ -29,17 +29,22 @@
 #include <QByteArray>
 #include <QString>
 
-#include "collection/collectionbackend.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/song.h"
 #include "core/taskmanager.h"
+#include "collection/collectionbackend.h"
 #include "gpodloader.h"
 
-GPodLoader::GPodLoader(const QString &mount_point, TaskManager *task_manager, CollectionBackend *backend, std::shared_ptr<ConnectedDevice> device, QObject *parent)
+GPodLoader::GPodLoader(const QString &mount_point,
+                       const SharedPtr<TaskManager> task_manager,
+                       const SharedPtr<CollectionBackend> backend,
+                       const SharedPtr<ConnectedDevice> device,
+                       QObject *parent)
     : QObject(parent),
       device_(device),
       mount_point_(mount_point),
-      type_(Song::FileType_Unknown),
+      type_(Song::FileType::Unknown),
       task_manager_(task_manager),
       backend_(backend),
       abort_(false) {
@@ -51,14 +56,14 @@ GPodLoader::~GPodLoader() = default;
 void GPodLoader::LoadDatabase() {
 
   int task_id = task_manager_->StartTask(tr("Loading iPod database"));
-  emit TaskStarted(task_id);
+  Q_EMIT TaskStarted(task_id);
 
   Itdb_iTunesDB *db = TryLoad();
 
   moveToThread(original_thread_);
 
   task_manager_->SetTaskFinished(task_id);
-  emit LoadFinished(db, !abort_);
+  Q_EMIT LoadFinished(db, !abort_);
 
 }
 
@@ -73,11 +78,11 @@ Itdb_iTunesDB *GPodLoader::TryLoad() {
   if (!db) {
     if (error) {
       qLog(Error) << "loading database failed:" << error->message;
-      emit Error(QString::fromUtf8(error->message));
+      Q_EMIT Error(QString::fromUtf8(error->message));
       g_error_free(error);
     }
     else {
-      emit Error(tr("An error occurred loading the iTunes database"));
+      Q_EMIT Error(tr("An error occurred loading the iTunes database"));
     }
 
     return db;
@@ -93,11 +98,11 @@ Itdb_iTunesDB *GPodLoader::TryLoad() {
 
     Itdb_Track *track = static_cast<Itdb_Track*>(tracks->data);
 
-    Song song(Song::Source_Device);
+    Song song(Song::Source::Device);
     song.InitFromItdb(track, prefix);
     song.set_directory_id(1);
 
-    if (type_ != Song::FileType_Unknown) song.set_filetype(type_);
+    if (type_ != Song::FileType::Unknown) song.set_filetype(type_);
     songs << song;
   }
 

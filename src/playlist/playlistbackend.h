@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,31 +24,31 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QMutex>
 #include <QHash>
 #include <QList>
 #include <QSet>
 #include <QString>
-#include <QSqlQuery>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "core/sqlquery.h"
 #include "core/sqlrow.h"
 #include "playlistitem.h"
 #include "smartplaylists/playlistgenerator.h"
 
 class QThread;
-class Application;
 class Database;
+class TagReaderClient;
 
 class PlaylistBackend : public QObject {
   Q_OBJECT
 
  public:
-  Q_INVOKABLE explicit PlaylistBackend(Application *app, QObject *parent = nullptr);
+  Q_INVOKABLE explicit PlaylistBackend(const SharedPtr<Database> database,
+                                       const SharedPtr<TagReaderClient> tagreader_client,
+                                       const SharedPtr<CollectionBackend> collection_backend,
+                                       QObject *parent = nullptr);
 
   struct Playlist {
     Playlist() : id(-1), favorite(false), last_played(0) {}
@@ -65,8 +65,6 @@ class PlaylistBackend : public QObject {
   };
   using PlaylistList = QList<Playlist>;
 
-  static const int kSongTableJoins;
-
   void Close();
   void ExitAsync();
 
@@ -75,25 +73,23 @@ class PlaylistBackend : public QObject {
   PlaylistList GetAllFavoritePlaylists();
   PlaylistBackend::Playlist GetPlaylist(const int id);
 
-  PlaylistItemList GetPlaylistItems(const int playlist);
+  PlaylistItemPtrList GetPlaylistItems(const int playlist);
   SongList GetPlaylistSongs(const int playlist);
 
   void SetPlaylistOrder(const QList<int> &ids);
   void SetPlaylistUiPath(const int id, const QString &path);
 
   int CreatePlaylist(const QString &name, const QString &special_type);
-  void SavePlaylistAsync(const int playlist, const PlaylistItemList &items, const int last_played, PlaylistGeneratorPtr dynamic);
+  void SavePlaylistAsync(const int playlist, const PlaylistItemPtrList &items, const int last_played, PlaylistGeneratorPtr dynamic);
   void RenamePlaylist(const int id, const QString &new_name);
   void FavoritePlaylist(const int id, bool is_favorite);
   void RemovePlaylist(const int id);
 
-  Application *app() const { return app_; }
-
- public slots:
+ public Q_SLOTS:
   void Exit();
-  void SavePlaylist(const int playlist, const PlaylistItemList &items, const int last_played, PlaylistGeneratorPtr dynamic);
+  void SavePlaylist(const int playlist, const PlaylistItemPtrList &items, const int last_played, PlaylistGeneratorPtr dynamic);
 
- signals:
+ Q_SIGNALS:
   void ExitFinished();
 
  private:
@@ -102,9 +98,10 @@ class PlaylistBackend : public QObject {
     QMutex mutex_;
   };
 
-  Song NewSongFromQuery(const SqlRow &row, std::shared_ptr<NewSongFromQueryState> state);
-  PlaylistItemPtr NewPlaylistItemFromQuery(const SqlRow &row, std::shared_ptr<NewSongFromQueryState> state);
-  PlaylistItemPtr RestoreCueData(PlaylistItemPtr item, std::shared_ptr<NewSongFromQueryState> state);
+  static QString PlaylistItemsQuery();
+  Song NewSongFromQuery(const SqlRow &row, SharedPtr<NewSongFromQueryState> state);
+  PlaylistItemPtr NewPlaylistItemFromQuery(const SqlRow &row, SharedPtr<NewSongFromQueryState> state);
+  PlaylistItemPtr RestoreCueData(PlaylistItemPtr item, SharedPtr<NewSongFromQueryState> state);
 
   enum GetPlaylistsFlags {
     GetPlaylists_OpenInUi = 1,
@@ -113,8 +110,9 @@ class PlaylistBackend : public QObject {
   };
   PlaylistList GetPlaylists(const GetPlaylistsFlags flags);
 
-  Application *app_;
-  Database *db_;
+  const SharedPtr<Database> database_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<CollectionBackend> collection_backend_;
   QThread *original_thread_;
 };
 

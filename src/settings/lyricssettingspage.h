@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -26,10 +26,12 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
 #include "settings/settingspage.h"
 
 class QListWidgetItem;
 
+class LyricsProviders;
 class LyricsProvider;
 class SettingsDialog;
 class Ui_LyricsSettingsPage;
@@ -38,10 +40,8 @@ class LyricsSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit LyricsSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit LyricsSettingsPage(SettingsDialog *dialog, const SharedPtr<LyricsProviders> lyrics_providers, QWidget *parent = nullptr);
   ~LyricsSettingsPage() override;
-
-  static const char *kSettingsGroup;
 
   void Load() override;
   void Save() override;
@@ -53,7 +53,7 @@ class LyricsSettingsPage : public SettingsPage {
   void DisconnectAuthentication(LyricsProvider *provider) const;
   static bool ProviderCompareOrder(LyricsProvider *a, LyricsProvider *b);
 
- private slots:
+ private Q_SLOTS:
   void CurrentItemChanged(QListWidgetItem *item_current, QListWidgetItem *item_previous);
   void ItemSelectionChanged();
   void ItemChanged(QListWidgetItem *item);
@@ -62,10 +62,11 @@ class LyricsSettingsPage : public SettingsPage {
   void AuthenticateClicked();
   void LogoutClicked();
   void AuthenticationSuccess();
-  void AuthenticationFailure(const QStringList &errors);
+  void AuthenticationFailure(const QString &error);
 
  private:
   Ui_LyricsSettingsPage *ui_;
+  const SharedPtr<LyricsProviders> lyrics_providers_;
   bool provider_selected_;
 };
 

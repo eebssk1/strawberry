@@ -25,6 +25,7 @@
 #include "config.h"
 
 #include <memory>
+
 #include <libmtp.h>
 
 #include <QtGlobal>
@@ -34,7 +35,9 @@
 
 #include "core/song.h"
 
-class MtpConnection : public QObject, public std::enable_shared_from_this<MtpConnection> {
+using std::enable_shared_from_this;
+
+class MtpConnection : public QObject, public enable_shared_from_this<MtpConnection> {
   Q_OBJECT
 
  public:
@@ -42,13 +45,17 @@ class MtpConnection : public QObject, public std::enable_shared_from_this<MtpCon
   ~MtpConnection() override;
 
   bool is_valid() const { return device_; }
+  QString error_text() const { return error_text_; }
   LIBMTP_mtpdevice_t *device() const { return device_; }
   bool GetSupportedFiletypes(QList<Song::FileType> *ret);
+
+  static QString ErrorString(const LIBMTP_error_number_t error_number);
 
  private:
   Q_DISABLE_COPY(MtpConnection)
 
   LIBMTP_mtpdevice_t *device_;
+  QString error_text_;
 };
 
 #endif  // MTPCONNECTION_H

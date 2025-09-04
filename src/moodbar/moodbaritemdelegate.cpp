@@ -1,21 +1,26 @@
-/* This file was part of Clementine.
-   Copyright 2012, David Sansome <me@davidsansome.com>
-
-   Strawberry is free software: you can redistribute it and/or modify
-   it under the terms of the GNU General Public License as published by
-   the Free Software Foundation, either version 3 of the License, or
-   (at your option) any later version.
-
-   Strawberry is distributed in the hope that it will be useful,
-   but WITHOUT ANY WARRANTY; without even the implied warranty of
-   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-   GNU General Public License for more details.
-
-   You should have received a copy of the GNU General Public License
-   along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
-*/
+/*
+ * Strawberry Music Player
+ * This file was part of Clementine.
+ * Copyright 2012, David Sansome <me@davidsansome.com>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
+ *
+ * Strawberry is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * Strawberry is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Strawberry.  If not, see <http://www.gnu.org/licenses/>.
+ *
+ */
 
 #include <algorithm>
+#include <utility>
 
 #include <QApplication>
 #include <QtConcurrentRun>
@@ -31,7 +36,9 @@
 #include <QPainter>
 #include <QRect>
 
-#include "core/application.h"
+#include "includes/shared_ptr.h"
+#include "core/logging.h"
+#include "core/settings.h"
 #include "playlist/playlist.h"
 #include "playlist/playlistview.h"
 #include "playlist/playlistfilter.h"
@@ -41,28 +48,32 @@
 #include "moodbarpipeline.h"
 #include "moodbarrenderer.h"
 
-#include "settings/moodbarsettingspage.h"
+#include "constants/moodbarsettings.h"
 
-MoodbarItemDelegate::Data::Data() : state_(State_None) {}
+using std::make_shared;
 
-MoodbarItemDelegate::MoodbarItemDelegate(Application *app, PlaylistView *view, QObject *parent)
+MoodbarItemDelegate::Data::Data() : state_(State::None) {}
+
+MoodbarItemDelegate::MoodbarItemDelegate(const SharedPtr<MoodbarLoader> moodbar_loader, PlaylistView *playlist_view, QObject *parent)
     : QItemDelegate(parent),
-      app_(app),
-      view_(view),
+      moodbar_loader_(moodbar_loader),
+      playlist_view_(playlist_view),
       enabled_(false),
-      style_(MoodbarRenderer::Style_Normal) {
+      style_(MoodbarSettings::Style::Normal) {
 
-  QObject::connect(app_, &Application::SettingsChanged, this, &MoodbarItemDelegate::ReloadSettings);
+  QObject::connect(&*moodbar_loader, &MoodbarLoader::SettingsReloaded, this, &MoodbarItemDelegate::ReloadSettings);
+  QObject::connect(&*moodbar_loader, &MoodbarLoader::StyleChanged, this, &MoodbarItemDelegate::ReloadSettings);
+
   ReloadSettings();
 
 }
 
 void MoodbarItemDelegate::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(MoodbarSettingsPage::kSettingsGroup);
-  enabled_ = s.value("enabled", false).toBool();
-  MoodbarRenderer::MoodbarStyle new_style = static_cast<MoodbarRenderer::MoodbarStyle>(s.value("style", MoodbarRenderer::Style_Normal).toInt());
+  Settings s;
+  s.beginGroup(MoodbarSettings::kSettingsGroup);
+  enabled_ = s.value(MoodbarSettings::kEnabled, false).toBool();
+  const MoodbarSettings::Style new_style = static_cast<MoodbarSettings::Style>(s.value(MoodbarSettings::kStyle, static_cast<int>(MoodbarSettings::Style::Normal)).toInt());
   s.endGroup();
 
   if (!enabled_) {
@@ -97,8 +108,8 @@ void MoodbarItemDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 QPixmap MoodbarItemDelegate::PixmapForIndex(const QModelIndex &idx, const QSize size) {
 
   // Pixmaps are keyed off URL.
-  const QUrl url = idx.sibling(idx.row(), Playlist::Column_Filename).data().toUrl();
-  const bool has_cue = idx.sibling(idx.row(), Playlist::Column_HasCUE).data().toBool();
+  const QUrl url = idx.sibling(idx.row(), static_cast<int>(Playlist::Column::URL)).data().toUrl();
+  const bool has_cue = idx.sibling(idx.row(), static_cast<int>(Playlist::Column::HasCUE)).data().toBool();
 
   Data *data = nullptr;
   if (data_.contains(url)) {
@@ -106,20 +117,23 @@ QPixmap MoodbarItemDelegate::PixmapForIndex(const QModelIndex &idx, const QSize 
   }
   else {
     data = new Data;
-    if (!data_.insert(url, data)) return QPixmap();
+    if (!data_.insert(url, data)) {
+      qLog(Error) << "Could not insert moodbar data for URL" << url << "into cache";
+      return QPixmap();
+    }
   }
 
   data->indexes_.insert(idx);
   data->desired_size_ = size;
 
   switch (data->state_) {
-    case Data::State_CannotLoad:
-    case Data::State_LoadingData:
-    case Data::State_LoadingColors:
-    case Data::State_LoadingImage:
+    case Data::State::CannotLoad:
+    case Data::State::LoadingData:
+    case Data::State::LoadingColors:
+    case Data::State::LoadingImage:
       return data->pixmap_;
 
-    case Data::State_Loaded:
+    case Data::State::Loaded:
       // Is the pixmap the right size?
       if (data->pixmap_.size() != size) {
         StartLoadingImage(url, data);
@@ -127,7 +141,7 @@ QPixmap MoodbarItemDelegate::PixmapForIndex(const QModelIndex &idx, const QSize 
 
       return data->pixmap_;
 
-    case Data::State_None:
+    case Data::State::None:
       break;
   }
 
@@ -140,24 +154,27 @@ QPixmap MoodbarItemDelegate::PixmapForIndex(const QModelIndex &idx, const QSize 
 
 void MoodbarItemDelegate::StartLoadingData(const QUrl &url, const bool has_cue, Data *data) {
 
-  data->state_ = Data::State_LoadingData;
+  data->state_ = Data::State::LoadingData;
 
   // Load a mood file for this song and generate some colors from it
-  QByteArray bytes;
-  MoodbarPipeline *pipeline = nullptr;
-  switch (app_->moodbar_loader()->Load(url, has_cue, &bytes, &pipeline)) {
-    case MoodbarLoader::CannotLoad:
-      data->state_ = Data::State_CannotLoad;
+  const MoodbarLoader::LoadResult load_result = moodbar_loader_->Load(url, has_cue);
+  switch (load_result.status) {
+    case MoodbarLoader::LoadStatus::CannotLoad:
+      data->state_ = Data::State::CannotLoad;
       break;
 
-    case MoodbarLoader::Loaded:
-      // We got the data immediately.
-      StartLoadingColors(url, bytes, data);
+    case MoodbarLoader::LoadStatus::Loaded:
+      StartLoadingColors(url, load_result.data, data);
       break;
 
-    case MoodbarLoader::WillLoadAsync:
-      // Maybe in a little while.
-      QObject::connect(pipeline, &MoodbarPipeline::Finished, this, [this, url, pipeline]() { DataLoaded(url, pipeline); });
+    case MoodbarLoader::LoadStatus::WillLoadAsync:
+      MoodbarPipelinePtr pipeline = load_result.pipeline;
+      Q_ASSERT(pipeline);
+      SharedPtr<QMetaObject::Connection> connection = make_shared<QMetaObject::Connection>();
+      *connection = QObject::connect(&*pipeline, &MoodbarPipeline::Finished, this, [this, connection, url, pipeline]() {
+        DataLoaded(url, pipeline);
+        QObject::disconnect(*connection);
+      });
       break;
   }
 
@@ -176,17 +193,18 @@ bool MoodbarItemDelegate::RemoveFromCacheIfIndexesInvalid(const QUrl &url, Data 
 
 void MoodbarItemDelegate::ReloadAllColors() {
 
-  for (const QUrl &url : data_.keys()) {
+  const QList<QUrl> urls = data_.keys();
+  for (const QUrl &url : urls) {
     Data *data = data_[url];
 
-    if (data->state_ == Data::State_Loaded) {
+    if (data->state_ == Data::State::Loaded) {
       StartLoadingData(url, false, data);
     }
   }
 
 }
 
-void MoodbarItemDelegate::DataLoaded(const QUrl &url, MoodbarPipeline *pipeline) {
+void MoodbarItemDelegate::DataLoaded(const QUrl &url, MoodbarPipelinePtr pipeline) {
 
   if (!data_.contains(url)) return;
 
@@ -197,7 +215,7 @@ void MoodbarItemDelegate::DataLoaded(const QUrl &url, MoodbarPipeline *pipeline)
   }
 
   if (!pipeline->success()) {
-    data->state_ = Data::State_CannotLoad;
+    data->state_ = Data::State::CannotLoad;
     return;
   }
 
@@ -208,7 +226,7 @@ void MoodbarItemDelegate::DataLoaded(const QUrl &url, MoodbarPipeline *pipeline)
 
 void MoodbarItemDelegate::StartLoadingColors(const QUrl &url, const QByteArray &bytes, Data *data) {
 
-  data->state_ = Data::State_LoadingColors;
+  data->state_ = Data::State::LoadingColors;
 
   QFuture<ColorVector> future = QtConcurrent::run(MoodbarRenderer::Colors, bytes, style_, qApp->palette());
   QFutureWatcher<ColorVector> *watcher = new QFutureWatcher<ColorVector>();
@@ -239,7 +257,7 @@ void MoodbarItemDelegate::ColorsLoaded(const QUrl &url, const ColorVector &color
 
 void MoodbarItemDelegate::StartLoadingImage(const QUrl &url, Data *data) {
 
-  data->state_ = Data::State_LoadingImage;
+  data->state_ = Data::State::LoadingImage;
 
   QFuture<QImage> future = QtConcurrent::run(MoodbarRenderer::RenderToImage, data->colors_, data->desired_size_);
   QFutureWatcher<QImage> *watcher = new QFutureWatcher<QImage>();
@@ -269,22 +287,21 @@ void MoodbarItemDelegate::ImageLoaded(const QUrl &url, const QImage &image) {
   }
 
   data->pixmap_ = QPixmap::fromImage(image);
-  data->state_ = Data::State_Loaded;
+  data->state_ = Data::State::Loaded;
 
-  Playlist *playlist = view_->playlist();
+  Playlist *playlist = playlist_view_->playlist();
   const PlaylistFilter *filter = playlist->filter();
 
   // Update all the indices with the new pixmap.
   for (const QPersistentModelIndex &idx : std::as_const(data->indexes_)) {
-    if (idx.isValid() && idx.sibling(idx.row(), Playlist::Column_Filename).data().toUrl() == url) {
+    if (idx.isValid() && idx.sibling(idx.row(), static_cast<int>(Playlist::Column::URL)).data().toUrl() == url) {
       QModelIndex source_index = idx;
       if (idx.model() == filter) {
         source_index = filter->mapToSource(source_index);
       }
 
       if (source_index.model() != playlist) {
-        // The pixmap was for an index in a different playlist, maybe the user
-        // switched to a different one.
+        // The pixmap was for an index in a different playlist, maybe the user switched to a different one.
         continue;
       }
 

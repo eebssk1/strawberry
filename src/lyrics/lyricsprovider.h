@@ -24,21 +24,22 @@
 
 #include <QtGlobal>
 #include <QObject>
-#include <QPair>
 #include <QList>
 #include <QVariant>
 #include <QString>
 #include <QRegularExpression>
 
-#include "lyricsfetcher.h"
+#include "includes/shared_ptr.h"
+#include "core/networkaccessmanager.h"
+#include "core/httpbaserequest.h"
+#include "lyricssearchrequest.h"
+#include "lyricssearchresult.h"
 
-class NetworkAccessManager;
-
-class LyricsProvider : public QObject {
+class LyricsProvider : public HttpBaseRequest {
   Q_OBJECT
 
  public:
-  explicit LyricsProvider(const QString &name, const bool enabled, const bool authentication_required, NetworkAccessManager *network, QObject *parent);
+  explicit LyricsProvider(const QString &name, const bool enabled, const bool authentication_required, const SharedPtr<NetworkAccessManager> network, QObject *parent);
 
   QString name() const { return name_; }
   bool is_enabled() const { return enabled_; }
@@ -47,33 +48,32 @@ class LyricsProvider : public QObject {
   void set_enabled(const bool enabled) { enabled_ = enabled; }
   void set_order(const int order) { order_ = order; }
 
-  virtual bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) = 0;
-  virtual void CancelSearch(const int id) { Q_UNUSED(id); }
-  virtual bool AuthenticationRequired() const { return authentication_required_; }
+  virtual QString service_name() const override { return name_; }
+  virtual bool authentication_required() const override { return authentication_required_; }
+  virtual bool authenticated() const override { return false; }
+  virtual bool use_authorization_header() const override { return authentication_required_; }
+  virtual QByteArray authorization_header() const override { return QByteArray(); }
+
+  virtual bool StartSearchAsync(const int id, const LyricsSearchRequest &request);
+  virtual void CancelSearchAsync(const int id) { Q_UNUSED(id); }
   virtual void Authenticate() {}
-  virtual bool IsAuthenticated() const { return !authentication_required_; }
-  virtual void Deauthenticate() {}
+  virtual void ClearSession() {}
 
-  virtual void Error(const QString &error, const QVariant &debug = QVariant()) = 0;
+ protected Q_SLOTS:
+  virtual void StartSearch(const int id, const LyricsSearchRequest &request) = 0;
 
- protected:
-  QString ParseLyricsFromHTML(const QString &content, const QRegularExpression &start_tag, const QRegularExpression &end_tag, const QRegularExpression &lyrics_start, const bool multiple);
-
- signals:
-  void AuthenticationComplete(bool, QStringList = QStringList());
+ Q_SIGNALS:
+  void AuthenticationComplete(const bool success, const QString &error = QString());
   void AuthenticationSuccess();
-  void AuthenticationFailure(QStringList);
-  void SearchFinished(int id, LyricsSearchResults results);
+  void AuthenticationFailure(const QString &error);
+  void SearchFinished(const int id, const LyricsSearchResults &results = LyricsSearchResults());
 
  protected:
-  using Param = QPair<QString, QString>;
-  using ParamList = QList<Param>;
-
-  NetworkAccessManager *network_;
-  QString name_;
+  const SharedPtr<NetworkAccessManager> network_;
+  const QString name_;
   bool enabled_;
   int order_;
-  bool authentication_required_;
+  const bool authentication_required_;
 };
 
 #endif  // LYRICSPROVIDER_H

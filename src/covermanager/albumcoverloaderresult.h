@@ -24,42 +24,44 @@
 
 #include <QImage>
 #include <QUrl>
+#include <QMetaType>
 
 #include "albumcoverimageresult.h"
 
-struct AlbumCoverLoaderResult {
+class AlbumCoverLoaderResult {
+ public:
 
-  enum Type {
-    Type_None,
-    Type_ManuallyUnset,
-    Type_Embedded,
-    Type_Automatic,
-    Type_Manual,
-    Type_Remote,
+  enum class Type {
+    None,
+    Unset,
+    Embedded,
+    Automatic,
+    Manual
   };
 
   explicit AlbumCoverLoaderResult(const bool _success = false,
-                                  const Type _type = Type_None,
+                                  const Type _type = Type::None,
                                   const AlbumCoverImageResult &_album_cover = AlbumCoverImageResult(),
                                   const QImage &_image_scaled = QImage(),
-                                  const QImage &_image_thumbnail = QImage(),
-                                  const bool _updated = false) :
+                                  const QUrl &_art_manual_updated = QUrl(),
+                                  const QUrl &_art_automatic_updated = QUrl()) :
                                   success(_success),
                                   type(_type),
                                   album_cover(_album_cover),
                                   image_scaled(_image_scaled),
-                                  image_thumbnail(_image_thumbnail),
-                                  updated(_updated) {}
+                                  art_manual_updated(_art_manual_updated),
+                                  art_automatic_updated(_art_automatic_updated) {}
 
   bool success;
   Type type;
   AlbumCoverImageResult album_cover;
   QImage image_scaled;
-  QImage image_thumbnail;
-  bool updated;
+  QUrl art_manual_updated;
+  QUrl art_automatic_updated;
 
   QUrl temp_cover_url;
-
 };
+
+Q_DECLARE_METATYPE(AlbumCoverLoaderResult)
 
 #endif  // ALBUMCOVERLOADERRESULT_H

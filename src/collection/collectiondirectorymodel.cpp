@@ -2,6 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -20,12 +21,15 @@
 
 #include "config.h"
 
+#include <memory>
+
 #include <QObject>
 #include <QStandardItemModel>
 #include <QAbstractItemModel>
 #include <QVariant>
 #include <QString>
 
+#include "includes/shared_ptr.h"
 #include "core/filesystemmusicstorage.h"
 #include "core/iconloader.h"
 #include "core/musicstorage.h"
@@ -34,29 +38,36 @@
 #include "collectionbackend.h"
 #include "collectiondirectorymodel.h"
 
-CollectionDirectoryModel::CollectionDirectoryModel(CollectionBackend *backend, QObject *parent)
+using std::make_shared;
+using namespace Qt::Literals::StringLiterals;
+
+CollectionDirectoryModel::CollectionDirectoryModel(SharedPtr<CollectionBackend> backend, QObject *parent)
     : QStandardItemModel(parent),
-      dir_icon_(IconLoader::Load("document-open-folder")),
+      dir_icon_(IconLoader::Load(u"document-open-folder"_s)),
       backend_(backend) {
 
-  QObject::connect(backend_, &CollectionBackend::DirectoryDiscovered, this, &CollectionDirectoryModel::DirectoryDiscovered);
-  QObject::connect(backend_, &CollectionBackend::DirectoryDeleted, this, &CollectionDirectoryModel::DirectoryDeleted);
+  QObject::connect(&*backend_, &CollectionBackend::DirectoryAdded, this, &CollectionDirectoryModel::AddDirectory);
+  QObject::connect(&*backend_, &CollectionBackend::DirectoryDeleted, this, &CollectionDirectoryModel::RemoveDirectory);
 
 }
 
-CollectionDirectoryModel::~CollectionDirectoryModel() = default;
+void CollectionDirectoryModel::AddDirectory(const CollectionDirectory &dir) {
 
-void CollectionDirectoryModel::DirectoryDiscovered(const CollectionDirectory &dir) {
+  directories_.insert(dir.id, dir);
+  paths_.append(dir.path);
 
   QStandardItem *item = new QStandardItem(dir.path);
   item->setData(dir.id, kIdRole);
   item->setIcon(dir_icon_);
-  storage_ << std::make_shared<FilesystemMusicStorage>(backend_->source(), dir.path, dir.id);
+  storage_ << make_shared<FilesystemMusicStorage>(backend_->source(), dir.path, dir.id);
   appendRow(item);
 
 }
 
-void CollectionDirectoryModel::DirectoryDeleted(const CollectionDirectory &dir) {
+void CollectionDirectoryModel::RemoveDirectory(const CollectionDirectory &dir) {
+
+  directories_.remove(dir.id);
+  paths_.removeAll(dir.path);
 
   for (int i = 0; i < rowCount(); ++i) {
     if (item(i, 0)->data(kIdRole).toInt() == dir.id) {
@@ -65,26 +76,6 @@ void CollectionDirectoryModel::DirectoryDeleted(const CollectionDirectory &dir) 
       break;
     }
   }
-
-}
-
-void CollectionDirectoryModel::AddDirectory(const QString &path) {
-
-  if (!backend_) return;
-
-  backend_->AddDirectory(path);
-
-}
-
-void CollectionDirectoryModel::RemoveDirectory(const QModelIndex &idx) {
-
-  if (!backend_ || !idx.isValid()) return;
-
-  CollectionDirectory dir;
-  dir.path = idx.data().toString();
-  dir.id = idx.data(kIdRole).toInt();
-
-  backend_->RemoveDirectory(dir);
 
 }
 

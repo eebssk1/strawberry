@@ -3,7 +3,7 @@
  * This file was part of Clementine.
  * Copyright 2012, David Sansome <me@davidsansome.com>
  * Copyright 2012, 2014, John Maguire <john.maguire@gmail.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -25,13 +25,14 @@
 
 #include "config.h"
 
-#include <memory>
+#include <glib.h>
 
 #include <QObject>
 #include <QList>
 #include <QString>
 
-#include "settings/settingsdialog.h"
+#include "includes/scoped_ptr.h"
+#include "includes/shared_ptr.h"
 
 class QThread;
 
@@ -40,15 +41,15 @@ class ApplicationImpl;
 class TagReaderClient;
 class Database;
 class DeviceFinders;
+class UrlHandlers;
 class Player;
-class SCollection;
+class NetworkAccessManager;
+class CollectionLibrary;
 class CollectionBackend;
 class CollectionModel;
 class PlaylistBackend;
 class PlaylistManager;
-#ifndef Q_OS_WIN
 class DeviceManager;
-#endif
 class CoverProviders;
 class AlbumCoverLoader;
 class CurrentAlbumCoverLoader;
@@ -56,7 +57,7 @@ class CoverProviders;
 class LyricsProviders;
 class AudioScrobbler;
 class LastFMImport;
-class InternetServices;
+class StreamingServices;
 class RadioServices;
 #ifdef HAVE_MOODBAR
 class MoodbarController;
@@ -70,65 +71,59 @@ class Application : public QObject {
   explicit Application(QObject *parent = nullptr);
   ~Application() override;
 
-  TagReaderClient *tag_reader_client() const;
-  Database *database() const;
-  TaskManager *task_manager() const;
-  Player *player() const;
-  DeviceFinders *device_finders() const;
-#ifndef Q_OS_WIN
-  DeviceManager *device_manager() const;
-#endif
+  SharedPtr<TagReaderClient> tagreader_client() const;
+  SharedPtr<Database> database() const;
+  SharedPtr<TaskManager> task_manager() const;
+  SharedPtr<Player> player() const;
+  SharedPtr<NetworkAccessManager> network() const;
+  SharedPtr<DeviceFinders> device_finders() const;
+  SharedPtr<UrlHandlers> url_handlers() const;
+  SharedPtr<DeviceManager> device_manager() const;
 
-  SCollection *collection() const;
-  CollectionBackend *collection_backend() const;
+  SharedPtr<CollectionLibrary> collection() const;
+  SharedPtr<CollectionBackend> collection_backend() const;
   CollectionModel *collection_model() const;
 
-  PlaylistBackend *playlist_backend() const;
-  PlaylistManager *playlist_manager() const;
+  SharedPtr<PlaylistBackend> playlist_backend() const;
+  SharedPtr<PlaylistManager> playlist_manager() const;
 
-  CoverProviders *cover_providers() const;
-  AlbumCoverLoader *album_cover_loader() const;
-  CurrentAlbumCoverLoader *current_albumcover_loader() const;
+  SharedPtr<CoverProviders> cover_providers() const;
+  SharedPtr<AlbumCoverLoader> albumcover_loader() const;
+  SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader() const;
 
-  LyricsProviders *lyrics_providers() const;
+  SharedPtr<LyricsProviders> lyrics_providers() const;
 
-  AudioScrobbler *scrobbler() const;
+  SharedPtr<AudioScrobbler> scrobbler() const;
 
-  InternetServices *internet_services() const;
-  RadioServices *radio_services() const;
+  SharedPtr<StreamingServices> streaming_services() const;
+  SharedPtr<RadioServices> radio_services() const;
 
 #ifdef HAVE_MOODBAR
-  MoodbarController *moodbar_controller() const;
-  MoodbarLoader *moodbar_loader() const;
+  SharedPtr<MoodbarController> moodbar_controller() const;
+  SharedPtr<MoodbarLoader> moodbar_loader() const;
 #endif
 
-  LastFMImport *lastfm_import() const;
+  SharedPtr<LastFMImport> lastfm_import() const;
 
   void Exit();
 
   QThread *MoveToNewThread(QObject *object);
   static void MoveToThread(QObject *object, QThread *thread);
 
- private slots:
+ private Q_SLOTS:
   void ExitReceived();
 
- public slots:
-  void AddError(const QString &message);
-  void ReloadSettings();
-  void OpenSettingsDialogAtPage(SettingsDialog::Page page);
-
- signals:
-  void ErrorAdded(QString message);
-  void SettingsChanged();
-  void SettingsDialogRequested(SettingsDialog::Page page);
+ Q_SIGNALS:
   void ExitFinished();
-  void ClearPixmapDiskCache();
 
  private:
-  std::unique_ptr<ApplicationImpl> p_;
+  static gpointer GLibMainLoopThreadFunc(gpointer data);
+
+ private:
+  ScopedPtr<ApplicationImpl> p_;
+  GThread *g_thread_;
   QList<QThread*> threads_;
   QList<QObject*> wait_for_exit_;
-
 };
 
 #endif  // APPLICATION_H

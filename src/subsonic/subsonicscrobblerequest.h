@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  * Copyright 2020-2021, Pascal Below <spezifisch@below.fr>
  *
  * Strawberry is free software: you can redistribute it and/or modify
@@ -23,8 +23,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QDateTime>
@@ -36,7 +34,6 @@
 #include "subsonicbaserequest.h"
 
 class QNetworkReply;
-class Application;
 class SubsonicService;
 class SubsonicUrlHandler;
 
@@ -44,12 +41,12 @@ class SubsonicScrobbleRequest : public SubsonicBaseRequest {
   Q_OBJECT
 
  public:
-  explicit SubsonicScrobbleRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, Application *app, QObject *parent = nullptr);
+  explicit SubsonicScrobbleRequest(SubsonicService *service, SubsonicUrlHandler *url_handler, QObject *parent = nullptr);
   ~SubsonicScrobbleRequest() override;
 
   void CreateScrobbleRequest(const QString &song_id, const bool submission, const QDateTime &start_time);
 
- private slots:
+ private Q_SLOTS:
   void ScrobbleReplyReceived(QNetworkReply *reply);
 
  private:
@@ -69,11 +66,8 @@ class SubsonicScrobbleRequest : public SubsonicBaseRequest {
 
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
 
-  static const int kMaxConcurrentScrobbleRequests;
-
   SubsonicService *service_;
   SubsonicUrlHandler *url_handler_;
-  Application *app_;
 
   QQueue<Request> scrobble_requests_queue_;
 
@@ -81,7 +75,6 @@ class SubsonicScrobbleRequest : public SubsonicBaseRequest {
 
   QStringList errors_;
   QList<QNetworkReply*> replies_;
-
 };
 
 #endif  // SUBSONICSCROBBLEREQUEST_H

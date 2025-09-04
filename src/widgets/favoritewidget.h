@@ -24,7 +24,7 @@
 #include <QObject>
 #include <QWidget>
 #include <QString>
-#include <QPixmap>
+#include <QIcon>
 #include <QRect>
 #include <QSize>
 
@@ -43,21 +43,19 @@ class FavoriteWidget : public QWidget {
 
   QSize sizeHint() const override;
 
- signals:
-  void FavoriteStateChanged(int, bool);
+ Q_SIGNALS:
+  void FavoriteStateChanged(const int tab_index, const bool favorite);
 
  protected:
   void paintEvent(QPaintEvent *e) override;
-  void mouseDoubleClickEvent(QMouseEvent*) override;
+  void mouseDoubleClickEvent(QMouseEvent *e) override;
 
  private:
-  static const int kStarSize;
-
   // The playlist's id this widget belongs to
   int tab_index_;
   bool favorite_;
-  QPixmap on_;
-  QPixmap off_;
+  QIcon on_;
+  QIcon off_;
   QRect rect_;
 };
 

@@ -40,9 +40,9 @@ class SliderSlider : public QSlider {
   virtual void SetValue(const uint new_value);
   virtual void setValue(int new_value);
 
- signals:
+ Q_SIGNALS:
   // We emit this when the user has specifically changed the slider so connect to it if valueChanged() is too generic Qt also emits valueChanged(int)
-  void SliderReleased(int);
+  void SliderReleased(const int);
 
  protected:
   virtual void slideEvent(QMouseEvent*);

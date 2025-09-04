@@ -27,7 +27,8 @@
 #include <QComboBox>
 #include <QSettings>
 
-#include "settings/playlistsettingspage.h"
+#include "core/settings.h"
+#include "constants/playlistsettings.h"
 #include "playlistsaveoptionsdialog.h"
 #include "ui_playlistsaveoptionsdialog.h"
 
@@ -37,9 +38,9 @@ PlaylistSaveOptionsDialog::PlaylistSaveOptionsDialog(QWidget *parent) : QDialog(
 
   ui->setupUi(this);
 
-  ui->filePaths->addItem(tr("Automatic"), PlaylistSettingsPage::PathType_Automatic);
-  ui->filePaths->addItem(tr("Relative"), PlaylistSettingsPage::PathType_Relative);
-  ui->filePaths->addItem(tr("Absolute"), PlaylistSettingsPage::PathType_Absolute);
+  ui->filePaths->addItem(tr("Automatic"), QVariant::fromValue(PlaylistSettings::PathType::Automatic));
+  ui->filePaths->addItem(tr("Relative"), QVariant::fromValue(PlaylistSettings::PathType::Relative));
+  ui->filePaths->addItem(tr("Absolute"), QVariant::fromValue(PlaylistSettings::PathType::Absolute));
 
 }
 
@@ -48,9 +49,9 @@ PlaylistSaveOptionsDialog::~PlaylistSaveOptionsDialog() { delete ui; }
 void PlaylistSaveOptionsDialog::accept() {
 
   if (ui->remember_user_choice->isChecked()) {
-    QSettings s;
-    s.beginGroup(PlaylistSettingsPage::kSettingsGroup);
-    s.setValue("path_type", ui->filePaths->itemData(ui->filePaths->currentIndex()).toInt());
+    Settings s;
+    s.beginGroup(PlaylistSettings::kSettingsGroup);
+    s.setValue(PlaylistSettings::kPathType, ui->filePaths->itemData(ui->filePaths->currentIndex()).toInt());
     s.endGroup();
   }
 
@@ -58,6 +59,6 @@ void PlaylistSaveOptionsDialog::accept() {
 
 }
 
-PlaylistSettingsPage::PathType PlaylistSaveOptionsDialog::path_type() const {
-  return static_cast<PlaylistSettingsPage::PathType>(ui->filePaths->itemData(ui->filePaths->currentIndex()).toInt());
+PlaylistSettings::PathType PlaylistSaveOptionsDialog::path_type() const {
+  return ui->filePaths->itemData(ui->filePaths->currentIndex()).value<PlaylistSettings::PathType>();
 }

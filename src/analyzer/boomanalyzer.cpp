@@ -32,12 +32,9 @@
 #include <QPalette>
 #include <QColor>
 
-#include "engine/engine_fwd.h"
 #include "engine/enginebase.h"
 #include "fht.h"
 #include "analyzerbase.h"
-
-using Analyzer::Scope;
 
 const int BoomAnalyzer::kColumnWidth = 4;
 const int BoomAnalyzer::kMaxBandCount = 256;
@@ -46,7 +43,7 @@ const int BoomAnalyzer::kMinBandCount = 32;
 const char *BoomAnalyzer::kName = QT_TRANSLATE_NOOP("AnalyzerContainer", "Boom analyzer");
 
 BoomAnalyzer::BoomAnalyzer(QWidget *parent)
-    : Analyzer::Base(parent, 9),
+    : AnalyzerBase(parent, 9),
       bands_(0),
       scope_(kMinBandCount),
       fg_(palette().color(QPalette::Highlight)),
@@ -79,9 +76,9 @@ void BoomAnalyzer::resizeEvent(QResizeEvent *e) {
   const double h = 1.2 / HEIGHT;
 
   bands_ = qMin(static_cast<int>(static_cast<double>(width() + 1) / (kColumnWidth + 1)) + 1, kMaxBandCount);
-  scope_.resize(bands_);
+  scope_.resize(static_cast<size_t>(bands_));
 
-  F_ = static_cast<double>(HEIGHT) / (log10(256) * static_cast<double>(1.1) /*<- max. amplitude*/);
+  F_ = static_cast<double>(HEIGHT) / (log10(256) * 1.1 /*<- max. amplitude*/);
 
   barPixmap_ = QPixmap(kColumnWidth - 2, HEIGHT);
   canvas_ = QPixmap(size());
@@ -110,22 +107,24 @@ void BoomAnalyzer::transform(Scope &s) {
 
 void BoomAnalyzer::analyze(QPainter &p, const Scope &scope, const bool new_frame) {
 
-  if (!new_frame || engine_->state() == Engine::Paused) {
+  if (!new_frame || engine_->state() == EngineBase::State::Paused) {
     p.drawPixmap(0, 0, canvas_);
     return;
   }
-  double h = 0.0;
-  const uint MAX_HEIGHT = height() - 1;
+
+  const uint MAX_HEIGHT = static_cast<uint>(height() - 1);
 
   QPainter canvas_painter(&canvas_);
   canvas_.fill(palette().color(QPalette::Window));
 
-  Analyzer::interpolate(scope, scope_);
+  interpolate(scope, scope_);
 
-  for (int i = 0, x = 0, y = 0; i < bands_; ++i, x += kColumnWidth + 1) {
-    h = log10(scope_[i] * 256.0) * F_;
+  int x = 0;
+  int y = 0;
+  for (size_t i = 0; i < static_cast<size_t>(bands_); ++i, x += kColumnWidth + 1) {
+    double h = log10(scope_[i] * 256.0) * F_;
 
-    if (h > MAX_HEIGHT) h = MAX_HEIGHT;
+    h = std::min(h, static_cast<double>(MAX_HEIGHT));
 
     if (h > bar_height_[i]) {
       bar_height_[i] = h;
@@ -141,7 +140,7 @@ void BoomAnalyzer::analyze(QPainter &p, const Scope &scope, const bool new_frame
     else {
       if (bar_height_[i] > 0.0) {
         bar_height_[i] -= K_barHeight_;  // 1.4
-        if (bar_height_[i] < 0.0) bar_height_[i] = 0.0;
+        bar_height_[i] = std::max(0.0, bar_height_[i]);
       }
 
     peak_handling:
@@ -150,8 +149,8 @@ void BoomAnalyzer::analyze(QPainter &p, const Scope &scope, const bool new_frame
         peak_height_[i] -= peak_speed_[i];
         peak_speed_[i] *= F_peakSpeed_;  // 1.12
 
-        if (peak_height_[i] < bar_height_[i]) peak_height_[i] = bar_height_[i];
-        if (peak_height_[i] < 0.0) peak_height_[i] = 0.0;
+        peak_height_[i] = std::max(bar_height_[i], bar_height_[i]);
+        peak_height_[i] = std::max(0.0, peak_height_[i]);
       }
     }
 

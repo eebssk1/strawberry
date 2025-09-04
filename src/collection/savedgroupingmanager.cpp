@@ -21,6 +21,8 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QDialog>
 #include <QStandardItemModel>
 #include <QItemSelectionModel>
@@ -28,6 +30,7 @@
 #include <QByteArray>
 #include <QString>
 #include <QStringList>
+#include <QUrl>
 #include <QIODevice>
 #include <QDataStream>
 #include <QKeySequence>
@@ -36,9 +39,13 @@
 
 #include "core/logging.h"
 #include "core/iconloader.h"
+#include "core/settings.h"
+#include "constants/collectionsettings.h"
 #include "collectionmodel.h"
 #include "savedgroupingmanager.h"
 #include "ui_savedgroupingmanager.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 const char *SavedGroupingManager::kSavedGroupingsSettingsGroup = "SavedGroupings";
 
@@ -55,7 +62,7 @@ SavedGroupingManager::SavedGroupingManager(const QString &saved_groupings_settin
   model_->setHorizontalHeaderItem(2, new QStandardItem(tr("Second Level")));
   model_->setHorizontalHeaderItem(3, new QStandardItem(tr("Third Level")));
   ui_->list->setModel(model_);
-  ui_->remove->setIcon(IconLoader::Load("edit-delete"));
+  ui_->remove->setIcon(IconLoader::Load(u"edit-delete"_s));
   ui_->remove->setEnabled(false);
 
   ui_->remove->setShortcut(QKeySequence::Delete);
@@ -71,80 +78,79 @@ SavedGroupingManager::~SavedGroupingManager() {
 
 QString SavedGroupingManager::GetSavedGroupingsSettingsGroup(const QString &settings_group) {
 
-  if (settings_group.isEmpty() || settings_group == CollectionSettingsPage::kSettingsGroup) {
-    return kSavedGroupingsSettingsGroup;
+  if (settings_group.isEmpty() || settings_group == QLatin1String(CollectionSettings::kSettingsGroup)) {
+    return QLatin1String(kSavedGroupingsSettingsGroup);
   }
-  else {
-    return QString(kSavedGroupingsSettingsGroup) + "_" + settings_group;
-  }
+
+  return QLatin1String(kSavedGroupingsSettingsGroup) + QLatin1Char('_') + settings_group;
 
 }
 
 QString SavedGroupingManager::GroupByToString(const CollectionModel::GroupBy g) {
 
   switch (g) {
-    case CollectionModel::GroupBy_None:
-    case CollectionModel::GroupByCount: {
+    case CollectionModel::GroupBy::None:
+    case CollectionModel::GroupBy::GroupByCount:{
       return tr("None");
     }
-    case CollectionModel::GroupBy_AlbumArtist: {
+    case CollectionModel::GroupBy::AlbumArtist:{
       return tr("Album artist");
     }
-    case CollectionModel::GroupBy_Artist: {
+    case CollectionModel::GroupBy::Artist:{
       return tr("Artist");
     }
-    case CollectionModel::GroupBy_Album: {
+    case CollectionModel::GroupBy::Album:{
       return tr("Album");
     }
-    case CollectionModel::GroupBy_AlbumDisc: {
+    case CollectionModel::GroupBy::AlbumDisc:{
       return tr("Album - Disc");
     }
-    case CollectionModel::GroupBy_YearAlbum: {
+    case CollectionModel::GroupBy::YearAlbum:{
       return tr("Year - Album");
     }
-    case CollectionModel::GroupBy_YearAlbumDisc: {
+    case CollectionModel::GroupBy::YearAlbumDisc:{
       return tr("Year - Album - Disc");
     }
-    case CollectionModel::GroupBy_OriginalYearAlbum: {
+    case CollectionModel::GroupBy::OriginalYearAlbum:{
       return tr("Original year - Album");
     }
-    case CollectionModel::GroupBy_OriginalYearAlbumDisc: {
+    case CollectionModel::GroupBy::OriginalYearAlbumDisc:{
       return tr("Original year - Album - Disc");
     }
-    case CollectionModel::GroupBy_Disc: {
+    case CollectionModel::GroupBy::Disc:{
       return tr("Disc");
     }
-    case CollectionModel::GroupBy_Year: {
+    case CollectionModel::GroupBy::Year:{
       return tr("Year");
     }
-    case CollectionModel::GroupBy_OriginalYear: {
+    case CollectionModel::GroupBy::OriginalYear:{
       return tr("Original year");
     }
-    case CollectionModel::GroupBy_Genre: {
+    case CollectionModel::GroupBy::Genre:{
       return tr("Genre");
     }
-    case CollectionModel::GroupBy_Composer: {
+    case CollectionModel::GroupBy::Composer:{
       return tr("Composer");
     }
-    case CollectionModel::GroupBy_Performer: {
+    case CollectionModel::GroupBy::Performer:{
       return tr("Performer");
     }
-    case CollectionModel::GroupBy_Grouping: {
+    case CollectionModel::GroupBy::Grouping:{
       return tr("Grouping");
     }
-    case CollectionModel::GroupBy_FileType: {
+    case CollectionModel::GroupBy::FileType:{
       return tr("File type");
     }
-    case CollectionModel::GroupBy_Format: {
+    case CollectionModel::GroupBy::Format:{
       return tr("Format");
     }
-    case CollectionModel::GroupBy_Samplerate: {
+    case CollectionModel::GroupBy::Samplerate:{
       return tr("Sample rate");
     }
-    case CollectionModel::GroupBy_Bitdepth: {
+    case CollectionModel::GroupBy::Bitdepth:{
       return tr("Bit depth");
     }
-    case CollectionModel::GroupBy_Bitrate: {
+    case CollectionModel::GroupBy::Bitrate:{
       return tr("Bitrate");
     }
   }
@@ -156,20 +162,26 @@ QString SavedGroupingManager::GroupByToString(const CollectionModel::GroupBy g) 
 void SavedGroupingManager::UpdateModel() {
 
   model_->setRowCount(0);  // don't use clear, it deletes headers
-  QSettings s;
+  Settings s;
   s.beginGroup(saved_groupings_settings_group_);
   int version = s.value("version").toInt();
   if (version == 1) {
     QStringList saved = s.childKeys();
     for (int i = 0; i < saved.size(); ++i) {
-      if (saved.at(i) == "version") continue;
-      QByteArray bytes = s.value(saved.at(i)).toByteArray();
+      const QString &name = saved.at(i);
+      if (name == "version"_L1) continue;
+      QByteArray bytes = s.value(name).toByteArray();
       QDataStream ds(&bytes, QIODevice::ReadOnly);
       CollectionModel::Grouping g;
       ds >> g;
 
       QList<QStandardItem*> list;
-      list << new QStandardItem(saved.at(i))
+
+      QStandardItem *item = new QStandardItem();
+      item->setText(QUrl::fromPercentEncoding(name.toUtf8()));
+      item->setData(name);
+
+      list << item
            << new QStandardItem(GroupByToString(g.first))
            << new QStandardItem(GroupByToString(g.second))
            << new QStandardItem(GroupByToString(g.third));
@@ -180,8 +192,9 @@ void SavedGroupingManager::UpdateModel() {
   else {
     QStringList saved = s.childKeys();
     for (int i = 0; i < saved.size(); ++i) {
-      if (saved.at(i) == "version") continue;
-      s.remove(saved.at(i));
+      const QString &name = saved.at(i);
+      if (name == "version"_L1) continue;
+      s.remove(name);
     }
   }
   s.endGroup();
@@ -191,19 +204,20 @@ void SavedGroupingManager::UpdateModel() {
 void SavedGroupingManager::Remove() {
 
   if (ui_->list->selectionModel()->hasSelection()) {
-    QSettings s;
+    Settings s;
     s.beginGroup(saved_groupings_settings_group_);
-    for (const QModelIndex &idx : ui_->list->selectionModel()->selectedRows()) {
+    const QModelIndexList indexes = ui_->list->selectionModel()->selectedRows();
+    for (const QModelIndex &idx : indexes) {
       if (idx.isValid()) {
         qLog(Debug) << "Remove saved grouping: " << model_->item(idx.row(), 0)->text();
-        s.remove(model_->item(idx.row(), 0)->text());
+        s.remove(model_->item(idx.row(), 0)->data().toString());
       }
     }
     s.endGroup();
   }
   UpdateModel();
 
-  emit UpdateGroupByActions();
+  Q_EMIT UpdateGroupByActions();
 
 }
 

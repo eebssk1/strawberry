@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  * Copyright 2020, Pascal Below <spezifisch@below.fr>
  *
  * Strawberry is free software: you can redistribute it and/or modify
@@ -23,54 +23,52 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
 #include <QDateTime>
 #include <QVariant>
 #include <QString>
 #include <QTimer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "scrobblerservice.h"
 
-class Application;
+class ScrobblerSettingsService;
 class SubsonicService;
 
 class SubsonicScrobbler : public ScrobblerService {
   Q_OBJECT
 
  public:
-  explicit SubsonicScrobbler(Application *app, QObject *parent = nullptr);
-
-  static const char *kName;
+  explicit SubsonicScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, const SharedPtr<SubsonicService> service, QObject *parent = nullptr);
 
   void ReloadSettings() override;
 
-  bool IsEnabled() const override { return enabled_; }
-  bool IsAuthenticated() const override { return true; }
+  bool enabled() const override { return enabled_; }
+  bool authentication_required() const override { return true; }
+  bool authenticated() const override { return true; }
+  bool use_authorization_header() const override { return false; }
+  QByteArray authorization_header() const override { return QByteArray(); }
 
   void UpdateNowPlaying(const Song &song) override;
   void ClearPlaying() override;
   void Scrobble(const Song &song) override;
-  void Error(const QString &error, const QVariant &debug = QVariant()) override;
 
   void StartSubmit(const bool initial = false) override { Q_UNUSED(initial) }
-  void Submitted() override { submitted_ = true; }
-  bool IsSubmitted() const override { return submitted_; }
+  bool submitted() const override { return submitted_; }
 
- public slots:
+  SharedPtr<SubsonicService> service() const;
+
+ public Q_SLOTS:
   void WriteCache() override {}
   void Submit() override;
 
  private:
-  Application *app_;
-  SubsonicService *service_;
+  const SharedPtr<SubsonicService> service_;
   bool enabled_;
   bool submitted_;
   Song song_playing_;
   QDateTime time_;
   QTimer timer_submit_;
-
 };
 
 #endif  // SUBSONICSCROBBLER_H

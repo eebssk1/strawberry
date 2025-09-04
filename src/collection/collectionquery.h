@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -24,25 +24,24 @@
 
 #include "config.h"
 
-#include <QMetaType>
 #include <QVariant>
 #include <QString>
 #include <QStringList>
 #include <QSqlDatabase>
-#include <QSqlQuery>
+
+#include "core/sqlquery.h"
 
 #include "collectionfilteroptions.h"
-#include "collectionqueryoptions.h"
 
-class CollectionQuery : public QSqlQuery {
+class CollectionQuery : public SqlQuery {
  public:
-  explicit CollectionQuery(const QSqlDatabase &db, const QString &songs_table, const QString &fts_table, const CollectionFilterOptions &filter_options = CollectionFilterOptions());
+  explicit CollectionQuery(const QSqlDatabase &db, const QString &songs_table, const CollectionFilterOptions &filter_options = CollectionFilterOptions());
 
   QVariant Value(const int column) const;
   QVariant value(const int column) const { return Value(column); }
 
   bool Exec();
-  bool exec() { return QSqlQuery::exec(); }
+  bool exec() { return SqlQuery::exec(); }
 
   bool Next();
 
@@ -51,7 +50,6 @@ class CollectionQuery : public QSqlQuery {
   QStringList where_clauses() const { return where_clauses_; }
   QVariantList bound_values() const { return bound_values_; }
   bool include_unavailable() const { return include_unavailable_; }
-  bool join_with_fts() const { return join_with_fts_; }
   bool duplicates_only() const { return duplicates_only_; }
   int limit() const { return limit_; }
 
@@ -62,10 +60,10 @@ class CollectionQuery : public QSqlQuery {
   void SetOrderBy(const QString &order_by) { order_by_ = order_by; }
 
   void SetWhereClauses(const QStringList &where_clauses) { where_clauses_ = where_clauses; }
+
   // Adds a fragment of WHERE clause. When executed, this Query will connect all the fragments with AND operator.
   // Please note that IN operator expects a QStringList as value.
-  void AddWhere(const QString &column, const QVariant &value, const QString &op = "=");
-  void AddWhereArtist(const QVariant &value);
+  void AddWhere(const QString &column, const QVariant &value, const QString &op = QStringLiteral("="));
 
   void SetBoundValues(const QVariantList &bound_values) { bound_values_ = bound_values; }
   void SetDuplicatesOnly(const bool duplicates_only) { duplicates_only_ = duplicates_only; }
@@ -78,7 +76,6 @@ class CollectionQuery : public QSqlQuery {
 
   QSqlDatabase db_;
   QString songs_table_;
-  QString fts_table_;
 
   QString column_spec_;
   QString order_by_;
@@ -86,7 +83,6 @@ class CollectionQuery : public QSqlQuery {
   QVariantList bound_values_;
 
   bool include_unavailable_;
-  bool join_with_fts_;
   bool duplicates_only_;
   int limit_;
 };

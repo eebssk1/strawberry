@@ -24,14 +24,18 @@
 #include <QThreadPool>
 
 #include "core/song.h"
+#include "albumcoverloaderoptions.h"
 #include "albumcoverexport.h"
 #include "albumcoverexporter.h"
 #include "coverexportrunnable.h"
 
-const int AlbumCoverExporter::kMaxConcurrentRequests = 3;
+namespace {
+constexpr int kMaxConcurrentRequests = 3;
+}
 
-AlbumCoverExporter::AlbumCoverExporter(QObject *parent)
+AlbumCoverExporter::AlbumCoverExporter(const SharedPtr<TagReaderClient> tagreader_client, QObject *parent)
     : QObject(parent),
+      tagreader_client_(tagreader_client),
       thread_pool_(new QThreadPool(this)),
       exported_(0),
       skipped_(0),
@@ -43,9 +47,15 @@ void AlbumCoverExporter::SetDialogResult(const AlbumCoverExport::DialogResult &d
   dialog_result_ = dialog_result;
 }
 
+void AlbumCoverExporter::SetCoverTypes(const AlbumCoverLoaderOptions::Types &cover_types) {
+  cover_types_ = cover_types;
+}
+
 void AlbumCoverExporter::AddExportRequest(const Song &song) {
-  requests_.append(new CoverExportRunnable(dialog_result_, song));
+
+  requests_.append(new CoverExportRunnable(tagreader_client_, dialog_result_, cover_types_, song));
   all_ = static_cast<int>(requests_.count());
+
 }
 
 void AlbumCoverExporter::Cancel() { requests_.clear(); }
@@ -74,7 +84,7 @@ void AlbumCoverExporter::AddJobsToPool() {
 void AlbumCoverExporter::CoverExported() {
 
   ++exported_;
-  emit AlbumCoversExportUpdate(exported_, skipped_, all_);
+  Q_EMIT AlbumCoversExportUpdate(exported_, skipped_, all_);
   AddJobsToPool();
 
 }
@@ -82,7 +92,7 @@ void AlbumCoverExporter::CoverExported() {
 void AlbumCoverExporter::CoverSkipped() {
 
   ++skipped_;
-  emit AlbumCoversExportUpdate(exported_, skipped_, all_);
+  Q_EMIT AlbumCoversExportUpdate(exported_, skipped_, all_);
   AddJobsToPool();
 
 }

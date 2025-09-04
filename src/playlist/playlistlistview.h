@@ -19,11 +19,12 @@
  *
  */
 
-#ifndef PLAYLISTVIEW_H
-#define PLAYLISTVIEW_H
+#ifndef PLAYLISTLISTVIEW_H
+#define PLAYLISTLISTVIEW_H
 
 #include "config.h"
 
+#include <QBasicTimer>
 #include <QObject>
 #include <QWidget>
 #include <QString>
@@ -31,6 +32,11 @@
 #include "widgets/autoexpandingtreeview.h"
 
 class QPaintEvent;
+class QDragEnterEvent;
+class QDragLeaveEvent;
+class QDragMoveEvent;
+class QDropEvent;
+class QTimerEvent;
 
 class PlaylistListView : public AutoExpandingTreeView {
   Q_OBJECT
@@ -40,13 +46,23 @@ class PlaylistListView : public AutoExpandingTreeView {
 
   bool ItemsSelected() const;
 
- signals:
-  void ItemsSelectedChanged(bool);
+ Q_SIGNALS:
+  void ItemsSelectedChanged(const bool);
+  void ItemMimeDataDroppedSignal(const QModelIndex &proxy_idx, const QMimeData *q_mimedata);
 
  protected:
   // QWidget
   void paintEvent(QPaintEvent *event) override;
   void selectionChanged(const QItemSelection&, const QItemSelection&) override;
+
+  void dragEnterEvent(QDragEnterEvent *e) override;
+  void dragMoveEvent(QDragMoveEvent *e) override;
+  void dragLeaveEvent(QDragLeaveEvent *e) override;
+  void dropEvent(QDropEvent *e) override;
+  void timerEvent(QTimerEvent *e) override;
+
+ private:
+  QBasicTimer drag_hover_timer_;
 };
 
-#endif  // PLAYLISTVIEW_H
+#endif  // PLAYLISTLISTVIEW_H

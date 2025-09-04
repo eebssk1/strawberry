@@ -124,7 +124,7 @@
       <item>
        <widget class="QRadioButton" name="auth_method_md5">
         <property name="text">
-         <string>MD5 token</string>
+         <string>MD5 token (Recommended)</string>
         </property>
        </widget>
       </item>
@@ -168,6 +168,13 @@
        <widget class="QCheckBox" name="checkbox_download_album_covers">
         <property name="text">
          <string>Download album covers</string>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QCheckBox" name="checkbox_use_album_id_for_album_covers">
+        <property name="text">
+         <string>Use album ID for album covers</string>
         </property>
        </widget>
       </item>

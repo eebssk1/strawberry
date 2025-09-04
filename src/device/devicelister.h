@@ -74,34 +74,34 @@ class DeviceLister : public QObject {
 
   virtual bool CopyMusic() { return true; }
 
- public slots:
+ public Q_SLOTS:
   virtual void UpdateDeviceFreeSpace(const QString &id) = 0;
   virtual void ShutDown() {}
   virtual void MountDevice(const QString &id, const int request_id);
   virtual void UnmountDevice(const QString &id) { Q_UNUSED(id); }
   virtual void Exit();
 
- signals:
-  void DeviceAdded(QString id);
-  void DeviceRemoved(QString id);
-  void DeviceChanged(QString id);
-  void DeviceMounted(QString id, int request_id, bool success);
+ Q_SIGNALS:
+  void DeviceAdded(const QString &id);
+  void DeviceRemoved(const QString &id);
+  void DeviceChanged(const QString &id);
+  void DeviceMounted(const QString &id, const int request_id, const bool success);
   void ExitFinished();
 
  protected:
   virtual bool Init() = 0;
   QUrl MakeUrlFromLocalPath(const QString &path) const;
-  bool IsIpod(const QString &path) const;
+  static bool IsIpod(const QString &path);
 
   QVariantList GuessIconForPath(const QString &path);
-  QVariantList GuessIconForModel(const QString &vendor, const QString &model);
+  static QVariantList GuessIconForModel(const QString &vendor, const QString &model);
 
  protected:
   QThread *thread_;
   QThread *original_thread_;
   int next_mount_request_id_;
 
- private slots:
+ private Q_SLOTS:
   void ThreadStarted();
 
  private:

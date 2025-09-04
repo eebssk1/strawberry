@@ -35,6 +35,7 @@
 #include <QList>
 #include <QImage>
 
+#include "includes/shared_ptr.h"
 #include "song.h"
 
 class MusicStorage {
@@ -50,7 +51,7 @@ class MusicStorage {
   };
 
   // Values are saved in the database - don't change
-  enum TranscodeMode {
+  enum class TranscodeMode {
     Transcode_Always = 1,
     Transcode_Never = 2,
     Transcode_Unsupported = 3,
@@ -83,17 +84,17 @@ class MusicStorage {
   virtual QString LocalPath() const { return QString(); }
   virtual std::optional<int> collection_directory_id() const { return std::optional<int>(); }
 
-  virtual TranscodeMode GetTranscodeMode() const { return Transcode_Never; }
-  virtual Song::FileType GetTranscodeFormat() const { return Song::FileType_Unknown; }
+  virtual TranscodeMode GetTranscodeMode() const { return TranscodeMode::Transcode_Never; }
+  virtual Song::FileType GetTranscodeFormat() const { return Song::FileType::Unknown; }
   virtual bool GetSupportedFiletypes(QList<Song::FileType> *ret) { Q_UNUSED(ret); return true; }
 
   virtual bool StartCopy(QList<Song::FileType> *supported_types) { Q_UNUSED(supported_types); return true; }
-  virtual bool CopyToStorage(const CopyJob &job) = 0;
-  virtual void FinishCopy(bool success) { Q_UNUSED(success); }
+  virtual bool CopyToStorage(const CopyJob &job, QString &error_text) = 0;
+  virtual bool FinishCopy(bool success, QString &error_text) { Q_UNUSED(error_text); return success; }
 
   virtual void StartDelete() {}
   virtual bool DeleteFromStorage(const DeleteJob &job) = 0;
-  virtual void FinishDelete(bool success) { Q_UNUSED(success); }
+  virtual bool FinishDelete(bool success, QString &error_text) { Q_UNUSED(error_text); return success; }
 
   virtual void Eject() {}
 
@@ -102,6 +103,6 @@ class MusicStorage {
 };
 
 Q_DECLARE_METATYPE(MusicStorage*)
-Q_DECLARE_METATYPE(std::shared_ptr<MusicStorage>)
+Q_DECLARE_METATYPE(SharedPtr<MusicStorage>)
 
 #endif  // MUSICSTORAGE_H

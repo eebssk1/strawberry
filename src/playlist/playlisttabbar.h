@@ -46,17 +46,16 @@ class QTimerEvent;
 class PlaylistManager;
 class RenameTabLineEdit;
 
+#include "includes/shared_ptr.h"
+
 class PlaylistTabBar : public QTabBar {
   Q_OBJECT
 
  public:
   explicit PlaylistTabBar(QWidget *parent = nullptr);
 
-  static const int kDragHoverTimeout = 500;
-  static const char *kSettingsGroup;
-
   void SetActions(QAction *new_playlist, QAction *load_playlist);
-  void SetManager(PlaylistManager *manager);
+  void SetManager(SharedPtr<PlaylistManager> manager);
 
   // We use IDs to refer to tabs so the tabs can be moved around (and their indexes change).
   int index_of(const int id) const;
@@ -71,13 +70,13 @@ class PlaylistTabBar : public QTabBar {
   void RemoveTab(const int id);
   void InsertTab(const int id, const int index, const QString &text, const bool favorite);
 
- signals:
-  void CurrentIdChanged(int id);
-  void Rename(int id, QString name);
-  void Close(int id);
-  void Save(int id);
-  void PlaylistOrderChanged(QList<int> ids);
-  void PlaylistFavorited(int id, bool favorite);
+ Q_SIGNALS:
+  void CurrentIdChanged(const int id);
+  void Rename(const int id, const QString &name);
+  void Close(const int id);
+  void Save(const int id);
+  void PlaylistOrderChanged(const QList<int> &ids);
+  void PlaylistFavorited(const int id, const bool favorite);
 
  protected:
   void contextMenuEvent(QContextMenuEvent *e) override;
@@ -90,7 +89,7 @@ class PlaylistTabBar : public QTabBar {
   void timerEvent(QTimerEvent *e) override;
   bool event(QEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void CurrentIndexChanged(const int index);
   void RenameSlot();
   void RenameInline();
@@ -106,7 +105,7 @@ class PlaylistTabBar : public QTabBar {
   void SaveSlot();
 
  private:
-  PlaylistManager *manager_;
+  SharedPtr<PlaylistManager> manager_;
 
   QMenu *menu_;
   int menu_index_;

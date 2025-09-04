@@ -32,14 +32,12 @@ class GlobalShortcutsBackend : public QObject {
   Q_OBJECT
 
  public:
-  enum Type {
-    Type_None = 0,
-    Type_KDE,
-    Type_Gnome,
-    Type_Mate,
-    Type_X11,
-    Type_MacOS,
-    Type_Win
+  enum class Type {
+    None = 0,
+    KGlobalAccel,
+    X11,
+    macOS,
+    Win
   };
 
   explicit GlobalShortcutsBackend(GlobalShortcutsManager *manager, const Type type, QObject *parent = nullptr);
@@ -54,8 +52,8 @@ class GlobalShortcutsBackend : public QObject {
 
   bool is_active() const { return active_; }
 
- signals:
-  void RegisterFinished(bool success);
+ Q_SIGNALS:
+  void RegisterFinished(const bool success);
 
  protected:
   virtual bool DoRegister() = 0;
@@ -64,7 +62,6 @@ class GlobalShortcutsBackend : public QObject {
   GlobalShortcutsManager *manager_;
   Type type_;
   bool active_;
-
 };
 
 #endif  // GLOBALSHORTCUTSBACKEND_H

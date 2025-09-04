@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,19 +22,13 @@
 
 #include "config.h"
 
-#include <QObject>
-#include <QList>
 #include <QVariant>
-#include <QByteArray>
 #include <QString>
-#include <QJsonObject>
-#include <QSslError>
 
+#include "includes/shared_ptr.h"
 #include "jsoncoverprovider.h"
-#include "qobuz/qobuzservice.h"
 
 class QNetworkReply;
-class Application;
 class NetworkAccessManager;
 class QobuzService;
 
@@ -42,28 +36,23 @@ class QobuzCoverProvider : public JsonCoverProvider {
   Q_OBJECT
 
  public:
-  explicit QobuzCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent = nullptr);
-  ~QobuzCoverProvider() override;
+  explicit QobuzCoverProvider(const SharedPtr<QobuzService> service, SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
+
+  virtual bool authenticated() const override;
 
   bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
   void CancelSearch(const int id) override;
+  void ClearSession() override;
 
-  bool IsAuthenticated() const override { return service_ && service_->authenticated(); }
-  void Deauthenticate() override { if (service_) service_->Logout(); }
-
- private slots:
+ private Q_SLOTS:
   void HandleSearchReply(QNetworkReply *reply, const int id);
 
  private:
-  QByteArray GetReplyData(QNetworkReply *reply);
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
 
  private:
-  static const int kLimit;
-
-  QobuzService *service_;
-  QList<QNetworkReply*> replies_;
-
+  SharedPtr<QobuzService> service_;
 };
 
 #endif  // QOBUZCOVERPROVIDER_H

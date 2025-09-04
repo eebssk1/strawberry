@@ -24,8 +24,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QString>
@@ -33,10 +31,11 @@
 #include <QDateTime>
 #include <QImage>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "playlist/playlistsequence.h"
+#include "constants/notificationssettings.h"
 
-class Application;
 class OSDPretty;
 class SystemTrayIcon;
 
@@ -44,28 +43,20 @@ class OSDBase : public QObject {
   Q_OBJECT
 
  public:
-  explicit OSDBase(std::shared_ptr<SystemTrayIcon> tray_icon, Application *app, QObject *parent = nullptr);
+  explicit OSDBase(const SharedPtr<SystemTrayIcon> tray_icon, QObject *parent = nullptr);
   ~OSDBase() override;
-
-  static const char *kSettingsGroup;
-
-  enum Behaviour {
-    Disabled = 0,
-    Native,
-    TrayPopup,
-    Pretty,
-  };
 
   int timeout_msec() const { return timeout_msec_; }
   void ReloadPrettyOSDSettings();
   void SetPrettyOSDToggleMode(bool toggle);
 
-  virtual bool SupportsNativeNotifications();
-  virtual bool SupportsTrayPopups();
+  OSDSettings::Type GetSupportedType() const;
+  bool IsTypeSupported(const OSDSettings::Type type) const;
+  virtual bool SupportsNativeNotifications() const;
+  virtual bool SupportsTrayPopups() const;
+  static bool SupportsOSDPretty();
 
-  QString app_name() { return app_name_; }
-
- public slots:
+ public Q_SLOTS:
   void ReloadSettings();
 
   void SongChanged(const Song &song);
@@ -80,29 +71,26 @@ class OSDBase : public QObject {
 
   void ReshowCurrentSong();
 
-  void ShowPreview(const OSDBase::Behaviour type, const QString &line1, const QString &line2, const Song &song);
+  void ShowPreview(const OSDSettings::Type type, const QString &line1, const QString &line2, const Song &song);
 
- private:
-  enum MessageType {
-    Type_Summary,
-    Type_Message,
-  };
-  void ShowPlaying(const Song &song, const QUrl &cover_url, const QImage &image, const bool preview = false);
-  void ShowMessage(const QString &summary, const QString &message = QString(), const QString &icon = "strawberry", const QImage &image = QImage());
-  QString ReplaceMessage(const MessageType type, const QString &message, const Song &song);
-  virtual void ShowMessageNative(const QString &summary, const QString &message, const QString &icon = QString(), const QImage &image = QImage());
-
- private slots:
   void AlbumCoverLoaded(const Song &song, const QUrl &cover_url, const QImage &image);
 
  private:
-  Application *app_;
-  std::shared_ptr<SystemTrayIcon> tray_icon_;
+  enum class MessageType {
+    Summary,
+    Message
+  };
+  void ShowPlaying(const Song &song, const QUrl &cover_url, const QImage &image, const bool preview = false);
+  void ShowMessage(const QString &summary, const QString &message = QString(), const QString &icon = QStringLiteral("strawberry"), const QImage &image = QImage());
+  QString ReplaceMessage(const MessageType type, const QString &message, const Song &song);
+  virtual void ShowMessageNative(const QString &summary, const QString &message, const QString &icon = QString(), const QImage &image = QImage());
+
+ private:
+  const SharedPtr<SystemTrayIcon> tray_icon_;
   OSDPretty *pretty_popup_;
 
-  QString app_name_;
   int timeout_msec_;
-  Behaviour behaviour_;
+  OSDSettings::Type type_;
   bool show_on_volume_change_;
   bool show_art_;
   bool show_on_play_mode_change_;
@@ -120,7 +108,6 @@ class OSDBase : public QObject {
   Song last_song_;
   QUrl last_image_uri_;
   QImage last_image_;
-
 };
 
 #endif  // OSDBASE_H

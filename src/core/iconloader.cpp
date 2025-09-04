@@ -19,34 +19,39 @@
 
 #include "config.h"
 
+#include <utility>
+
 #include <QDir>
 #include <QFile>
 #include <QList>
 #include <QString>
 #include <QIcon>
 #include <QSize>
-#include <QStandardPaths>
 #include <QSettings>
 
-#include "core/logging.h"
-#include "iconmapper.h"
-#include "settings/appearancesettingspage.h"
+#include "logging.h"
+#include "standardpaths.h"
+#include "settings.h"
+#include "includes/iconmapper.h"
 #include "iconloader.h"
+#include "constants/appearancesettings.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 bool IconLoader::system_icons_ = false;
 bool IconLoader::custom_icons_ = false;
 
 void IconLoader::Init() {
 
-#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN)
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
+#if !defined(Q_OS_MACOS) && !defined(Q_OS_WIN32)
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
   system_icons_ = s.value("system_icons", false).toBool();
   s.endGroup();
 #endif
 
   QDir dir;
-  if (dir.exists(QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/icons")) {
+  if (dir.exists(StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + u"/icons"_s)) {
     custom_icons_ = true;
   }
 
@@ -79,7 +84,8 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
     if (icon_prop.allow_system_icon) {
       ret = QIcon::fromTheme(name);
       if (ret.isNull()) {
-        for (const QString &alt_name : icon_prop.names) {
+        const QStringList alt_names = icon_prop.names;
+        for (const QString &alt_name : alt_names) {
           ret = QIcon::fromTheme(alt_name);
           if (!ret.isNull()) break;
         }
@@ -95,7 +101,8 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
         else {
           int size_smallest = 0;
           int size_largest = 0;
-          for (const QSize &s : ret.availableSizes()) {
+          const QList<QSize> available_sizes = ret.availableSizes();
+          for (const QSize &s : available_sizes) {
             if (s.width() != s.height()) {
               qLog(Warning) << "Can't use system icon for" << name << "icon is not proportional.";
               ret = QIcon();
@@ -118,8 +125,8 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
   }
 
   if (custom_icons_) {
-    QString custom_icon_path = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation) + "/icons/%1x%2/%3.png";
-    for (int s : sizes) {
+    QString custom_icon_path = StandardPaths::WritableLocation(StandardPaths::StandardLocation::AppLocalDataLocation) + u"/icons/%1x%2/%3.png"_s;
+    for (int s : std::as_const(sizes)) {
       QString filename(custom_icon_path.arg(s).arg(s).arg(name));
       if (QFile::exists(filename)) ret.addFile(filename, QSize(s, s));
     }
@@ -127,8 +134,8 @@ QIcon IconLoader::Load(const QString &name, const bool system_icon, const int fi
     qLog(Warning) << "Couldn't load icon" << name << "from custom icons.";
   }
 
-  const QString path(":/icons/%1x%2/%3.png");
-  for (int s : sizes) {
+  const QString path(u":/icons/%1x%2/%3.png"_s);
+  for (int s : std::as_const(sizes)) {
     QString filename(path.arg(s).arg(s).arg(name));
     if (QFile::exists(filename)) ret.addFile(filename, QSize(s, s));
   }

@@ -1,8 +1,6 @@
 /*
  * Strawberry Music Player
- * This file was part of Clementine.
- * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2024, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -42,12 +40,12 @@ class UrlHandler : public QObject {
 
   // Returned by StartLoading() and LoadNext(), indicates what the player should do when it wants to load a URL.
   struct LoadResult {
-    enum Type {
+    enum class Type {
       // There wasn't a track available, and the player should move on to the next playlist item.
       NoMoreTracks,
 
       // There might be another track available but the handler needs to do some work (eg. fetching a remote playlist) to find out.
-      // AsyncLoadComplete will be emitted later with the same original_url.
+      // AsyncLoadComplete will be emitted later with the same media_url.
       WillLoadAsynchronously,
 
       // There was a track available.  Its url is in stream_url.
@@ -57,18 +55,17 @@ class UrlHandler : public QObject {
       Error,
     };
 
-    explicit LoadResult(const QUrl &original_url = QUrl(), const Type type = NoMoreTracks, const QUrl &stream_url = QUrl(), const Song::FileType filetype = Song::FileType_Stream, const int samplerate = -1, const int bit_depth = -1, const qint64 length_nanosec = -1, const QString &error = QString());
-
-    explicit LoadResult(const QUrl &original_url, const Type type, const QString &error);
+    explicit LoadResult(const QUrl &media_url = QUrl(), const Type type = Type::NoMoreTracks, const QUrl &stream_url = QUrl(), const Song::FileType filetype = Song::FileType::Stream, const int samplerate = -1, const int bit_depth = -1, const qint64 length_nanosec = -1, const QString &error = QString());
+    explicit LoadResult(const QUrl &media_url, const Type type, const QString &error);
 
     // The url that the playlist item has in Url().
     // Might be something unplayable like lastfm://...
-    QUrl original_url_;
+    QUrl media_url_;
 
     // Result type
     Type type_;
 
-    // The actual url to something that gstreamer can play.
+    // The actual URL to something that gstreamer can play.
     QUrl stream_url_;
 
     // The type of the stream
@@ -90,8 +87,8 @@ class UrlHandler : public QObject {
   // Called by the Player when a song starts loading - gives the handler a chance to do something clever to get a playable track.
   virtual LoadResult StartLoading(const QUrl &url) { return LoadResult(url); }
 
- signals:
-  void AsyncLoadComplete(UrlHandler::LoadResult result);
+ Q_SIGNALS:
+  void AsyncLoadComplete(const UrlHandler::LoadResult &result);
 
 };
 

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,33 +22,33 @@
 
 #include "config.h"
 
-#include <QObject>
-#include <QList>
 #include <QVariant>
-#include <QByteArray>
 #include <QString>
-#include <QJsonObject>
 
+#include "includes/shared_ptr.h"
 #include "jsoncoverprovider.h"
 
 class NetworkAccessManager;
 class QNetworkReply;
-class Application;
 
 class LastFmCoverProvider : public JsonCoverProvider {
   Q_OBJECT
 
  public:
-  explicit LastFmCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent = nullptr);
-  ~LastFmCoverProvider() override;
+  explicit LastFmCoverProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
+
+  bool authentication_required() const override { return true; }
 
   bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
 
- private slots:
+ private Q_SLOTS:
   void QueryFinished(QNetworkReply *reply, const int id, const QString &type);
 
+ protected:
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
+
  private:
-  enum LastFmImageSize {
+  enum class LastFmImageSize {
     Unknown,
     Small = 34,
     Medium = 64,
@@ -56,17 +56,8 @@ class LastFmCoverProvider : public JsonCoverProvider {
     ExtraLarge = 300
   };
 
-  QByteArray GetReplyData(QNetworkReply *reply);
   static LastFmImageSize ImageSizeFromString(const QString &size);
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
-
- private:
-  static const char *kUrl;
-  static const char *kApiKey;
-  static const char *kSecret;
-
-  QList<QNetworkReply*> replies_;
-
 };
 
 #endif  // LASTFMCOVERPROVIDER_H

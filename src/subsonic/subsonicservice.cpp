@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,6 +19,7 @@
 
 #include "config.h"
 
+#include <utility>
 #include <memory>
 
 #include <QtGlobal>
@@ -40,60 +41,57 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
-#include <QSortFilterProxyModel>
 
-#include "utilities/randutils.h"
-#include "core/application.h"
-#include "core/player.h"
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "core/networkaccessmanager.h"
 #include "core/database.h"
 #include "core/song.h"
+#include "core/settings.h"
+#include "core/urlhandlers.h"
+#include "utilities/randutils.h"
 #include "collection/collectionbackend.h"
 #include "collection/collectionmodel.h"
 #include "subsonicservice.h"
 #include "subsonicurlhandler.h"
 #include "subsonicrequest.h"
 #include "subsonicscrobblerequest.h"
-#include "settings/settingsdialog.h"
-#include "settings/subsonicsettingspage.h"
+#include "constants/subsonicsettings.h"
 
-const Song::Source SubsonicService::kSource = Song::Source_Subsonic;
+using namespace Qt::Literals::StringLiterals;
+using std::make_unique;
+using std::make_shared;
+
+const Song::Source SubsonicService::kSource = Song::Source::Subsonic;
 const char *SubsonicService::kClientName = "Strawberry";
 const char *SubsonicService::kApiVersion = "1.11.0";
-const char *SubsonicService::kSongsTable = "subsonic_songs";
-const char *SubsonicService::kSongsFtsTable = "subsonic_songs_fts";
-const int SubsonicService::kMaxRedirects = 3;
 
-SubsonicService::SubsonicService(Application *app, QObject *parent)
-    : InternetService(Song::Source_Subsonic, "Subsonic", "subsonic", SubsonicSettingsPage::kSettingsGroup, SettingsDialog::Page_Subsonic, app, parent),
-      app_(app),
-      url_handler_(new SubsonicUrlHandler(app, this)),
+namespace {
+constexpr char kSongsTable[] = "subsonic_songs";
+constexpr int kMaxRedirects = 3;
+}  // namespace
+
+SubsonicService::SubsonicService(const SharedPtr<TaskManager> task_manager,
+                                 const SharedPtr<Database> database,
+                                 const SharedPtr<UrlHandlers> url_handlers,
+                                 const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                                 QObject *parent)
+    : StreamingService(Song::Source::Subsonic, u"Subsonic"_s, u"subsonic"_s, QLatin1String(SubsonicSettings::kSettingsGroup), parent),
+      url_handler_(new SubsonicUrlHandler(this)),
       collection_backend_(nullptr),
       collection_model_(nullptr),
-      collection_sort_model_(new QSortFilterProxyModel(this)),
       http2_(false),
       verify_certificate_(false),
       download_album_covers_(true),
-      auth_method_(SubsonicSettingsPage::AuthMethod_MD5),
+      use_album_id_for_album_covers_(false),
+      auth_method_(SubsonicSettings::AuthMethod::MD5),
       ping_redirects_(0) {
 
-  app->player()->RegisterUrlHandler(url_handler_);
+  url_handlers->Register(url_handler_);
 
-  // Backend
-
-  collection_backend_ = new CollectionBackend();
-  collection_backend_->moveToThread(app_->database()->thread());
-  collection_backend_->Init(app_->database(), app->task_manager(), Song::Source_Subsonic, kSongsTable, kSongsFtsTable);
-
-  // Model
-
-  collection_model_ = new CollectionModel(collection_backend_, app_, this);
-  collection_sort_model_->setSourceModel(collection_model_);
-  collection_sort_model_->setSortRole(CollectionModel::Role_SortText);
-  collection_sort_model_->setDynamicSortFilter(true);
-  collection_sort_model_->setSortLocaleAware(true);
-  collection_sort_model_->sort(0);
+  collection_backend_ = make_shared<CollectionBackend>();
+  collection_backend_->moveToThread(database->thread());
+  collection_backend_->Init(database, task_manager, Song::Source::Subsonic, QLatin1String(kSongsTable));
+  collection_model_ = new CollectionModel(collection_backend_, albumcover_loader, this);
 
   SubsonicService::ReloadSettings();
 
@@ -108,36 +106,31 @@ SubsonicService::~SubsonicService() {
     reply->deleteLater();
   }
 
-  collection_backend_->deleteLater();
-
 }
 
 void SubsonicService::Exit() {
 
-  QObject::connect(collection_backend_, &CollectionBackend::ExitFinished, this, &SubsonicService::ExitFinished);
+  QObject::connect(&*collection_backend_, &CollectionBackend::ExitFinished, this, &SubsonicService::ExitFinished);
   collection_backend_->ExitAsync();
 
 }
 
-void SubsonicService::ShowConfig() {
-  app_->OpenSettingsDialogAtPage(SettingsDialog::Page_Subsonic);
-}
-
 void SubsonicService::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(SubsonicSettingsPage::kSettingsGroup);
+  Settings s;
+  s.beginGroup(SubsonicSettings::kSettingsGroup);
 
-  server_url_ = s.value("url").toUrl();
-  username_ = s.value("username").toString();
-  QByteArray password = s.value("password").toByteArray();
+  server_url_ = s.value(SubsonicSettings::kUrl).toUrl();
+  username_ = s.value(SubsonicSettings::kUsername).toString();
+  QByteArray password = s.value(SubsonicSettings::kPassword).toByteArray();
   if (password.isEmpty()) password_.clear();
   else password_ = QString::fromUtf8(QByteArray::fromBase64(password));
 
-  http2_ = s.value("http2", false).toBool();
-  verify_certificate_ = s.value("verifycertificate", false).toBool();
-  download_album_covers_ = s.value("downloadalbumcovers", true).toBool();
-  auth_method_ = static_cast<SubsonicSettingsPage::AuthMethod>(s.value("authmethod", SubsonicSettingsPage::AuthMethod_MD5).toInt());
+  http2_ = s.value(SubsonicSettings::kHTTP2, false).toBool();
+  verify_certificate_ = s.value(SubsonicSettings::kVerifyCertificate, false).toBool();
+  download_album_covers_ = s.value(SubsonicSettings::kDownloadAlbumCovers, true).toBool();
+  use_album_id_for_album_covers_ = s.value(SubsonicSettings::kUseAlbumIdForAlbumCovers, false).toBool();
+  auth_method_ = static_cast<SubsonicSettings::AuthMethod>(s.value(SubsonicSettings::kAuthMethod, static_cast<int>(SubsonicSettings::AuthMethod::MD5)).toInt());
 
   s.endGroup();
 
@@ -147,10 +140,10 @@ void SubsonicService::SendPing() {
   SendPingWithCredentials(server_url_, username_, password_, auth_method_, false);
 }
 
-void SubsonicService::SendPingWithCredentials(QUrl url, const QString &username, const QString &password, const SubsonicSettingsPage::AuthMethod auth_method, const bool redirect) {
+void SubsonicService::SendPingWithCredentials(QUrl url, const QString &username, const QString &password, const SubsonicSettings::AuthMethod auth_method, const bool redirect) {
 
   if (!network_ || !redirect) {
-    network_ = std::make_unique<QNetworkAccessManager>();
+    network_ = make_unique<QNetworkAccessManager>();
     network_->setRedirectPolicy(QNetworkRequest::NoLessSafeRedirectPolicy);
     ping_redirects_ = 0;
   }
@@ -158,56 +151,53 @@ void SubsonicService::SendPingWithCredentials(QUrl url, const QString &username,
   using Param = QPair<QString, QString>;
   using ParamList = QList<Param>;
 
-  ParamList params = ParamList() << Param("c", kClientName)
-                                 << Param("v", kApiVersion)
-                                 << Param("f", "json")
-                                 << Param("u", username);
+  ParamList params = ParamList() << Param(u"c"_s, QLatin1String(kClientName))
+                                 << Param(u"v"_s, QLatin1String(kApiVersion))
+                                 << Param(u"f"_s, u"json"_s)
+                                 << Param(u"u"_s, username);
 
-  if (auth_method == SubsonicSettingsPage::AuthMethod_Hex) {
-    params << Param("p", QString("enc:" + password.toUtf8().toHex()));
+  if (auth_method == SubsonicSettings::AuthMethod::Hex) {
+    params << Param(u"p"_s, u"enc:"_s + QString::fromLatin1(password.toUtf8().toHex()));
   }
   else {
     const QString salt = Utilities::CryptographicRandomString(20);
     QCryptographicHash md5(QCryptographicHash::Md5);
     md5.addData(password.toUtf8());
     md5.addData(salt.toUtf8());
-    params << Param("s", salt);
-    params << Param("t", md5.result().toHex());
+    params << Param(u"s"_s, salt);
+    params << Param(u"t"_s, QString::fromLatin1(md5.result().toHex()));
   }
 
   QUrlQuery url_query(url.query());
-  for (const Param &param : params) {
-    url_query.addQueryItem(QUrl::toPercentEncoding(param.first), QUrl::toPercentEncoding(param.second));
+  for (const Param &param : std::as_const(params)) {
+    url_query.addQueryItem(QString::fromLatin1(QUrl::toPercentEncoding(param.first)), QString::fromLatin1(QUrl::toPercentEncoding(param.second)));
   }
 
   if (!redirect) {
-    if (!url.path().isEmpty() && url.path().right(1) == "/") {
-      url.setPath(url.path() + QString("rest/ping.view"));
+    if (!url.path().isEmpty() && url.path().right(1) == u'/') {
+      url.setPath(url.path() + "rest/ping.view"_L1);
     }
     else {
-      url.setPath(url.path() + QString("/rest/ping.view"));
+      url.setPath(url.path() + "/rest/ping.view"_L1);
     }
   }
 
   url.setQuery(url_query);
 
-  QNetworkRequest req(url);
+  QNetworkRequest network_request(url);
 
-  if (url.scheme() == "https" && !verify_certificate_) {
+  if (url.scheme() == "https"_L1 && !verify_certificate_) {
     QSslConfiguration sslconfig = QSslConfiguration::defaultConfiguration();
     sslconfig.setPeerVerifyMode(QSslSocket::VerifyNone);
-    req.setSslConfiguration(sslconfig);
+    network_request.setSslConfiguration(sslconfig);
   }
 
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
-  req.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-
-#if QT_VERSION >= QT_VERSION_CHECK(5, 15, 0)
-  req.setAttribute(QNetworkRequest::Http2AllowedAttribute, http2_);
-#endif
+  network_request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+  network_request.setHeader(QNetworkRequest::ContentTypeHeader, u"application/x-www-form-urlencoded"_s);
+  network_request.setAttribute(QNetworkRequest::Http2AllowedAttribute, http2_);
 
   errors_.clear();
-  QNetworkReply *reply = network_->get(req);
+  QNetworkReply *reply = network_->get(network_request);
   replies_ << reply;
   QObject::connect(reply, &QNetworkReply::sslErrors, this, &SubsonicService::HandlePingSSLErrors);
   QObject::connect(reply, &QNetworkReply::finished, this, [this, reply, url, username, password, auth_method]() { HandlePingReply(reply, url, username, password, auth_method); });
@@ -224,7 +214,7 @@ void SubsonicService::HandlePingSSLErrors(const QList<QSslError> &ssl_errors) {
 
 }
 
-void SubsonicService::HandlePingReply(QNetworkReply *reply, const QUrl &url, const QString &username, const QString &password, const SubsonicSettingsPage::AuthMethod auth_method) {
+void SubsonicService::HandlePingReply(QNetworkReply *reply, const QUrl &url, const QString &username, const QString &password, const SubsonicSettings::AuthMethod auth_method) {
 
   Q_UNUSED(url);
 
@@ -236,7 +226,7 @@ void SubsonicService::HandlePingReply(QNetworkReply *reply, const QUrl &url, con
   if (reply->error() != QNetworkReply::NoError || reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
     if (reply->error() != QNetworkReply::NoError && reply->error() < 200) {
       // This is a network error, there is nothing more to do.
-      PingError(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+      PingError(QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
       return;
     }
     else {
@@ -262,29 +252,29 @@ void SubsonicService::HandlePingReply(QNetworkReply *reply, const QUrl &url, con
       }
 
       // See if there is Json data containing "error" - then use that instead.
-      QByteArray data = reply->readAll();
+      const QByteArray data = reply->readAll();
       QJsonParseError parse_error;
       QJsonDocument json_doc = QJsonDocument::fromJson(data, &parse_error);
       if (parse_error.error == QJsonParseError::NoError && !json_doc.isEmpty() && json_doc.isObject()) {
         QJsonObject json_obj = json_doc.object();
-        if (!json_obj.isEmpty() && json_obj.contains("error")) {
-          QJsonValue json_error = json_obj["error"];
+        if (!json_obj.isEmpty() && json_obj.contains("error"_L1)) {
+          QJsonValue json_error = json_obj["error"_L1];
           if (json_error.isObject()) {
             json_obj = json_error.toObject();
-            if (!json_obj.isEmpty() && json_obj.contains("code") && json_obj.contains("message")) {
-              int code = json_obj["code"].toInt();
-              QString message = json_obj["message"].toString();
-              errors_ << QString("%1 (%2)").arg(message).arg(code);
+            if (!json_obj.isEmpty() && json_obj.contains("code"_L1) && json_obj.contains("message"_L1)) {
+              int code = json_obj["code"_L1].toInt();
+              QString message = json_obj["message"_L1].toString();
+              errors_ << QStringLiteral("%1 (%2)").arg(message).arg(code);
             }
           }
         }
       }
       if (errors_.isEmpty()) {
         if (reply->error() != QNetworkReply::NoError) {
-          errors_ << QString("%1 (%2)").arg(reply->errorString()).arg(reply->error());
+          errors_ << QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error());
         }
         else {
-          errors_ << QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
+          errors_ << QStringLiteral("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt());
         }
       }
       PingError();
@@ -300,92 +290,90 @@ void SubsonicService::HandlePingReply(QNetworkReply *reply, const QUrl &url, con
   QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
 
   if (json_error.error != QJsonParseError::NoError) {
-    PingError("Ping reply from server missing Json data.");
+    PingError(u"Ping reply from server missing Json data."_s);
     return;
   }
 
   if (json_doc.isEmpty()) {
-    PingError("Ping reply from server has empty Json document.");
+    PingError(u"Ping reply from server has empty Json document."_s);
     return;
   }
 
   if (!json_doc.isObject()) {
-    PingError("Ping reply from server has Json document that is not an object.", json_doc);
+    PingError(u"Ping reply from server has Json document that is not an object."_s, json_doc);
     return;
   }
 
   QJsonObject json_obj = json_doc.object();
   if (json_obj.isEmpty()) {
-    PingError("Ping reply from server has empty Json object.", json_doc);
+    PingError(u"Ping reply from server has empty Json object."_s, json_doc);
     return;
   }
 
-  if (!json_obj.contains("subsonic-response")) {
-    PingError("Ping reply from server is missing subsonic-response", json_obj);
+  if (!json_obj.contains("subsonic-response"_L1)) {
+    PingError(u"Ping reply from server is missing subsonic-response"_s, json_obj);
     return;
   }
-  QJsonValue value_response = json_obj["subsonic-response"];
+  QJsonValue value_response = json_obj["subsonic-response"_L1];
   if (!value_response.isObject()) {
-    PingError("Ping reply from server subsonic-response is not an object", value_response);
+    PingError(u"Ping reply from server subsonic-response is not an object"_s, value_response);
     return;
   }
   QJsonObject obj_response = value_response.toObject();
 
-  if (obj_response.contains("error")) {
-    QJsonValue value_error = obj_response["error"];
+  if (obj_response.contains("error"_L1)) {
+    QJsonValue value_error = obj_response["error"_L1];
     if (!value_error.isObject()) {
-      PingError("Authentication error reply from server is not an object", value_error);
+      PingError(u"Authentication error reply from server is not an object"_s, value_error);
       return;
     }
     QJsonObject obj_error = value_error.toObject();
-    if (!obj_error.contains("code") || !obj_error.contains("message")) {
-      PingError("Authentication error reply from server is missing status or message", json_obj);
+    if (!obj_error.contains("code"_L1) || !obj_error.contains("message"_L1)) {
+      PingError(u"Authentication error reply from server is missing status or message"_s, json_obj);
       return;
     }
     //int status = obj_error["code"].toInt();
-    QString message = obj_error["message"].toString();
-    emit TestComplete(false, message);
-    emit TestFailure(message);
+    QString message = obj_error["message"_L1].toString();
+    Q_EMIT TestComplete(false, message);
+    Q_EMIT TestFailure(message);
     return;
   }
 
-  if (!obj_response.contains("status")) {
-    PingError("Ping reply from server is missing status", obj_response);
+  if (!obj_response.contains("status"_L1)) {
+    PingError(u"Ping reply from server is missing status"_s, obj_response);
     return;
   }
 
-  QString status = obj_response["status"].toString().toLower();
-  QString message = obj_response["message"].toString();
+  QString status = obj_response["status"_L1].toString().toLower();
+  QString message = obj_response["message"_L1].toString();
 
-  if (status == "failed") {
-    emit TestComplete(false, message);
-    emit TestFailure(message);
+  if (status == "failed"_L1) {
+    Q_EMIT TestComplete(false, message);
+    Q_EMIT TestFailure(message);
     return;
   }
-  else if (status == "ok") {
-    emit TestComplete(true);
-    emit TestSuccess();
+  if (status == "ok"_L1) {
+    Q_EMIT TestComplete(true);
+    Q_EMIT TestSuccess();
     return;
   }
-  else {
-    PingError("Ping reply status from server is unknown", json_obj);
-    return;
-  }
+
+  PingError(u"Ping reply status from server is unknown"_s, json_obj);
 
 }
 
 void SubsonicService::CheckConfiguration() {
 
   if (server_url_.isEmpty()) {
-    emit TestComplete(false, "Missing Subsonic server url.");
+    Q_EMIT TestComplete(false, u"Missing Subsonic server url."_s);
     return;
   }
   if (username_.isEmpty()) {
-    emit TestComplete(false, "Missing Subsonic username.");
+    Q_EMIT TestComplete(false, u"Missing Subsonic username."_s);
     return;
   }
   if (password_.isEmpty()) {
-    emit TestComplete(false, "Missing Subsonic password.");
+    Q_EMIT TestComplete(false, u"Missing Subsonic password."_s);
     return;
   }
 
@@ -399,7 +387,7 @@ void SubsonicService::Scrobble(const QString &song_id, const bool submission, co
 
   if (!scrobble_request_) {
     // We're doing requests every 30-240s the whole time, so keep reusing this instance
-    scrobble_request_.reset(new SubsonicScrobbleRequest(this, url_handler_, app_), [](SubsonicScrobbleRequest *request) { request->deleteLater(); });
+    scrobble_request_.reset(new SubsonicScrobbleRequest(this, url_handler_), [](SubsonicScrobbleRequest *request) { request->deleteLater(); });
   }
 
   scrobble_request_->CreateScrobbleRequest(song_id, submission, time);
@@ -409,8 +397,8 @@ void SubsonicService::Scrobble(const QString &song_id, const bool submission, co
 void SubsonicService::ResetSongsRequest() {
 
   if (songs_request_) {
-    QObject::disconnect(songs_request_.get(), nullptr, this, nullptr);
-    QObject::disconnect(this, nullptr, songs_request_.get(), nullptr);
+    QObject::disconnect(&*songs_request_, nullptr, this, nullptr);
+    QObject::disconnect(this, nullptr, &*songs_request_, nullptr);
     songs_request_.reset();
   }
 
@@ -419,21 +407,21 @@ void SubsonicService::ResetSongsRequest() {
 void SubsonicService::GetSongs() {
 
   if (!server_url().isValid()) {
-    emit SongsResults(SongMap(), tr("Server URL is invalid."));
+    Q_EMIT SongsResults(SongMap(), tr("Server URL is invalid."));
     return;
   }
 
   if (username().isEmpty() || password().isEmpty()) {
-    emit SongsResults(SongMap(), tr("Missing username or password."));
+    Q_EMIT SongsResults(SongMap(), tr("Missing username or password."));
     return;
   }
 
   ResetSongsRequest();
-  songs_request_.reset(new SubsonicRequest(this, url_handler_, app_), [](SubsonicRequest *request) { request->deleteLater(); });
-  QObject::connect(songs_request_.get(), &SubsonicRequest::Results, this, &SubsonicService::SongsResultsReceived);
-  QObject::connect(songs_request_.get(), &SubsonicRequest::UpdateStatus, this, &SubsonicService::SongsUpdateStatus);
-  QObject::connect(songs_request_.get(), &SubsonicRequest::ProgressSetMaximum, this, &SubsonicService::SongsProgressSetMaximum);
-  QObject::connect(songs_request_.get(), &SubsonicRequest::UpdateProgress, this, &SubsonicService::SongsUpdateProgress);
+  songs_request_.reset(new SubsonicRequest(this, url_handler_), [](SubsonicRequest *request) { request->deleteLater(); });
+  QObject::connect(&*songs_request_, &SubsonicRequest::Results, this, &SubsonicService::SongsResultsReceived);
+  QObject::connect(&*songs_request_, &SubsonicRequest::UpdateStatus, this, &SubsonicService::SongsUpdateStatus);
+  QObject::connect(&*songs_request_, &SubsonicRequest::ProgressSetMaximum, this, &SubsonicService::SongsProgressSetMaximum);
+  QObject::connect(&*songs_request_, &SubsonicRequest::UpdateProgress, this, &SubsonicService::SongsUpdateProgress);
 
   songs_request_->GetAlbums();
 
@@ -447,7 +435,7 @@ void SubsonicService::DeleteSongs() {
 
 void SubsonicService::SongsResultsReceived(const SongMap &songs, const QString &error) {
 
-  emit SongsResults(songs, error);
+  Q_EMIT SongsResults(songs, error);
 
   ResetSongsRequest();
 
@@ -458,14 +446,14 @@ void SubsonicService::PingError(const QString &error, const QVariant &debug) {
   if (!error.isEmpty()) errors_ << error;
 
   QString error_html;
-  for (const QString &e : errors_) {
+  for (const QString &e : std::as_const(errors_)) {
     qLog(Error) << "Subsonic:" << e;
-    error_html += e + "<br />";
+    error_html += e + "<br />"_L1;
   }
   if (debug.isValid()) qLog(Debug) << debug;
 
-  emit TestFailure(error_html);
-  emit TestComplete(false, error_html);
+  Q_EMIT TestFailure(error_html);
+  Q_EMIT TestComplete(false, error_html);
 
   errors_.clear();
 

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,8 +22,6 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QPair>
@@ -36,43 +34,57 @@
 #include <QStringList>
 #include <QUrl>
 #include <QSslError>
+#include <QScopedPointer>
+#include <QSharedPointer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
-#include "internet/internetservice.h"
-#include "internet/internetsearchview.h"
+#include "streaming/streamingservice.h"
+#include "streaming/streamingsearchview.h"
 
 class QTimer;
 class QNetworkReply;
-class QSortFilterProxyModel;
-class Application;
+class TaskManager;
+class Database;
+class UrlHandlers;
 class NetworkAccessManager;
+class AlbumCoverLoader;
 class QobuzUrlHandler;
 class QobuzRequest;
 class QobuzFavoriteRequest;
 class QobuzStreamURLRequest;
 class CollectionBackend;
 class CollectionModel;
+class CollectionFilter;
 
-class QobuzService : public InternetService {
+using QobuzRequestPtr = QScopedPointer<QobuzRequest, QScopedPointerDeleteLater>;
+
+class QobuzService : public StreamingService {
   Q_OBJECT
 
  public:
-  explicit QobuzService(Application *app, QObject *parent);
+  explicit QobuzService(const SharedPtr<TaskManager> task_manager,
+                        const SharedPtr<Database> database,
+                        const SharedPtr<NetworkAccessManager> network,
+                        const SharedPtr<UrlHandlers> url_handlers,
+                        const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                        QObject *parent = nullptr);
+
   ~QobuzService();
 
   static const Song::Source kSource;
   static const char kApiUrl[];
+  static const int kLoginAttempts;
 
   void Exit() override;
   void ReloadSettings() override;
 
-  void Logout();
-  int Search(const QString &text, InternetSearchView::SearchType type) override;
+  void ClearSession();
+  int Search(const QString &text, const SearchType type) override;
   void CancelSearch() override;
 
-  int max_login_attempts() { return kLoginAttempts; }
+  int max_login_attempts() const { return kLoginAttempts; }
 
-  Application *app() const { return app_; }
   QString app_id() const { return app_id_; }
   QString app_secret() const { return app_secret_; }
   QString username() const { return username_; }
@@ -95,20 +107,19 @@ class QobuzService : public InternetService {
 
   uint GetStreamURL(const QUrl &url, QString &error);
 
-  CollectionBackend *artists_collection_backend() override { return artists_collection_backend_; }
-  CollectionBackend *albums_collection_backend() override { return albums_collection_backend_; }
-  CollectionBackend *songs_collection_backend() override { return songs_collection_backend_; }
+  SharedPtr<CollectionBackend> artists_collection_backend() override { return artists_collection_backend_; }
+  SharedPtr<CollectionBackend> albums_collection_backend() override { return albums_collection_backend_; }
+  SharedPtr<CollectionBackend> songs_collection_backend() override { return songs_collection_backend_; }
 
   CollectionModel *artists_collection_model() override { return artists_collection_model_; }
   CollectionModel *albums_collection_model() override { return albums_collection_model_; }
   CollectionModel *songs_collection_model() override { return songs_collection_model_; }
 
-  QSortFilterProxyModel *artists_collection_sort_model() override { return artists_collection_sort_model_; }
-  QSortFilterProxyModel *albums_collection_sort_model() override { return albums_collection_sort_model_; }
-  QSortFilterProxyModel *songs_collection_sort_model() override { return songs_collection_sort_model_; }
+  CollectionFilter *artists_collection_filter_model() override { return artists_collection_model_->filter(); }
+  CollectionFilter *albums_collection_filter_model() override { return albums_collection_model_->filter(); }
+  CollectionFilter *songs_collection_filter_model() override { return songs_collection_model_->filter(); }
 
- public slots:
-  void ShowConfig() override;
+ public Q_SLOTS:
   void TryLogin();
   void SendLogin();
   void SendLoginWithCredentials(const QString &app_id, const QString &username, const QString &password);
@@ -119,7 +130,7 @@ class QobuzService : public InternetService {
   void ResetAlbumsRequest() override;
   void ResetSongsRequest() override;
 
- private slots:
+ private Q_SLOTS:
   void ExitReceived();
   void HandleLoginSSLErrors(const QList<QSslError> &ssl_errors);
   void HandleAuthReply(QNetworkReply *reply);
@@ -135,53 +146,35 @@ class QobuzService : public InternetService {
   void ArtistsUpdateProgressReceived(const int id, const int progress);
   void AlbumsUpdateProgressReceived(const int id, const int progress);
   void SongsUpdateProgressReceived(const int id, const int progress);
-  void HandleStreamURLFailure(const uint id, const QUrl &original_url, const QString &error);
-  void HandleStreamURLSuccess(const uint id, const QUrl &original_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration);
+  void HandleStreamURLFailure(const uint id, const QUrl &media_url, const QString &error);
+  void HandleStreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration);
 
  private:
   using Param = QPair<QString, QString>;
   using ParamList = QList<Param>;
 
-  QString DecodeAppSecret(const QString &app_secret_encoded);
+  QString DecodeAppSecret(const QString &app_secret_base64) const;
   void SendSearch();
   void LoginError(const QString &error = QString(), const QVariant &debug = QVariant());
 
-  static const char kAuthUrl[];
-
-  static const int kLoginAttempts;
-  static const int kTimeResetLoginAttempts;
-
-  static const char kArtistsSongsTable[];
-  static const char kAlbumsSongsTable[];
-  static const char kSongsTable[];
-
-  static const char kArtistsSongsFtsTable[];
-  static const char kAlbumsSongsFtsTable[];
-  static const char kSongsFtsTable[];
-
-  Application *app_;
-  NetworkAccessManager *network_;
+  const SharedPtr<NetworkAccessManager> network_;
   QobuzUrlHandler *url_handler_;
 
-  CollectionBackend *artists_collection_backend_;
-  CollectionBackend *albums_collection_backend_;
-  CollectionBackend *songs_collection_backend_;
+  SharedPtr<CollectionBackend> artists_collection_backend_;
+  SharedPtr<CollectionBackend> albums_collection_backend_;
+  SharedPtr<CollectionBackend> songs_collection_backend_;
 
   CollectionModel *artists_collection_model_;
   CollectionModel *albums_collection_model_;
   CollectionModel *songs_collection_model_;
 
-  QSortFilterProxyModel *artists_collection_sort_model_;
-  QSortFilterProxyModel *albums_collection_sort_model_;
-  QSortFilterProxyModel *songs_collection_sort_model_;
-
   QTimer *timer_search_delay_;
   QTimer *timer_login_attempt_;
 
-  std::shared_ptr<QobuzRequest> artists_request_;
-  std::shared_ptr<QobuzRequest> albums_request_;
-  std::shared_ptr<QobuzRequest> songs_request_;
-  std::shared_ptr<QobuzRequest> search_request_;
+  QobuzRequestPtr artists_request_;
+  QobuzRequestPtr albums_request_;
+  QobuzRequestPtr songs_request_;
+  QobuzRequestPtr search_request_;
   QobuzFavoriteRequest *favorite_request_;
 
   QString app_id_;
@@ -203,7 +196,7 @@ class QobuzService : public InternetService {
   int pending_search_id_;
   int next_pending_search_id_;
   QString pending_search_text_;
-  InternetSearchView::SearchType pending_search_type_;
+  SearchType pending_search_type_;
 
   int search_id_;
   QString search_text_;
@@ -211,13 +204,12 @@ class QobuzService : public InternetService {
   int login_attempts_;
 
   uint next_stream_url_request_id_;
-  QMap<uint, std::shared_ptr<QobuzStreamURLRequest>> stream_url_requests_;
-
-  QStringList login_errors_;
+  QMap<uint, QSharedPointer<QobuzStreamURLRequest>> stream_url_requests_;
 
   QList<QObject*> wait_for_exit_;
   QList<QNetworkReply*> replies_;
-
 };
+
+using QobuzServicePtr = SharedPtr<QobuzService>;
 
 #endif  // QOBUZSERVICE_H

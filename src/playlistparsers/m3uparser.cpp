@@ -27,50 +27,54 @@
 #include <QStringList>
 #include <QSettings>
 
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
-#include "utilities/timeconstants.h"
-#include "settings/playlistsettingspage.h"
+#include "core/settings.h"
+#include "constants/timeconstants.h"
+#include "constants/playlistsettings.h"
 #include "parserbase.h"
 #include "m3uparser.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 class CollectionBackendInterface;
 
-M3UParser::M3UParser(CollectionBackendInterface *collection, QObject *parent)
-    : ParserBase(collection, parent) {}
+M3UParser::M3UParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent)
+    : ParserBase(tagreader_client, collection_backend, parent) {}
 
-SongList M3UParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_search) const {
+ParserBase::LoadResult M3UParser::Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup) const {
 
   Q_UNUSED(playlist_path);
 
-  M3UType type = STANDARD;
+  M3UType type = M3UType::STANDARD;
   Metadata current_metadata;
 
   QString data = QString::fromUtf8(device->readAll());
-  data.replace('\r', '\n');
-  data.replace("\n\n", "\n");
+  data.replace(u'\r', u'\n');
+  data.replace("\n\n"_L1, "\n"_L1);
   QByteArray bytes = data.toUtf8();
   QBuffer buffer(&bytes);
   if (!buffer.open(QIODevice::ReadOnly)) return SongList();
 
   QString line = QString::fromUtf8(buffer.readLine()).trimmed();
-  if (line.startsWith("#EXTM3U")) {
+  if (line.startsWith("#EXTM3U"_L1)) {
     // This is in extended M3U format.
-    type = EXTENDED;
+    type = M3UType::EXTENDED;
     line = QString::fromUtf8(buffer.readLine()).trimmed();
   }
 
   SongList ret;
-  forever {
-    if (line.startsWith('#')) {
+  Q_FOREVER {
+    if (line.startsWith(u'#')) {
       // Extended info or comment.
-      if (type == EXTENDED && line.startsWith("#EXT")) {
+      if (type == M3UType::EXTENDED && line.startsWith("#EXT"_L1)) {
         if (!ParseMetadata(line, &current_metadata)) {
           qLog(Warning) << "Failed to parse metadata: " << line;
         }
       }
     }
     else if (!line.isEmpty()) {
-      Song song = LoadSong(line, 0, dir, collection_search);
+      Song song = LoadSong(line, 0, 0, dir, collection_lookup);
       if (!current_metadata.title.isEmpty()) {
         song.set_title(current_metadata.title);
       }
@@ -100,8 +104,8 @@ bool M3UParser::ParseMetadata(const QString &line, M3UParser::Metadata *metadata
 
   // Extended info, eg.
   // #EXTINF:123,Sample Artist - Sample title
-  QString info = line.section(':', 1);
-  QString l = info.section(',', 0, 0);
+  QString info = line.section(u':', 1);
+  QString l = info.section(u',', 0, 0);
   bool ok = false;
   int length = l.toInt(&ok);
   if (!ok) {
@@ -109,8 +113,8 @@ bool M3UParser::ParseMetadata(const QString &line, M3UParser::Metadata *metadata
   }
   metadata->length = length * kNsecPerSec;
 
-  QString track_info = info.section(',', 1);
-  QStringList list = track_info.split(" - ");
+  QString track_info = info.section(u',', 1);
+  QStringList list = track_info.split(u" - "_s);
   if (list.size() <= 1) {
     metadata->title = track_info;
     return true;
@@ -121,13 +125,15 @@ bool M3UParser::ParseMetadata(const QString &line, M3UParser::Metadata *metadata
 
 }
 
-void M3UParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type) const {
+void M3UParser::Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type) const {
+
+  Q_UNUSED(playlist_name)
 
   device->write("#EXTM3U\n");
 
-  QSettings s;
-  s.beginGroup(PlaylistSettingsPage::kSettingsGroup);
-  bool write_metadata = s.value("write_metadata", true).toBool();
+  Settings s;
+  s.beginGroup(PlaylistSettings::kSettingsGroup);
+  bool write_metadata = s.value(PlaylistSettings::kWriteMetadata, true).toBool();
   s.endGroup();
 
   for (const Song &song : songs) {
@@ -135,7 +141,7 @@ void M3UParser::Save(const SongList &songs, QIODevice *device, const QDir &dir, 
       continue;
     }
     if (write_metadata || (song.is_stream() && !song.is_radio())) {
-      QString meta = QString("#EXTINF:%1,%2 - %3\n").arg(song.length_nanosec() / kNsecPerSec).arg(song.artist(), song.title());
+      QString meta = QStringLiteral("#EXTINF:%1,%2 - %3\n").arg(song.length_nanosec() / kNsecPerSec).arg(song.artist(), song.title());
       device->write(meta.toUtf8());
     }
     device->write(URLOrFilename(song.url(), dir, path_type).toUtf8());

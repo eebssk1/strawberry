@@ -1,0 +1,3 @@
+files:
+  - source: /src/translations/strawberry_en_US.ts
+    translation: /src/translations/strawberry_%locale_with_underscore%.ts

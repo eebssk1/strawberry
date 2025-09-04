@@ -34,21 +34,22 @@
 #include <QSqlQuery>
 #include <QString>
 #include <QStringList>
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
-#  include <QRecursiveMutex>
-#endif
+#include <QRecursiveMutex>
 
+#include "includes/shared_ptr.h"
 #include "sqlquery.h"
 
 class QThread;
-class Application;
+class TaskManager;
 
 class Database : public QObject {
   Q_OBJECT
 
  public:
-  explicit Database(Application *app, QObject *parent = nullptr, const QString &database_name = QString());
+  explicit Database(SharedPtr<TaskManager> task_manager, QObject *parent = nullptr, const QString &database_name = QString());
   ~Database() override;
+
+  static const int kSchemaVersion;
 
   struct AttachedDatabase {
     AttachedDatabase() {}
@@ -60,21 +61,12 @@ class Database : public QObject {
     bool is_temporary_;
   };
 
-  static const int kSchemaVersion;
-  static const int kMinSupportedSchemaVersion;
-  static const char *kDatabaseFilename;
-  static const char *kMagicAllSongsTables;
-
   void ExitAsync();
   QSqlDatabase Connect();
   void Close();
   void ReportErrors(const SqlQuery &query);
 
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
   QRecursiveMutex *Mutex() { return &mutex_; }
-#else
-  QMutex *Mutex() { return &mutex_; }
-#endif
 
   void RecreateAttachedDb(const QString &database_name);
   void ExecSchemaCommands(QSqlDatabase &db, const QString &schema, int schema_version, bool in_transaction = false);
@@ -86,15 +78,15 @@ class Database : public QObject {
   void AttachDatabaseOnDbConnection(const QString &database_name, const AttachedDatabase &database, QSqlDatabase &db);
   void DetachDatabase(const QString &database_name);
 
- signals:
+ Q_SIGNALS:
   void ExitFinished();
-  void Error(QString error);
-  void Errors(QStringList errors);
+  void Error(const QString &error);
+  void Errors(const QStringList &errors);
 
- private slots:
+ private Q_SLOTS:
   void Exit();
 
- public slots:
+ public Q_SLOTS:
   void DoBackup();
 
  private:
@@ -111,18 +103,14 @@ class Database : public QObject {
   void BackupFile(const QString &filename);
   static bool OpenDatabase(const QString &filename, sqlite3 **connection);
 
-  Application *app_;
+  SharedPtr<TaskManager> task_manager_;
 
   // Alias -> filename
   QMap<QString, AttachedDatabase> attached_databases_;
 
   QString directory_;
   QMutex connect_mutex_;
-#if QT_VERSION >= QT_VERSION_CHECK(5, 14, 0)
   QRecursiveMutex mutex_;
-#else
-  QMutex mutex_;
-#endif
 
   // This ID makes the QSqlDatabase name unique to the object as well as the thread
   int connection_id_;
@@ -141,18 +129,6 @@ class Database : public QObject {
 
   QThread *original_thread_;
 
-};
-
-class MemoryDatabase : public Database {
-  Q_OBJECT
-
- public:
-  explicit MemoryDatabase(Application *app, QObject *parent = nullptr)
-      : Database(app, parent, ":memory:") {}
-  ~MemoryDatabase() override {
-    // Make sure Qt doesn't reuse the same database
-    QSqlDatabase::removeDatabase(Connect().connectionName());
-  }
 };
 
 #endif  // DATABASE_H

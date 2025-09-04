@@ -29,7 +29,9 @@
 #include "autoexpandingtreeview.h"
 #include "core/mimedata.h"
 
-const int AutoExpandingTreeView::kRowsToShow = 50;
+namespace {
+constexpr int kRowsToShow = 50;
+}
 
 AutoExpandingTreeView::AutoExpandingTreeView(QWidget *parent)
     : QTreeView(parent),
@@ -114,7 +116,7 @@ void AutoExpandingTreeView::ItemDoubleClicked(const QModelIndex &idx) {
     if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
       mimedata->from_doubleclick_ = true;
     }
-    emit AddToPlaylistSignal(q_mimedata);
+    Q_EMIT AddToPlaylistSignal(q_mimedata);
   }
 
 }
@@ -133,7 +135,7 @@ void AutoExpandingTreeView::mousePressEvent(QMouseEvent *event) {
     if (MimeData *mimedata = qobject_cast<MimeData*>(q_mimedata)) {
       mimedata->enqueue_now_ = true;
     }
-    emit AddToPlaylistSignal(q_mimedata);
+    Q_EMIT AddToPlaylistSignal(q_mimedata);
   }
 
 }
@@ -148,36 +150,31 @@ void AutoExpandingTreeView::mouseDoubleClickEvent(QMouseEvent *event) {
   // If the p_state was the "AnimatingState", then the base class's
   // "mouseDoubleClickEvent" method just did nothing, hence the "doubleClicked" signal is not emitted. So let's do it ourselves.
   if (idx.isValid() && p_state == AnimatingState) {
-    emit doubleClicked(idx);
+    Q_EMIT doubleClicked(idx);
   }
 
 }
 
 void AutoExpandingTreeView::keyPressEvent(QKeyEvent *e) {
 
-  QModelIndex idx = currentIndex();
-
   switch (e->key()) {
-    case Qt::Key_Enter:
-    case Qt::Key_Return:
-      if (currentIndex().isValid())
-        emit doubleClicked(currentIndex());
-      e->accept();
-      break;
-
     case Qt::Key_Backspace:
-    case Qt::Key_Escape:
-      emit FocusOnFilterSignal(e);
+    case Qt::Key_Escape:{
+      Q_EMIT FocusOnFilterSignal(e);
       e->accept();
       break;
-
-    case Qt::Key_Left:
+    }
+    case Qt::Key_Left:{
       // Set focus on the root of the current branch
+      const QModelIndex idx = currentIndex();
       if (idx.isValid() && idx.parent() != rootIndex() && (!isExpanded(idx) || model()->rowCount(idx) == 0)) {
         setCurrentIndex(idx.parent());
         setFocus();
         e->accept();
       }
+      break;
+    }
+    default:
       break;
   }
 

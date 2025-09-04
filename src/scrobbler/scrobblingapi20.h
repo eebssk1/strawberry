@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,22 +22,20 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QList>
 #include <QVariant>
 #include <QByteArray>
 #include <QString>
-#include <QTimer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "scrobblerservice.h"
 #include "scrobblercache.h"
 #include "scrobblercacheitem.h"
 
+class QTimer;
 class QNetworkReply;
 
-class Application;
+class ScrobblerSettingsService;
 class NetworkAccessManager;
 class LocalRedirectServer;
 
@@ -45,50 +43,48 @@ class ScrobblingAPI20 : public ScrobblerService {
   Q_OBJECT
 
  public:
-  explicit ScrobblingAPI20(const QString &name, const QString &settings_group, const QString &auth_url, const QString &api_url, const bool batch, Application *app, QObject *parent = nullptr);
+  explicit ScrobblingAPI20(const QString &name, const QString &settings_group, const QString &auth_url, const QString &api_url, const bool batch, const QString &cache_file, const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
   ~ScrobblingAPI20() override;
 
   static const char *kApiKey;
 
   void ReloadSettings() override;
   void LoadSession();
+  void ClearSession();
 
-  virtual NetworkAccessManager *network() const = 0;
-  virtual ScrobblerCache *cache() const = 0;
+  bool enabled() const override { return enabled_; }
+  bool authentication_required() const override { return true; }
+  bool authenticated() const override { return !username_.isEmpty() && !session_key_.isEmpty(); }
+  bool use_authorization_header() const override { return false; }
+  QByteArray authorization_header() const override { return QByteArray(); }
 
-  bool IsEnabled() const override { return enabled_; }
-  bool IsUseHTTPS() const { return https_; }
-  bool IsAuthenticated() const override { return !username_.isEmpty() && !session_key_.isEmpty(); }
-  bool IsSubscriber() const { return subscriber_; }
-  bool IsSubmitted() const override { return submitted_; }
-  void Submitted() override { submitted_ = true; }
+  bool subscriber() const { return subscriber_; }
+  bool submitted() const override { return submitted_; }
   QString username() const { return username_; }
 
-  void Authenticate(const bool https = false);
-  void Logout();
+  void Authenticate();
   void UpdateNowPlaying(const Song &song) override;
   void ClearPlaying() override;
   void Scrobble(const Song &song) override;
   void Submit() override;
   void Love() override;
 
- signals:
-  void AuthenticationComplete(bool success, QString error = QString());
+ Q_SIGNALS:
+  void AuthenticationComplete(const bool success, const QString &error = QString());
 
- public slots:
-  void WriteCache() override { cache()->WriteCache(); }
+ public Q_SLOTS:
+  void WriteCache() override { cache_->WriteCache(); }
 
- private slots:
+ private Q_SLOTS:
   void RedirectArrived();
   void AuthenticateReplyFinished(QNetworkReply *reply);
   void UpdateNowPlayingRequestFinished(QNetworkReply *reply);
-  void ScrobbleRequestFinished(QNetworkReply *reply, const QList<quint64> &list);
-  void SingleScrobbleRequestFinished(QNetworkReply *reply, const quint64 timestamp);
+  void ScrobbleRequestFinished(QNetworkReply *reply, ScrobblerCacheItemPtrList cache_items);
+  void SingleScrobbleRequestFinished(QNetworkReply *reply, ScrobblerCacheItemPtr cache_item);
   void LoveRequestFinished(QNetworkReply *reply);
 
  private:
-
-  enum ScrobbleErrorCode {
+  enum class ScrobbleErrorCode {
     NoError = 1,
     InvalidService = 2,
     InvalidMethod = 3,
@@ -119,12 +115,8 @@ class ScrobblingAPI20 : public ScrobblerService {
     RateLimitExceeded = 29,
   };
 
-  static const char *kSecret;
-  static const int kScrobblesPerRequest;
-
   QNetworkReply *CreateRequest(const ParamList &request_params);
-  QByteArray GetReplyData(QNetworkReply *reply);
-
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
   void RequestSession(const QString &token);
   void AuthError(const QString &error);
   void SendSingleScrobble(ScrobblerCacheItemPtr item);
@@ -133,17 +125,18 @@ class ScrobblingAPI20 : public ScrobblerService {
   void StartSubmit(const bool initial = false) override;
   void CheckScrobblePrevSong();
 
+ protected:
   QString name_;
   QString settings_group_;
   QString auth_url_;
   QString api_url_;
   bool batch_;
 
-  Application *app_;
-  LocalRedirectServer *server_;
+  const SharedPtr<NetworkAccessManager> network_;
+  ScrobblerCache *cache_;
+  LocalRedirectServer *local_redirect_server_;
 
   bool enabled_;
-  bool https_;
   bool prefer_albumartist_;
 
   bool subscriber_;
@@ -156,10 +149,7 @@ class ScrobblingAPI20 : public ScrobblerService {
   quint64 timestamp_;
   bool submit_error_;
 
-  QTimer timer_submit_;
-
-  QList<QNetworkReply*> replies_;
-
+  QTimer *timer_submit_;
 };
 
 #endif  // SCROBBLINGAPI20_H

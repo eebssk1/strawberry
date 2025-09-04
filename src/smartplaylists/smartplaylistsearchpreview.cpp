@@ -29,16 +29,20 @@
 #include <QFuture>
 #include <QFutureWatcher>
 
+#include "includes/shared_ptr.h"
+
 #include "smartplaylistsearchpreview.h"
 #include "ui_smartplaylistsearchpreview.h"
 
 #include "playlist/playlist.h"
 #include "playlistquerygenerator.h"
 
+using std::make_shared;
+
 SmartPlaylistSearchPreview::SmartPlaylistSearchPreview(QWidget *parent)
     : QWidget(parent),
       ui_(new Ui_SmartPlaylistSearchPreview),
-      backend_(nullptr),
+      collection_backend_(nullptr),
       model_(nullptr) {
 
   ui_->setupUi(this);
@@ -58,20 +62,27 @@ SmartPlaylistSearchPreview::~SmartPlaylistSearchPreview() {
   delete ui_;
 }
 
-void SmartPlaylistSearchPreview::set_application(Application *app) {
+void SmartPlaylistSearchPreview::Init(const SharedPtr<Player> player,
+                                      const SharedPtr<PlaylistManager> playlist_manager,
+                                      const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+                                      const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+                                      const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader) {
 
-  ui_->tree->Init(app);
+  collection_backend_ = collection_backend;
 
-}
-
-void SmartPlaylistSearchPreview::set_collection(CollectionBackend *backend) {
-
-  backend_ = backend;
-
-  model_ = new Playlist(nullptr, nullptr, backend_, -1, QString(), false, this);
+  model_ = new Playlist(nullptr, nullptr, nullptr, collection_backend_, nullptr, -1, QString(), false, this);
   ui_->tree->setModel(model_);
   ui_->tree->SetPlaylist(model_);
-  ui_->tree->SetItemDelegates();
+
+  ui_->tree->Init(player,
+                  playlist_manager,
+                  collection_backend,
+#ifdef HAVE_MOODBAR
+                  moodbar_loader,
+#endif
+                  current_albumcover_loader);
 
 }
 
@@ -105,28 +116,28 @@ void SmartPlaylistSearchPreview::showEvent(QShowEvent *e) {
 }
 
 namespace {
-PlaylistItemList DoRunSearch(PlaylistGeneratorPtr gen) { return gen->Generate(); }
+PlaylistItemPtrList DoRunSearch(PlaylistGeneratorPtr gen) { return gen->Generate(); }
 }  // namespace
 
 void SmartPlaylistSearchPreview::RunSearch(const SmartPlaylistSearch &search) {
 
-  generator_ = std::make_shared<PlaylistQueryGenerator>();
-  generator_->set_collection(backend_);
+  generator_ = make_shared<PlaylistQueryGenerator>();
+  generator_->set_collection_backend(collection_backend_);
   std::dynamic_pointer_cast<PlaylistQueryGenerator>(generator_)->Load(search);
 
   ui_->busy_container->show();
   ui_->count_label->hide();
-  QFuture<PlaylistItemList> future = QtConcurrent::run(DoRunSearch, generator_);
-  QFutureWatcher<PlaylistItemList> *watcher = new QFutureWatcher<PlaylistItemList>();
-  QObject::connect(watcher, &QFutureWatcher<PlaylistItemList>::finished, this, &SmartPlaylistSearchPreview::SearchFinished);
+  QFuture<PlaylistItemPtrList> future = QtConcurrent::run(DoRunSearch, generator_);
+  QFutureWatcher<PlaylistItemPtrList> *watcher = new QFutureWatcher<PlaylistItemPtrList>();
+  QObject::connect(watcher, &QFutureWatcher<PlaylistItemPtrList>::finished, this, &SmartPlaylistSearchPreview::SearchFinished);
   watcher->setFuture(future);
 
 }
 
 void SmartPlaylistSearchPreview::SearchFinished() {
 
-  QFutureWatcher<PlaylistItemList> *watcher = static_cast<QFutureWatcher<PlaylistItemList>*>(sender());
-  PlaylistItemList all_items = watcher->result();
+  QFutureWatcher<PlaylistItemPtrList> *watcher = static_cast<QFutureWatcher<PlaylistItemPtrList>*>(sender());
+  PlaylistItemPtrList all_items = watcher->result();
   watcher->deleteLater();
 
   last_search_ = std::dynamic_pointer_cast<PlaylistQueryGenerator>(generator_)->search();
@@ -140,7 +151,7 @@ void SmartPlaylistSearchPreview::SearchFinished() {
     return;
   }
 
-  PlaylistItemList displayed_items = all_items.mid(0, PlaylistGenerator::kDefaultLimit);
+  PlaylistItemPtrList displayed_items = all_items.mid(0, PlaylistGenerator::kDefaultLimit);
 
   model_->Clear();
   model_->InsertItems(displayed_items);

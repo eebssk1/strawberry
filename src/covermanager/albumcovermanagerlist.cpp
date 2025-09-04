@@ -21,7 +21,7 @@
 
 #include "config.h"
 
-#include <memory>
+#include <utility>
 
 #include <QWidget>
 #include <QStringList>
@@ -33,19 +33,16 @@
 #include <QMimeData>
 #include <QDropEvent>
 
+#include "includes/scoped_ptr.h"
 #include "core/song.h"
+#include "core/songmimedata.h"
 #include "collection/collectionbackend.h"
-#include "playlist/songmimedata.h"
 #include "albumcovermanager.h"
 #include "albumcovermanagerlist.h"
 
 AlbumCoverManagerList::AlbumCoverManagerList(QWidget *parent) : QListWidget(parent), manager_(nullptr) {}
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
 QMimeData *AlbumCoverManagerList::mimeData(const QList<QListWidgetItem*> &items) const {
-#else
-QMimeData *AlbumCoverManagerList::mimeData(const QList<QListWidgetItem*> items) const {
-#endif
 
   // Get songs
   SongList songs;
@@ -58,15 +55,15 @@ QMimeData *AlbumCoverManagerList::mimeData(const QList<QListWidgetItem*> items) 
   // Get URLs from the songs
   QList<QUrl> urls;
   urls.reserve(songs.count());
-  for (const Song &song : songs) {
+  for (const Song &song : std::as_const(songs)) {
     urls << song.url();
   }
 
   // Get the QAbstractItemModel data so the picture works
-  std::unique_ptr<QMimeData> orig_data(QListWidget::mimeData(items));
+  ScopedPtr<QMimeData> orig_data(QListWidget::mimeData(items));
 
   SongMimeData *mime_data = new SongMimeData;
-  mime_data->backend = manager_->backend();
+  mime_data->backend = manager_->collection_backend();
   mime_data->songs = songs;
   mime_data->setUrls(urls);
   mime_data->setData(orig_data->formats()[0], orig_data->data(orig_data->formats()[0]));

@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,92 +19,81 @@
 
 #include "config.h"
 
-#include <QString>
-#include <QSettings>
+#include <utility>
+#include <memory>
 
-#include "core/application.h"
+#include <QList>
+#include <QString>
+
+#include "includes/shared_ptr.h"
 #include "core/logging.h"
 #include "core/song.h"
-#include "settings/settingsdialog.h"
-#include "settings/scrobblersettingspage.h"
 
 #include "audioscrobbler.h"
-#include "scrobblerservices.h"
+#include "scrobblersettingsservice.h"
 #include "scrobblerservice.h"
-#include "lastfmscrobbler.h"
-#include "librefmscrobbler.h"
-#include "listenbrainzscrobbler.h"
-#ifdef HAVE_SUBSONIC
-#  include "subsonicscrobbler.h"
-#endif
 
-AudioScrobbler::AudioScrobbler(Application *app, QObject *parent)
+using std::make_shared;
+
+AudioScrobbler::AudioScrobbler(QObject *parent)
     : QObject(parent),
-      app_(app),
-      scrobbler_services_(new ScrobblerServices(this)),
-      enabled_(false),
-      offline_(false),
-      scrobble_button_(false),
-      love_button_(false),
-      submit_delay_(0),
-      prefer_albumartist_(false),
-      show_error_dialog_(false) {
-
-  scrobbler_services_->AddService(new LastFMScrobbler(app_, scrobbler_services_));
-  scrobbler_services_->AddService(new LibreFMScrobbler(app_, scrobbler_services_));
-  scrobbler_services_->AddService(new ListenBrainzScrobbler(app_, scrobbler_services_));
-#ifdef HAVE_SUBSONIC
-  scrobbler_services_->AddService(new SubsonicScrobbler(app_, scrobbler_services_));
-#endif
+      settings_(make_shared<ScrobblerSettingsService>()) {
 
   ReloadSettings();
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    QObject::connect(service, &ScrobblerService::ErrorMessage, this, &AudioScrobbler::ErrorReceived);
+}
+
+AudioScrobbler::~AudioScrobbler() {
+
+  while (!services_.isEmpty()) {
+    ScrobblerServicePtr service = services_.value(services_.firstKey());
+    RemoveService(service);
   }
+
+}
+
+void AudioScrobbler::AddService(ScrobblerServicePtr service) {
+
+  services_.insert(service->name(), service);
+
+  QObject::connect(&*service, &ScrobblerService::ErrorMessage, this, &AudioScrobbler::ErrorReceived);
+
+  qLog(Debug) << "Registered scrobbler service" << service->name();
+
+}
+
+void AudioScrobbler::RemoveService(ScrobblerServicePtr service) {
+
+  if (!service || !services_.contains(service->name())) return;
+
+  services_.remove(service->name());
+  QObject::disconnect(&*service, nullptr, this, nullptr);
+
+  QObject::disconnect(&*service, &ScrobblerService::ErrorMessage, this, &AudioScrobbler::ErrorReceived);
+
+  qLog(Debug) << "Unregistered scrobbler service" << service->name();
+
+}
+
+QList<ScrobblerServicePtr> AudioScrobbler::GetAll() {
+
+  return services_.values();
+
+}
+
+ScrobblerServicePtr AudioScrobbler::ServiceByName(const QString &name) {
+
+  if (services_.contains(name)) return services_.value(name);
+  return nullptr;
 
 }
 
 void AudioScrobbler::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(ScrobblerSettingsPage::kSettingsGroup);
-  enabled_ = s.value("enabled", false).toBool();
-  offline_ = s.value("offline", false).toBool();
-  scrobble_button_ = s.value("scrobble_button", false).toBool();
-  love_button_ = s.value("love_button", false).toBool();
-  submit_delay_ = s.value("submit", 0).toInt();
-  prefer_albumartist_ = s.value("albumartist", false).toBool();
-  show_error_dialog_ = s.value("show_error_dialog", true).toBool();
-  QStringList sources = s.value("sources").toStringList();
-  s.endGroup();
+  settings_->ReloadSettings();
 
-  sources_.clear();
-
-  if (sources.isEmpty()) {
-    sources_ << Song::Source_Unknown
-             << Song::Source_LocalFile
-             << Song::Source_Collection
-             << Song::Source_CDDA
-             << Song::Source_Device
-             << Song::Source_Stream
-             << Song::Source_Tidal
-             << Song::Source_Subsonic
-             << Song::Source_Qobuz
-             << Song::Source_SomaFM
-             << Song::Source_RadioParadise;
-  }
-  else {
-    for (const QString &source : sources) {
-      sources_ << Song::SourceFromText(source);
-    }
-  }
-
-  emit ScrobblingEnabledChanged(enabled_);
-  emit ScrobbleButtonVisibilityChanged(scrobble_button_);
-  emit LoveButtonVisibilityChanged(love_button_);
-
-  for (ScrobblerService *service : scrobbler_services_->List()) {
+  const QList<ScrobblerServicePtr> services = services_.values();
+  for (ScrobblerServicePtr service : std::as_const(services)) {
     service->ReloadSettings();
   }
 
@@ -112,46 +101,29 @@ void AudioScrobbler::ReloadSettings() {
 
 void AudioScrobbler::ToggleScrobbling() {
 
-  bool enabled_old_ = enabled_;
-  enabled_ = !enabled_;
+  settings_->ToggleScrobbling();
 
-  QSettings s;
-  s.beginGroup(ScrobblerSettingsPage::kSettingsGroup);
-  s.setValue("enabled", enabled_);
-  s.endGroup();
-
-  if (enabled_ != enabled_old_) emit ScrobblingEnabledChanged(enabled_);
-  if (enabled_ && !offline_) { Submit(); }
+  if (settings_->enabled() && !settings_->offline()) { Submit(); }
 
 }
 
 void AudioScrobbler::ToggleOffline() {
 
-  bool offline_old_ = offline_;
-  offline_ = !offline_;
+  settings_->ToggleOffline();
 
-  QSettings s;
-  s.beginGroup(ScrobblerSettingsPage::kSettingsGroup);
-  s.setValue("offline", offline_);
-  s.endGroup();
+  if (settings_->enabled() && !settings_->offline()) { Submit(); }
 
-  if (offline_ != offline_old_) { emit ScrobblingOfflineChanged(offline_); }
-  if (enabled_ && !offline_) { Submit(); }
-
-}
-
-void AudioScrobbler::ShowConfig() {
-  app_->OpenSettingsDialogAtPage(SettingsDialog::Page_Scrobbler);
 }
 
 void AudioScrobbler::UpdateNowPlaying(const Song &song) {
 
-  if (!sources_.contains(song.source())) return;
+  if (!settings_->sources().contains(song.source())) return;
 
   qLog(Debug) << "Sending now playing for song" << song.artist() << song.album() << song.title();
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled()) continue;
     service->UpdateNowPlaying(song);
   }
 
@@ -159,8 +131,9 @@ void AudioScrobbler::UpdateNowPlaying(const Song &song) {
 
 void AudioScrobbler::ClearPlaying() {
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled()) continue;
     service->ClearPlaying();
   }
 
@@ -168,12 +141,13 @@ void AudioScrobbler::ClearPlaying() {
 
 void AudioScrobbler::Scrobble(const Song &song, const qint64 scrobble_point) {
 
-  if (!sources_.contains(song.source())) return;
+  if (!settings_->sources().contains(song.source())) return;
 
   qLog(Debug) << "Scrobbling song" << song.artist() << song.album() << song.title() << "at" << scrobble_point;
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled()) continue;
     service->Scrobble(song);
   }
 
@@ -181,8 +155,9 @@ void AudioScrobbler::Scrobble(const Song &song, const qint64 scrobble_point) {
 
 void AudioScrobbler::Love() {
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled() || !service->IsAuthenticated()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled() || !service->authenticated()) continue;
     service->Love();
   }
 
@@ -190,8 +165,9 @@ void AudioScrobbler::Love() {
 
 void AudioScrobbler::Submit() {
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled() || !service->IsAuthenticated() || service->IsSubmitted()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled() || !service->authenticated() || service->submitted()) continue;
     service->StartSubmit();
   }
 
@@ -199,13 +175,14 @@ void AudioScrobbler::Submit() {
 
 void AudioScrobbler::WriteCache() {
 
-  for (ScrobblerService *service : scrobbler_services_->List()) {
-    if (!service->IsEnabled()) continue;
+  const QList<ScrobblerServicePtr> services = GetAll();
+  for (ScrobblerServicePtr service : services) {
+    if (!service->enabled()) continue;
     service->WriteCache();
   }
 
 }
 
 void AudioScrobbler::ErrorReceived(const QString &error) {
-  emit ErrorMessage(error);
+  Q_EMIT ErrorMessage(error);
 }

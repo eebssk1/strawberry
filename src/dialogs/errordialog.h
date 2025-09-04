@@ -29,7 +29,7 @@
 #include <QString>
 #include <QStringList>
 
-class QHideEvent;
+class QCloseEvent;
 class Ui_ErrorDialog;
 
 class ErrorDialog : public QDialog {
@@ -39,15 +39,16 @@ class ErrorDialog : public QDialog {
   explicit ErrorDialog(QWidget *parent = nullptr);
   ~ErrorDialog() override;
 
- public slots:
+ public Q_SLOTS:
   void ShowMessage(const QString &message);
 
  protected:
-  void hideEvent(QHideEvent*) override;
+  void closeEvent(QCloseEvent *e) override;
 
  private:
   void UpdateContent();
 
+  QWidget *parent_;
   Ui_ErrorDialog *ui_;
 
   QStringList current_messages_;

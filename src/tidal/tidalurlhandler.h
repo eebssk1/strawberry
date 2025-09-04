@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,33 +22,32 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
 #include <QMap>
 #include <QString>
 #include <QUrl>
 
+#include "includes/shared_ptr.h"
 #include "core/urlhandler.h"
 #include "core/song.h"
-#include "tidal/tidalservice.h"
 
-class Application;
+class TaskManager;
+class TidalService;
 
 class TidalUrlHandler : public UrlHandler {
   Q_OBJECT
 
  public:
-  explicit TidalUrlHandler(Application *app, TidalService *service);
+  explicit TidalUrlHandler(const SharedPtr<TaskManager> task_manager, TidalService *service);
 
-  QString scheme() const override { return service_->url_scheme(); }
+  QString scheme() const override;
   LoadResult StartLoading(const QUrl &url) override;
 
  private:
   void CancelTask(const int task_id);
 
- private slots:
-  void GetStreamURLFailure(const uint id, const QUrl &original_url, const QString &error);
-  void GetStreamURLSuccess(const uint id, const QUrl &original_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration);
+ private Q_SLOTS:
+  void GetStreamURLFailure(const uint id, const QUrl &media_url, const QString &error);
+  void GetStreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration);
 
  private:
   struct Request {
@@ -56,10 +55,9 @@ class TidalUrlHandler : public UrlHandler {
     uint id;
     int task_id;
   };
-  Application *app_;
+  const SharedPtr<TaskManager> task_manager_;
   TidalService *service_;
   QMap<uint, Request> requests_;
-
 };
 
 #endif  // TIDALURLHANDLER_H

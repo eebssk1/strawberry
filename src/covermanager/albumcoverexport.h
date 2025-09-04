@@ -39,10 +39,10 @@ class AlbumCoverExport : public QDialog {
   explicit AlbumCoverExport(QWidget *parent = nullptr);
   ~AlbumCoverExport() override;
 
-  enum OverwriteMode {
-    OverwriteMode_None = 0,
-    OverwriteMode_All = 1,
-    OverwriteMode_Smaller = 2
+  enum class OverwriteMode {
+    None = 0,
+    All = 1,
+    Smaller = 2
   };
 
   struct DialogResult {
@@ -63,19 +63,21 @@ class AlbumCoverExport : public QDialog {
     }
 
     bool RequiresCoverProcessing() const {
-      return IsSizeForced() || overwrite_ == OverwriteMode_Smaller;
+      return IsSizeForced() || overwrite_ == OverwriteMode::Smaller;
     }
   };
 
   DialogResult Exec();
 
- private slots:
+ private Q_SLOTS:
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+  void ForceSizeToggled(Qt::CheckState state);
+#else
   void ForceSizeToggled(int state);
+#endif
 
  private:
   Ui_AlbumCoverExport *ui_;
-
-  static const char *kSettingsGroup;
 };
 
 #endif  // ALBUMCOVEREXPORT_H

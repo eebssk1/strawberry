@@ -41,18 +41,9 @@
 
 #import <QuartzCore/CALayer.h>
 
-#import "3rdparty/SPMediaKeyTap/SPMediaKeyTap.h"
+//#import <SPMediaKeyTap.h>
 
 #include "config.h"
-
-#include "platforminterface.h"
-#include "mac_delegate.h"
-#include "mac_startup.h"
-#include "scoped_cftyperef.h"
-#include "core/logging.h"
-#include "scoped_nsautorelease_pool.h"
-#include "globalshortcuts/globalshortcutsmanager.h"
-#include "globalshortcuts/globalshortcutsbackend-macos.h"
 
 #include <QApplication>
 #include <QCoreApplication>
@@ -60,13 +51,19 @@
 #include <QDir>
 #include <QEvent>
 #include <QFile>
-#include <QSettings>
 
-#include <QtDebug>
+#include "includes/mac_delegate.h"
+#include "includes/scoped_cftyperef.h"
+#include "core/scoped_nsautorelease_pool.h"
+#include "core/logging.h"
+#include "core/platforminterface.h"
+#include "mac_startup.h"
+#include "globalshortcuts/globalshortcutsmanager.h"
+#include "globalshortcuts/globalshortcutsbackend-macos.h"
 
 QDebug operator<<(QDebug dbg, NSObject *object) {
 
-  QString ns_format = [[NSString stringWithFormat:@"%@", object] UTF8String];
+  const QString ns_format = QString::fromUtf8([[NSString stringWithFormat:@"%@", object] UTF8String]);
   dbg.nospace() << ns_format;
   return dbg.space();
 
@@ -148,18 +145,18 @@ QDebug operator<<(QDebug dbg, NSObject *object) {
 
   [[NSAppleEventManager sharedAppleEventManager] setEventHandler:self andSelector:@selector(handleURLEvent:withReplyEvent:) forEventClass:kInternetEventClass andEventID:kAEGetURL];
 
-  key_tap_ = [[SPMediaKeyTap alloc] initWithDelegate:self];
-  if ([SPMediaKeyTap usesGlobalMediaKeyTap]) {
-    if ([key_tap_ startWatchingMediaKeys]) {
-        qLog(Debug) << "Media key monitoring started";
-    }
-    else {
-        qLog(Warning) << "Failed to start media key monitoring";
-    }
-  }
-  else {
-    qLog(Warning) << "Media key monitoring disabled";
-  }
+  // key_tap_ = [[SPMediaKeyTap alloc] initWithDelegate:self];
+  // if ([SPMediaKeyTap usesGlobalMediaKeyTap]) {
+  //   if ([key_tap_ startWatchingMediaKeys]) {
+  //       qLog(Debug) << "Media key monitoring started";
+  //   }
+  //   else {
+  //       qLog(Warning) << "Failed to start media key monitoring";
+  //   }
+  // }
+  // else {
+  //   qLog(Warning) << "Media key monitoring disabled";
+  // }
 
 }
 
@@ -195,10 +192,10 @@ QDebug operator<<(QDebug dbg, NSObject *object) {
 
 }
 
-- (void) mediaKeyTap: (SPMediaKeyTap*)keyTap receivedMediaKeyEvent:(NSEvent*)event {
-  #pragma unused(keyTap)
-  [self handleMediaEvent:event];
-}
+// - (void) mediaKeyTap: (SPMediaKeyTap*)keyTap receivedMediaKeyEvent:(NSEvent*)event {
+//   #pragma unused(keyTap)
+//   [self handleMediaEvent:event];
+// }
 
 - (BOOL) handleMediaEvent:(NSEvent*)event {
   // if it is not a media key event, then ignore
@@ -261,10 +258,14 @@ QDebug operator<<(QDebug dbg, NSObject *object) {
   [self setDelegate:delegate_];
 
   // FIXME
+#ifdef __GNUC__
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
   [[NSUserNotificationCenter defaultUserNotificationCenter]setDelegate:delegate_];
+#ifdef __GNUC__
 #pragma GCC diagnostic pop
+#endif
 
 }
 

@@ -33,14 +33,16 @@
 #include <QPolygon>
 #include <QPaintEvent>
 
-#include "core/qt_blurimage.h"
+#include "includes/qt_blurimage.h"
 #include "tracksliderpopup.h"
 
-const int TrackSliderPopup::kTextMargin = 4;
-const int TrackSliderPopup::kPointLength = 16;
-const int TrackSliderPopup::kPointWidth = 4;
-const int TrackSliderPopup::kBorderRadius = 4;
-const qreal TrackSliderPopup::kBlurRadius = 20.0;
+namespace {
+constexpr int kTextMargin = 4;
+constexpr int kPointLength = 16;
+constexpr int kPointWidth = 4;
+constexpr int kBorderRadius = 4;
+constexpr qreal kBlurRadius = 20.0;
+}  // namespace
 
 TrackSliderPopup::TrackSliderPopup(QWidget *parent)
     : QWidget(parent),
@@ -73,18 +75,15 @@ void TrackSliderPopup::SetPopupPosition(const QPoint pos) {
   UpdatePosition();
 }
 
-void TrackSliderPopup::paintEvent(QPaintEvent*) {
+void TrackSliderPopup::paintEvent(QPaintEvent *e) {
+  Q_UNUSED(e)
   QPainter p(this);
   p.drawPixmap(0, 0, pixmap_);
 }
 
 void TrackSliderPopup::UpdatePixmap() {
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
   const int text_width = qMax(font_metrics_.horizontalAdvance(text_), small_font_metrics_.horizontalAdvance(small_text_));
-#else
-  const int text_width = qMax(font_metrics_.width(text_), small_font_metrics_.width(small_text_));
-#endif
   const QRect text_rect1(static_cast<int>(kBlurRadius) + kTextMargin, static_cast<int>(kBlurRadius) + kTextMargin, text_width + 2, font_metrics_.height());
   const QRect text_rect2(static_cast<int>(kBlurRadius) + kTextMargin, text_rect1.bottom(), text_width, small_font_metrics_.height());
 

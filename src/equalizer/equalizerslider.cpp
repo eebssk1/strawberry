@@ -38,12 +38,7 @@ EqualizerSlider::EqualizerSlider(const QString &label, QWidget *parent)
   ui_->band->setText(label);
 
   QFontMetrics fm = ui_->gain->fontMetrics();
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
-  int longestLabelWidth = fm.horizontalAdvance(tr("%1 dB").arg(-99.99));
-#else
-  int longestLabelWidth = fm.width(tr("%1 dB").arg(-99.99));
-#endif
-  ui_->gain->setMinimumWidth(longestLabelWidth);
+  ui_->gain->setMinimumWidth(fm.horizontalAdvance(tr("%1 dB").arg(-99.99)));
   ui_->gain->setText(tr("%1 dB").arg(0));  // Gain [dB]
 
   ui_->slider->setValue(0);
@@ -56,13 +51,13 @@ EqualizerSlider::~EqualizerSlider() {
   delete ui_;
 }
 
-void EqualizerSlider::OnValueChanged(int value) {
+void EqualizerSlider::OnValueChanged(const int value) {
 
   // Converting % to dB as per GstEnginePipeline::UpdateEqualizer():
   float gain = (static_cast<int>(value) < 0) ? static_cast<float>(value) * static_cast<float>(0.24) : static_cast<float>(value) * static_cast<float>(0.12);
 
   ui_->gain->setText(tr("%1 dB").arg(gain));  // Gain [dB]
-  emit ValueChanged(value);
+  Q_EMIT ValueChanged(value);
 
 }
 
@@ -70,7 +65,7 @@ int EqualizerSlider::value() const {
   return ui_->slider->value();
 }
 
-void EqualizerSlider::set_value(int value) {
+void EqualizerSlider::set_value(const int value) {
   ui_->slider->setValue(value);
 }
 

@@ -29,35 +29,37 @@
 #include <QString>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
+#include "constants/playlistsettings.h"
 #include "core/song.h"
-#include "settings/playlistsettingspage.h"
 #include "xmlparser.h"
 
 class QIODevice;
 class QXmlStreamReader;
 class QXmlStreamWriter;
 
+class TagReaderClient;
 class CollectionBackendInterface;
 
 class WplParser : public XMLParser {
   Q_OBJECT
 
  public:
-  explicit WplParser(CollectionBackendInterface *collection, QObject *parent = nullptr);
+  explicit WplParser(const SharedPtr<TagReaderClient> tagreader_client, const SharedPtr<CollectionBackendInterface> collection_backend, QObject *parent = nullptr);
 
-  QString name() const override { return "WPL"; }
-  QStringList file_extensions() const override { return QStringList() << "wpl"; }
-  QString mime_type() const override { return "application/vnd.ms-wpl"; }
+  QString name() const override { return QStringLiteral("WPL"); }
+  QStringList file_extensions() const override { return QStringList() << QStringLiteral("wpl"); }
+  QString mime_type() const override { return QStringLiteral("application/vnd.ms-wpl"); }
   bool load_supported() const override { return true; }
   bool save_supported() const override { return true; }
 
   bool TryMagic(const QByteArray &data) const override;
 
-  SongList Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_search = true) const override;
-  void Save(const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettingsPage::PathType path_type = PlaylistSettingsPage::PathType_Automatic) const override;
+  LoadResult Load(QIODevice *device, const QString &playlist_path, const QDir &dir, const bool collection_lookup = true) const override;
+  void Save(const QString &playlist_name, const SongList &songs, QIODevice *device, const QDir &dir, const PlaylistSettings::PathType path_type = PlaylistSettings::PathType::Automatic) const override;
 
  private:
-  void ParseSeq(const QDir &dir, QXmlStreamReader *reader, SongList *songs, const bool collection_search = true) const;
+  void ParseSeq(const QDir &dir, QXmlStreamReader *reader, SongList *songs, const bool collection_lookup) const;
   static void WriteMeta(const QString &name, const QString &content, QXmlStreamWriter *writer);
 };
 

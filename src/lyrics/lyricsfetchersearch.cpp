@@ -20,23 +20,30 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
-#include <QObject>
 #include <QTimer>
 #include <QList>
 
 #include "core/logging.h"
-#include "lyricsfetcher.h"
+#include "includes/shared_ptr.h"
 #include "lyricsfetchersearch.h"
+#include "lyricssearchrequest.h"
+#include "lyricssearchresult.h"
 #include "lyricsprovider.h"
 #include "lyricsproviders.h"
 
-const int LyricsFetcherSearch::kSearchTimeoutMs = 3000;
-const int LyricsFetcherSearch::kGoodLyricsLength = 60;
-const float LyricsFetcherSearch::kHighScore = 2.5;
+using namespace Qt::Literals::StringLiterals;
 
-LyricsFetcherSearch::LyricsFetcherSearch(const LyricsSearchRequest &request, QObject *parent)
+namespace {
+constexpr int kSearchTimeoutMs = 3000;
+constexpr int kGoodLyricsLength = 60;
+constexpr float kHighScore = 2.5;
+}  // namespace
+
+LyricsFetcherSearch::LyricsFetcherSearch(const quint64 id, const LyricsSearchRequest &request, QObject *parent)
     : QObject(parent),
+      id_(id),
       request_(request),
       cancel_requested_(false) {
 
@@ -46,18 +53,18 @@ LyricsFetcherSearch::LyricsFetcherSearch(const LyricsSearchRequest &request, QOb
 
 void LyricsFetcherSearch::TerminateSearch() {
 
-  QList<int> keys = pending_requests_.keys();
+  const QList<int> keys = pending_requests_.keys();
   for (const int id : keys) {
-    pending_requests_.take(id)->CancelSearch(id);
+    pending_requests_.take(id)->CancelSearchAsync(id);
   }
   AllProvidersFinished();
 
 }
 
-void LyricsFetcherSearch::Start(LyricsProviders *lyrics_providers) {
+void LyricsFetcherSearch::Start(SharedPtr<LyricsProviders> lyrics_providers) {
 
   // Ignore Radio Paradise "commercial" break.
-  if (request_.artist.compare("commercial-free", Qt::CaseInsensitive) == 0 && request_.title.compare("listener-supported", Qt::CaseInsensitive) == 0) {
+  if (request_.artist.compare("commercial-free"_L1, Qt::CaseInsensitive) == 0 && request_.title.compare("listener-supported"_L1, Qt::CaseInsensitive) == 0) {
     TerminateSearch();
     return;
   }
@@ -65,12 +72,14 @@ void LyricsFetcherSearch::Start(LyricsProviders *lyrics_providers) {
   QList<LyricsProvider*> lyrics_providers_sorted = lyrics_providers->List();
   std::stable_sort(lyrics_providers_sorted.begin(), lyrics_providers_sorted.end(), ProviderCompareOrder);
 
-  for (LyricsProvider *provider : lyrics_providers_sorted) {
-    if (!provider->is_enabled() || !provider->IsAuthenticated()) continue;
+  for (LyricsProvider *provider : std::as_const(lyrics_providers_sorted)) {
+    if (!provider->is_enabled() || (provider->authentication_required() && !provider->authenticated())) continue;
     QObject::connect(provider, &LyricsProvider::SearchFinished, this, &LyricsFetcherSearch::ProviderSearchFinished);
     const int id = lyrics_providers->NextId();
-    const bool success = provider->StartSearch(request_.artist, request_.album, request_.title, id);
-    if (success) pending_requests_[id] = provider;
+    const bool success = provider->StartSearchAsync(id, request_);
+    if (success) {
+      pending_requests_.insert(id, provider);
+    }
   }
 
   if (pending_requests_.isEmpty()) TerminateSearch();
@@ -87,7 +96,7 @@ void LyricsFetcherSearch::ProviderSearchFinished(const int id, const LyricsSearc
   for (int i = 0; i < results_copy.count(); ++i) {
     results_copy[i].provider = provider->name();
     results_copy[i].score = 0.0;
-    if (results_copy[i].artist.compare(request_.artist, Qt::CaseInsensitive) == 0) {
+    if (results_copy[i].artist.compare(request_.albumartist, Qt::CaseInsensitive) == 0 || results_copy[i].artist.compare(request_.artist, Qt::CaseInsensitive) == 0) {
       results_copy[i].score += 0.5;
     }
     if (results_copy[i].album.compare(request_.album, Qt::CaseInsensitive) == 0) {
@@ -127,10 +136,13 @@ void LyricsFetcherSearch::AllProvidersFinished() {
 
   if (!results_.isEmpty()) {
     qLog(Debug) << "Using lyrics from" << results_.last().provider << "for" << request_.artist << request_.title << "with score" << results_.last().score;
-    emit LyricsFetched(request_.id, results_.last().provider, results_.last().lyrics);
+    Q_EMIT LyricsFetched(id_, results_.constLast().provider, results_.constLast().lyrics);
+  }
+  else {
+    Q_EMIT LyricsFetched(id_, QString(), QString());
   }
 
-  emit SearchFinished(request_.id, results_);
+  Q_EMIT SearchFinished(id_, results_);
 
 }
 

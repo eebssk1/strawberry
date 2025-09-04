@@ -22,6 +22,7 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QObject>
 #include <QIODevice>
@@ -39,7 +40,11 @@
 #include "playlist/playlist.h"
 #include "queue.h"
 
-const char *Queue::kRowsMimetype = "application/x-strawberry-queue-rows";
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr char kRowsMimetype[] = "application/x-strawberry-queue-rows";
+}
 
 Queue::Queue(Playlist *playlist, QObject *parent) : QAbstractProxyModel(parent), playlist_(playlist), total_length_ns_(0) {
 
@@ -103,9 +108,9 @@ void Queue::SourceDataChanged(const QModelIndex &top_left, const QModelIndex &bo
     QModelIndex proxy_index = mapFromSource(sourceModel()->index(row, 0));
     if (!proxy_index.isValid()) continue;
 
-    emit dataChanged(proxy_index, proxy_index);
+    Q_EMIT dataChanged(proxy_index, proxy_index);
   }
-  emit ItemCountChanged(ItemCount());
+  Q_EMIT ItemCountChanged(ItemCount());
 
 }
 
@@ -124,7 +129,7 @@ void Queue::SourceLayoutChanged() {
 
   signal_item_count_changed_ = QObject::connect(this, &Queue::ItemCountChanged, this, &Queue::UpdateTotalLength);
 
-  emit ItemCountChanged(ItemCount());
+  Q_EMIT ItemCountChanged(ItemCount());
 
 }
 
@@ -143,7 +148,10 @@ int Queue::rowCount(const QModelIndex &parent) const {
   return static_cast<int>(source_indexes_.count());
 }
 
-int Queue::columnCount(const QModelIndex&) const { return 1; }
+int Queue::columnCount(const QModelIndex &parent) const {
+  Q_UNUSED(parent)
+  return 1;
+}
 
 QVariant Queue::data(const QModelIndex &proxy_index, int role) const {
 
@@ -153,12 +161,12 @@ QVariant Queue::data(const QModelIndex &proxy_index, int role) const {
     case Playlist::Role_QueuePosition:
       return proxy_index.row();
 
-    case Qt::DisplayRole: {
-      const QString artist = source_index.sibling(source_index.row(), Playlist::Column_Artist).data().toString();
-      const QString title = source_index.sibling(source_index.row(), Playlist::Column_Title).data().toString();
+    case Qt::DisplayRole:{
+      const QString artist = source_index.sibling(source_index.row(), static_cast<int>(Playlist::Column::Artist)).data().toString();
+      const QString title = source_index.sibling(source_index.row(), static_cast<int>(Playlist::Column::Title)).data().toString();
 
       if (artist.isEmpty()) return title;
-      return QString(artist + " - " + title);
+      return QStringLiteral("%1 - %2").arg(artist, title);
     }
 
     default:
@@ -228,18 +236,18 @@ void Queue::UpdateTotalLength() {
 
   quint64 total = 0;
 
-  for (const QPersistentModelIndex &row : source_indexes_) {
+  for (const QPersistentModelIndex &row : std::as_const(source_indexes_)) {
     int id = row.row();
 
     Q_ASSERT(playlist_->has_item_at(id));
 
-    quint64 length = playlist_->item_at(id)->Metadata().length_nanosec();
-    if (length > 0) total += length;
+    const qint64 length = playlist_->item_at(id)->EffectiveMetadata().length_nanosec();
+    if (length > 0) total += static_cast<quint64>(length);
   }
 
   total_length_ns_ = total;
 
-  emit TotalLengthChanged(total);
+  Q_EMIT TotalLengthChanged(total);
 
 }
 
@@ -249,13 +257,13 @@ void Queue::UpdateSummaryText() {
   int tracks = ItemCount();
   quint64 nanoseconds = GetTotalLength();
 
-  summary += tracks == 1 ? tr("1 track") : tr("%1 tracks").arg(tracks);
+  summary += tr("%n track(s)", "", tracks);
 
   if (nanoseconds > 0) {
-    summary += " - [ " + Utilities::WordyTimeNanosec(nanoseconds) + " ]";
+    summary += " - [ "_L1 + Utilities::WordyTimeNanosec(nanoseconds) + " ]"_L1;
   }
 
-  emit SummaryTextChanged(summary);
+  Q_EMIT SummaryTextChanged(summary);
 
 }
 
@@ -271,7 +279,7 @@ void Queue::Clear() {
 
 void Queue::Move(const QList<int> &proxy_rows, int pos) {
 
-  emit layoutAboutToBeChanged();
+  Q_EMIT layoutAboutToBeChanged();
   QList<QPersistentModelIndex> moved_items;
 
   // Take the items out of the list first, keeping track of whether the insertion point changes
@@ -290,7 +298,8 @@ void Queue::Move(const QList<int> &proxy_rows, int pos) {
   }
 
   // Update persistent indexes
-  for (const QModelIndex &pidx : persistentIndexList()) {
+  const QModelIndexList pindexes = persistentIndexList();
+  for (const QModelIndex &pidx : pindexes) {
     const int dest_offset = static_cast<int>(proxy_rows.indexOf(pidx.row()));
     if (dest_offset != -1) {
       // This index was moved
@@ -307,7 +316,7 @@ void Queue::Move(const QList<int> &proxy_rows, int pos) {
     }
   }
 
-  emit layoutChanged();
+  Q_EMIT layoutChanged();
 
 }
 
@@ -320,7 +329,7 @@ void Queue::MoveDown(int row) {
 }
 
 QStringList Queue::mimeTypes() const {
-  return QStringList() << kRowsMimetype << Playlist::kRowsMimetype;
+  return QStringList() << QLatin1String(kRowsMimetype) << QLatin1String(Playlist::kRowsMimetype);
 }
 
 Qt::DropActions Queue::supportedDropActions() const {
@@ -343,23 +352,26 @@ QMimeData *Queue::mimeData(const QModelIndexList &indexes) const {
     QDataStream stream(&buf);
     stream << rows;
     buf.close();
-    data->setData(kRowsMimetype, buf.data());
+    data->setData(QLatin1String(kRowsMimetype), buf.data());
   }
 
   return data;
 
 }
 
-bool Queue::dropMimeData(const QMimeData *data, Qt::DropAction action, int row, int, const QModelIndex&) {
+bool Queue::dropMimeData(const QMimeData *data, Qt::DropAction action, const int row, const int column, const QModelIndex &parent_index) {
+
+  Q_UNUSED(column)
+  Q_UNUSED(parent_index)
 
   if (action == Qt::IgnoreAction)
     return false;
 
-  if (data->hasFormat(kRowsMimetype)) {
+  if (data->hasFormat(QLatin1String(kRowsMimetype))) {
     // Dragged from the queue
 
     QList<int> proxy_rows;
-    QDataStream stream(data->data(kRowsMimetype));
+    QDataStream stream(data->data(QLatin1String(kRowsMimetype)));
     stream >> proxy_rows;
 
     // Make sure we take them in order
@@ -367,17 +379,17 @@ bool Queue::dropMimeData(const QMimeData *data, Qt::DropAction action, int row, 
 
     Move(proxy_rows, row);
   }
-  else if (data->hasFormat(Playlist::kRowsMimetype)) {
+  else if (data->hasFormat(QLatin1String(Playlist::kRowsMimetype))) {
     // Dragged from the playlist
 
     Playlist *playlist = nullptr;
     QList<int> source_rows;
-    QDataStream stream(data->data(Playlist::kRowsMimetype));
-    stream.readRawData(reinterpret_cast<char*>(&playlist), sizeof(Playlist));
+    QDataStream stream(data->data(QLatin1String(Playlist::kRowsMimetype)));
+    stream.readRawData(reinterpret_cast<char*>(&playlist), sizeof(&playlist));
     stream >> source_rows;
 
     QModelIndexList source_indexes;
-    for (int source_row : source_rows) {
+    for (int source_row : std::as_const(source_rows)) {
       const QModelIndex source_index = sourceModel()->index(source_row, 0);
       const QModelIndex proxy_index = mapFromSource(source_index);
       if (proxy_index.isValid()) {
@@ -449,7 +461,7 @@ void Queue::Remove(QList<int> &proxy_rows) {
   std::stable_sort(proxy_rows.begin(), proxy_rows.end());
 
   // Reflects immediately changes in the playlist
-  emit layoutAboutToBeChanged();
+  Q_EMIT layoutAboutToBeChanged();
 
   int removed_rows = 0;
   for (int row : proxy_rows) {
@@ -461,6 +473,6 @@ void Queue::Remove(QList<int> &proxy_rows) {
     removed_rows++;
   }
 
-  emit layoutChanged();
+  Q_EMIT layoutChanged();
 
 }

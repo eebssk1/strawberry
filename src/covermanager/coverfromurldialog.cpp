@@ -31,14 +31,20 @@
 #include <QNetworkRequest>
 #include <QUrl>
 
-#include "utilities/mimeutils.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
+#include "utilities/mimeutils.h"
 #include "widgets/busyindicator.h"
 #include "albumcoverimageresult.h"
 #include "coverfromurldialog.h"
 #include "ui_coverfromurldialog.h"
 
-CoverFromURLDialog::CoverFromURLDialog(QWidget *parent) : QDialog(parent), ui_(new Ui_CoverFromURLDialog), network_(new NetworkAccessManager(this)) {
+using namespace Qt::Literals::StringLiterals;
+
+CoverFromURLDialog::CoverFromURLDialog(SharedPtr<NetworkAccessManager> network, QWidget *parent)
+    : QDialog(parent),
+      network_(network),
+      ui_(new Ui_CoverFromURLDialog) {
 
   ui_->setupUi(this);
   ui_->busy->hide();
@@ -52,7 +58,7 @@ CoverFromURLDialog::~CoverFromURLDialog() {
 AlbumCoverImageResult CoverFromURLDialog::Exec() {
 
   // reset state
-  ui_->url->setText("");
+  ui_->url->setText(""_L1);
   last_album_cover_ = AlbumCoverImageResult();
 
   QClipboard *clipboard = QApplication::clipboard();
@@ -67,10 +73,10 @@ void CoverFromURLDialog::accept() {
 
   ui_->busy->show();
 
-  QNetworkRequest req(QUrl::fromUserInput(ui_->url->text()));
-  req.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
+  QNetworkRequest network_request(QUrl::fromUserInput(ui_->url->text()));
+  network_request.setAttribute(QNetworkRequest::RedirectPolicyAttribute, QNetworkRequest::NoLessSafeRedirectPolicy);
 
-  QNetworkReply *reply = network_->get(req);
+  QNetworkReply *reply = network_->get(network_request);
   QObject::connect(reply, &QNetworkReply::finished, this, &CoverFromURLDialog::LoadCoverFromURLFinished);
 
 }
@@ -92,12 +98,12 @@ void CoverFromURLDialog::LoadCoverFromURLFinished() {
   result.image.loadFromData(result.image_data);
   result.mime_type = Utilities::MimeTypeFromData(result.image_data);
 
-  if (!result.image.isNull()) {
-    last_album_cover_ = result;
-    QDialog::accept();
+  if (result.image.isNull()) {
+    QMessageBox::information(this, tr("Fetching cover error"), tr("The site you requested is not an image!"));
   }
   else {
-    QMessageBox::information(this, tr("Fetching cover error"), tr("The site you requested is not an image!"));
+    last_album_cover_ = result;
+    QDialog::accept();
   }
 
 }

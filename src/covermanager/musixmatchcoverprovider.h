@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,24 +22,20 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QList>
 #include <QVariant>
 #include <QString>
 
+#include "includes/shared_ptr.h"
 #include "jsoncoverprovider.h"
-#include "providers/musixmatchprovider.h"
 
 class QNetworkReply;
 class NetworkAccessManager;
 
-class MusixmatchCoverProvider : public JsonCoverProvider, MusixmatchProvider {
+class MusixmatchCoverProvider : public JsonCoverProvider {
   Q_OBJECT
 
  public:
-  explicit MusixmatchCoverProvider(Application *app, NetworkAccessManager *network, QObject *parent = nullptr);
-  ~MusixmatchCoverProvider() override;
+  explicit MusixmatchCoverProvider(const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
   bool StartSearch(const QString &artist, const QString &album, const QString &title, const int id) override;
   void CancelSearch(const int id) override;
@@ -47,12 +43,8 @@ class MusixmatchCoverProvider : public JsonCoverProvider, MusixmatchProvider {
  private:
   void Error(const QString &error, const QVariant &debug = QVariant()) override;
 
- private slots:
+ private Q_SLOTS:
   void HandleSearchReply(QNetworkReply *reply, const int id, const QString &artist, const QString &album);
-
- private:
-  QList<QNetworkReply*> replies_;
-
 };
 
 #endif  // MUSIXMATCHCOVERPROVIDER_H

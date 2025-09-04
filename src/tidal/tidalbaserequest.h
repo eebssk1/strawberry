@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,87 +22,47 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QSet>
-#include <QList>
-#include <QPair>
-#include <QVariant>
 #include <QByteArray>
 #include <QString>
-#include <QStringList>
-#include <QUrl>
-#include <QSslError>
-#include <QJsonObject>
-#include <QJsonValue>
 
+#include "includes/shared_ptr.h"
+#include "core/jsonbaserequest.h"
 #include "tidalservice.h"
 
 class QNetworkReply;
 class NetworkAccessManager;
+class TidalService;
 
-class TidalBaseRequest : public QObject {
+class TidalBaseRequest : public JsonBaseRequest {
   Q_OBJECT
 
  public:
-  explicit TidalBaseRequest(TidalService *service, NetworkAccessManager *network, QObject *parent = nullptr);
+  explicit TidalBaseRequest(TidalService *service, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
-  enum QueryType {
-    QueryType_None,
-    QueryType_Artists,
-    QueryType_Albums,
-    QueryType_Songs,
-    QueryType_SearchArtists,
-    QueryType_SearchAlbums,
-    QueryType_SearchSongs,
-    QueryType_StreamURL,
+  enum class Type {
+    None,
+    FavouriteArtists,
+    FavouriteAlbums,
+    FavouriteSongs,
+    SearchArtists,
+    SearchAlbums,
+    SearchSongs,
+    StreamURL
   };
 
  protected:
-  using Param = QPair<QString, QString>;
-  using ParamList = QList<Param>;
+  QString service_name() const override;
+  bool authentication_required() const override;
+  bool authenticated() const override;
+  bool use_authorization_header() const override;
+  QByteArray authorization_header() const override;
 
   QNetworkReply *CreateRequest(const QString &ressource_name, const ParamList &params_provided);
-  QByteArray GetReplyData(QNetworkReply *reply, const bool send_login);
-  QJsonObject ExtractJsonObj(const QByteArray &data);
-  QJsonValue ExtractItems(const QByteArray &data);
-  QJsonValue ExtractItems(const QJsonObject &json_obj);
-
-  virtual void Error(const QString &error, const QVariant &debug = QVariant()) = 0;
-  static QString ErrorsToHTML(const QStringList &errors);
-
-  bool oauth() { return service_->oauth(); }
-  QString client_id() { return service_->client_id(); }
-  QString api_token() { return service_->api_token(); }
-  quint64 user_id() { return service_->user_id(); }
-  QString country_code() { return service_->country_code(); }
-  QString username() { return service_->username(); }
-  QString password() { return service_->password(); }
-  QString quality() { return service_->quality(); }
-  int artistssearchlimit() { return service_->artistssearchlimit(); }
-  int albumssearchlimit() { return service_->albumssearchlimit(); }
-  int songssearchlimit() { return service_->songssearchlimit(); }
-
-  QString access_token() { return service_->access_token(); }
-  QString session_id() { return service_->session_id(); }
-
-  bool authenticated() { return service_->authenticated(); }
-  bool login_sent() { return service_->login_sent(); }
-  int max_login_attempts() { return service_->max_login_attempts(); }
-  int login_attempts() { return service_->login_attempts(); }
-
-  virtual void set_need_login() = 0;
-
- signals:
-  void RequestLogin();
-
- private slots:
-  void HandleSSLErrors(const QList<QSslError> &ssl_errors);
+  JsonObjectResult ParseJsonObject(QNetworkReply *reply);
 
  private:
   TidalService *service_;
-  NetworkAccessManager *network_;
-
+  const SharedPtr<NetworkAccessManager> network_;
 };
 
 #endif  // TIDALBASEREQUEST_H

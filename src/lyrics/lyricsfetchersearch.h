@@ -27,7 +27,9 @@
 #include <QMap>
 #include <QString>
 
-#include "lyricsfetcher.h"
+#include "includes/shared_ptr.h"
+#include "lyricssearchrequest.h"
+#include "lyricssearchresult.h"
 
 class LyricsProvider;
 class LyricsProviders;
@@ -36,16 +38,16 @@ class LyricsFetcherSearch : public QObject {
   Q_OBJECT
 
  public:
-  explicit LyricsFetcherSearch(const LyricsSearchRequest &request, QObject *parent);
+  explicit LyricsFetcherSearch(const quint64 id, const LyricsSearchRequest &request, QObject *parent);
 
-  void Start(LyricsProviders *lyrics_providers);
+  void Start(SharedPtr<LyricsProviders> lyrics_providers);
   void Cancel();
 
- signals:
-  void SearchFinished(quint64, LyricsSearchResults results);
-  void LyricsFetched(quint64, QString provider, QString lyrics);
+ Q_SIGNALS:
+  void SearchFinished(const quint64 id, const LyricsSearchResults &results);
+  void LyricsFetched(const quint64 id, const QString &provider, const QString &lyrics);
 
- private slots:
+ private Q_SLOTS:
   void ProviderSearchFinished(const int id, const LyricsSearchResults &results);
   void TerminateSearch();
 
@@ -55,15 +57,11 @@ class LyricsFetcherSearch : public QObject {
   static bool LyricsSearchResultCompareScore(const LyricsSearchResult &a, const LyricsSearchResult &b);
 
  private:
-  static const int kSearchTimeoutMs;
-  static const int kGoodLyricsLength;
-  static const float kHighScore;
-
-  LyricsSearchRequest request_;
+  quint64 id_;
+  const LyricsSearchRequest request_;
   LyricsSearchResults results_;
   QMap<int, LyricsProvider*> pending_requests_;
   bool cancel_requested_;
-
 };
 
 #endif  // LYRICSFETCHERSEARCH_H

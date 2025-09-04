@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2023, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,36 +22,27 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QtGlobal>
-#include <QObject>
-#include <QString>
+#include <QMetaType>
 
-class ScrobblerCacheItem : public QObject {
-  Q_OBJECT
+#include "includes/shared_ptr.h"
+#include "scrobblemetadata.h"
 
- public:
-  explicit ScrobblerCacheItem(const QString &artist, const QString &album, const QString &song, const QString &albumartist, const int track, const qint64 duration, const quint64 timestamp, QObject *parent = nullptr);
-
-  QString effective_albumartist() const { return albumartist_.isEmpty() ? artist_ : albumartist_; }
+class ScrobblerCacheItem {
 
  public:
-  QString artist_;
-  QString album_;
-  QString song_;
-  QString albumartist_;
-  int track_;
-  qint64 duration_;
-  quint64 timestamp_;
-  bool sent_;
+  explicit ScrobblerCacheItem(const ScrobbleMetadata &_metadata, const quint64 _timestamp);
 
+  ScrobbleMetadata metadata;
+  quint64 timestamp;
+  bool sent;
+  bool error;
 };
 
-using ScrobblerCacheItemPtr = std::shared_ptr<ScrobblerCacheItem>;
-using ScrobblerCacheItemList = QList<ScrobblerCacheItemPtr>;
+using ScrobblerCacheItemPtr = SharedPtr<ScrobblerCacheItem>;
+using ScrobblerCacheItemPtrList = QList<ScrobblerCacheItemPtr>;
 
 Q_DECLARE_METATYPE(ScrobblerCacheItemPtr)
-Q_DECLARE_METATYPE(ScrobblerCacheItemList)
+Q_DECLARE_METATYPE(ScrobblerCacheItemPtrList)
 
 #endif  // SCROBBLERCACHEITEM_H

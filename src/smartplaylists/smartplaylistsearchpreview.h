@@ -26,15 +26,23 @@
 #include <QWidget>
 #include <QList>
 
+#include "includes/shared_ptr.h"
+
 #include "smartplaylistsearch.h"
 #include "playlistgenerator_fwd.h"
 
 class QShowEvent;
 
-class Application;
+class Player;
+class PlaylistManager;
 class CollectionBackend;
+class CurrentAlbumCoverLoader;
 class Playlist;
 class Ui_SmartPlaylistSearchPreview;
+
+#ifdef HAVE_MOODBAR
+class MoodbarLoader;
+#endif
 
 class SmartPlaylistSearchPreview : public QWidget {
   Q_OBJECT
@@ -43,8 +51,13 @@ class SmartPlaylistSearchPreview : public QWidget {
   explicit SmartPlaylistSearchPreview(QWidget *parent = nullptr);
   ~SmartPlaylistSearchPreview() override;
 
-  void set_application(Application *app);
-  void set_collection(CollectionBackend *backend);
+  void Init(const SharedPtr<Player> player,
+            const SharedPtr<PlaylistManager> playlist_manager,
+            const SharedPtr<CollectionBackend> collection_backend,
+#ifdef HAVE_MOODBAR
+            const SharedPtr<MoodbarLoader> moodbar_loader,
+#endif
+            const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader);
 
   void Update(const SmartPlaylistSearch &search);
 
@@ -54,20 +67,19 @@ class SmartPlaylistSearchPreview : public QWidget {
  private:
   void RunSearch(const SmartPlaylistSearch &search);
 
- private slots:
+ private Q_SLOTS:
   void SearchFinished();
 
  private:
   Ui_SmartPlaylistSearchPreview *ui_;
   QList<SmartPlaylistSearchTerm::Field> fields_;
 
-  CollectionBackend *backend_;
+  SharedPtr<CollectionBackend> collection_backend_;
   Playlist *model_;
 
   SmartPlaylistSearch pending_search_;
   SmartPlaylistSearch last_search_;
   PlaylistGeneratorPtr generator_;
-
 };
 
 #endif  // SMARTPLAYLISTSEARCHPREVIEW_H

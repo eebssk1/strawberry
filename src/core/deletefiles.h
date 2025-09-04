@@ -24,11 +24,10 @@
 
 #include "config.h"
 
-#include <memory>
-
 #include <QObject>
 #include <QStringList>
 
+#include "includes/shared_ptr.h"
 #include "song.h"
 
 class QThread;
@@ -39,25 +38,23 @@ class DeleteFiles : public QObject {
   Q_OBJECT
 
  public:
-  explicit DeleteFiles(TaskManager *task_manager, std::shared_ptr<MusicStorage> storage, const bool use_trash, QObject *parent = nullptr);
+  explicit DeleteFiles(SharedPtr<TaskManager> task_manager, SharedPtr<MusicStorage> storage, const bool use_trash, QObject *parent = nullptr);
   ~DeleteFiles() override;
-
-  static const int kBatchSize;
 
   void Start(const SongList &songs);
   void Start(const QStringList &filenames);
 
- signals:
-  void Finished(SongList songs_with_errors);
+ Q_SIGNALS:
+  void Finished(const SongList &songs_with_errors);
 
- private slots:
+ private Q_SLOTS:
   void ProcessSomeFiles();
 
  private:
   QThread *thread_;
   QThread *original_thread_;
-  TaskManager *task_manager_;
-  std::shared_ptr<MusicStorage> storage_;
+  SharedPtr<TaskManager> task_manager_;
+  SharedPtr<MusicStorage> storage_;
 
   SongList songs_;
   bool use_trash_;

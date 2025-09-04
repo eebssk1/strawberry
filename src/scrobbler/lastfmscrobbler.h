@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,50 +22,21 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
-#include <QString>
-
-#include "core/song.h"
+#include "includes/shared_ptr.h"
 #include "scrobblingapi20.h"
 
-class Application;
+class ScrobblerSettingsService;
 class NetworkAccessManager;
-class ScrobblerCache;
 
 class LastFMScrobbler : public ScrobblingAPI20 {
   Q_OBJECT
 
  public:
-  explicit LastFMScrobbler(Application *app, QObject *parent = nullptr);
-  ~LastFMScrobbler() override;
+  explicit LastFMScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
 
   static const char *kName;
   static const char *kSettingsGroup;
   static const char *kApiUrl;
-
-  NetworkAccessManager *network() const override { return network_; }
-  ScrobblerCache *cache() const override { return cache_; }
-
- private:
-  static const char *kAuthUrl;
-  static const char *kCacheFile;
-
-  QString settings_group_;
-  QString auth_url_;
-  QString api_url_;
-  QString api_key_;
-  QString secret_;
-  Application *app_;
-  NetworkAccessManager *network_;
-  ScrobblerCache *cache_;
-  bool enabled_;
-  bool subscriber_;
-  QString username_;
-  QString session_key_;
-  bool submitted_;
-  Song song_playing_;
-  quint64 timestamp_;
 
 };
 

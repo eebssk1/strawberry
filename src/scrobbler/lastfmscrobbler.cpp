@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -19,36 +19,20 @@
 
 #include "config.h"
 
-#include <QObject>
-
-#include "core/application.h"
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 
-#include "scrobblercache.h"
-#include "scrobblingapi20.h"
+#include "scrobblersettingsservice.h"
 #include "lastfmscrobbler.h"
 
 const char *LastFMScrobbler::kName = "Last.fm";
 const char *LastFMScrobbler::kSettingsGroup = "LastFM";
-const char *LastFMScrobbler::kAuthUrl = "https://www.last.fm/api/auth/";
 const char *LastFMScrobbler::kApiUrl = "https://ws.audioscrobbler.com/2.0/";
-const char *LastFMScrobbler::kCacheFile = "lastfmscrobbler.cache";
 
-LastFMScrobbler::LastFMScrobbler(Application *app, QObject *parent)
-    : ScrobblingAPI20(kName, kSettingsGroup, kAuthUrl, kApiUrl, true, app, parent),
-      auth_url_(kAuthUrl),
-      api_url_(kApiUrl),
-      app_(app),
-      network_(new NetworkAccessManager(this)),
-      cache_(new ScrobblerCache(kCacheFile, this)),
-      enabled_(false),
-      subscriber_(false),
-      submitted_(false),
-      timestamp_(0) {
+namespace {
+constexpr char kAuthUrl[] = "https://www.last.fm/api/auth/";
+constexpr char kCacheFile[] = "lastfmscrobbler.cache";
+}  // namespace
 
-  ReloadSettings();
-  LoadSession();
-
-}
-
-LastFMScrobbler::~LastFMScrobbler() = default;
+LastFMScrobbler::LastFMScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : ScrobblingAPI20(QLatin1String(kName), QLatin1String(kSettingsGroup), QLatin1String(kAuthUrl), QLatin1String(kApiUrl), true, QLatin1String(kCacheFile), settings, network, parent) {}

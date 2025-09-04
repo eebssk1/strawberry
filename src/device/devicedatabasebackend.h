@@ -30,6 +30,7 @@
 #include <QList>
 #include <QString>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "core/musicstorage.h"
 
@@ -55,13 +56,11 @@ class DeviceDatabaseBackend : public QObject {
   };
   using DeviceList = QList<Device>;
 
-  static const int kDeviceSchemaVersion;
-
-  void Init(Database *db);
+  void Init(SharedPtr<Database> db);
   void Close();
   void ExitAsync();
 
-  Database *db() const { return db_; }
+  SharedPtr<Database> db() const { return db_; }
 
   DeviceList GetAllDevices();
   int AddDevice(const Device &device);
@@ -69,14 +68,14 @@ class DeviceDatabaseBackend : public QObject {
 
   void SetDeviceOptions(const int id, const QString &friendly_name, const QString &icon_name, const MusicStorage::TranscodeMode mode, const Song::FileType format);
 
- private slots:
+ private Q_SLOTS:
   void Exit();
 
- signals:
+ Q_SIGNALS:
   void ExitFinished();
 
  private:
-  Database *db_;
+  SharedPtr<Database> db_;
   QThread *original_thread_;
 
 };

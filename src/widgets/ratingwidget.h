@@ -30,8 +30,9 @@ class RatingPainter {
  public:
   RatingPainter();
 
-  static const int kStarCount = 5;
-  static const int kStarSize = 16;
+  static constexpr int kStarCount = 5;
+  static constexpr int kStarSize = 16;
+
   static QRect Contents(const QRect rect);
   static float RatingForPos(const QPoint pos, const QRect rect);
 
@@ -54,14 +55,15 @@ class RatingWidget : public QWidget {
   float rating() const { return rating_; }
   void set_rating(const float rating);
 
- signals:
-  void RatingChanged(float);
+ Q_SIGNALS:
+  void RatingChanged(const float rating);
 
  protected:
   void paintEvent(QPaintEvent*) override;
   void mousePressEvent(QMouseEvent *e) override;
   void mouseMoveEvent(QMouseEvent *e) override;
-  void leaveEvent(QEvent*) override;
+  void leaveEvent(QEvent *e) override;
+  void keyPressEvent(QKeyEvent *e) override;
 
  private:
   RatingPainter painter_;

@@ -21,9 +21,9 @@
 
  #include "config.h"
 
-#include "globalshortcutsbackend-macos.h"
+ #include <QtGlobal>
 
-#include <boost/noncopyable.hpp>
+#include "globalshortcutsbackend-macos.h"
 
 #include <AppKit/NSEvent.h>
 #include <AppKit/NSWorkspace.h>
@@ -36,14 +36,13 @@
 #include <QMessageBox>
 #include <QPushButton>
 
-#include "config.h"
 #include "globalshortcutsmanager.h"
 #include "core/logging.h"
 #include "core/mac_startup.h"
 
-#import "core/SBSystemPreferences.h"
+#import "includes/SBSystemPreferences.h"
 
-class GlobalShortcutsBackendMacOSPrivate : boost::noncopyable {
+class GlobalShortcutsBackendMacOSPrivate {
  public:
   explicit GlobalShortcutsBackendMacOSPrivate(GlobalShortcutsBackendMacOS *backend)
       : global_monitor_(nil), local_monitor_(nil), backend_(backend) {}
@@ -73,10 +72,12 @@ class GlobalShortcutsBackendMacOSPrivate : boost::noncopyable {
   id global_monitor_;
   id local_monitor_;
   GlobalShortcutsBackendMacOS *backend_;
+
+  Q_DISABLE_COPY(GlobalShortcutsBackendMacOSPrivate)
 };
 
 GlobalShortcutsBackendMacOS::GlobalShortcutsBackendMacOS(GlobalShortcutsManager *manager, QObject *parent)
-    : GlobalShortcutsBackend(manager, GlobalShortcutsBackend::Type_MacOS, parent),
+    : GlobalShortcutsBackend(manager, GlobalShortcutsBackend::Type::macOS, parent),
       p_(new GlobalShortcutsBackendMacOSPrivate(this)) {}
 
 GlobalShortcutsBackendMacOS::~GlobalShortcutsBackendMacOS() {}

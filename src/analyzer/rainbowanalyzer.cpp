@@ -41,23 +41,26 @@
 #include "fht.h"
 #include "analyzerbase.h"
 
-using Analyzer::Scope;
+using namespace Qt::Literals::StringLiterals;
 
-const int Rainbow::RainbowAnalyzer::kHeight[] = { 21, 33 };
-const int Rainbow::RainbowAnalyzer::kWidth[] = { 34, 53 };
-const int Rainbow::RainbowAnalyzer::kFrameCount[] = { 6, 16 };
-const int Rainbow::RainbowAnalyzer::kRainbowHeight[] = { 21, 16 };
-const int Rainbow::RainbowAnalyzer::kRainbowOverlap[] = { 13, 15 };
-const int Rainbow::RainbowAnalyzer::kSleepingHeight[] = { 24, 33 };
+const char *NyanCatAnalyzer::kName = "Nyanalyzer Cat";
+const char *RainbowDashAnalyzer::kName = "Rainbow Dash";
 
-const char *Rainbow::NyanCatAnalyzer::kName = "Nyanalyzer Cat";
-const char *Rainbow::RainbowDashAnalyzer::kName = "Rainbow Dash";
-const float Rainbow::RainbowAnalyzer::kPixelScale = 0.02F;
+RainbowAnalyzer::RainbowType RainbowAnalyzer::rainbowtype;
+const int RainbowAnalyzer::kHeight[] = { 21, 33 };
+const int RainbowAnalyzer::kWidth[] = { 34, 53 };
+const int RainbowAnalyzer::kFrameCount[] = { 6, 16 };
+const int RainbowAnalyzer::kSleepingHeight[] = { 24, 33 };
 
-Rainbow::RainbowAnalyzer::RainbowType Rainbow::RainbowAnalyzer::rainbowtype;
+namespace {
+constexpr int kFrameIntervalMs = 150;
+constexpr int kRainbowHeight[] = { 21, 16 };
+constexpr int kRainbowOverlap[] = { 13, 15 };
+constexpr float kPixelScale = 0.02F;
+}  // namespace
 
-Rainbow::RainbowAnalyzer::RainbowAnalyzer(const RainbowType rbtype, QWidget *parent)
-    : Analyzer::Base(parent, 9),
+RainbowAnalyzer::RainbowAnalyzer(const RainbowType rbtype, QWidget *parent)
+    : AnalyzerBase(parent, 9),
       timer_id_(startTimer(kFrameIntervalMs)),
       frame_(0),
       current_buffer_(0),
@@ -67,8 +70,8 @@ Rainbow::RainbowAnalyzer::RainbowAnalyzer(const RainbowType rbtype, QWidget *par
       background_brush_(QColor(0x0f, 0x43, 0x73)) {
 
   rainbowtype = rbtype;
-  cat_dash_[0] = QPixmap(":/pictures/nyancat.png");
-  cat_dash_[1] = QPixmap(":/pictures/rainbowdash.png");
+  cat_dash_[0] = QPixmap(u":/pictures/nyancat.png"_s);
+  cat_dash_[1] = QPixmap(u":/pictures/rainbowdash.png"_s);
   memset(history_, 0, sizeof(history_));
 
   for (int i = 0; i < kRainbowBands; ++i) {
@@ -79,7 +82,7 @@ Rainbow::RainbowAnalyzer::RainbowAnalyzer(const RainbowType rbtype, QWidget *par
     band_scale_[i] = -static_cast<float>(std::cos(M_PI * i / (kRainbowBands - 1))) * 0.5F * static_cast<float>(std::pow(2.3, i));
   }
 
-  if (rainbowtype == Rainbow::RainbowAnalyzer::Dash) {
+  if (rainbowtype == RainbowAnalyzer::RainbowType::Dash) {
     for (int i = 0; i < kRainbowBands / 2; i++) {
       QPen tempP = colors_[i];
       colors_[i] = colors_[kRainbowBands - i - 1];
@@ -88,20 +91,20 @@ Rainbow::RainbowAnalyzer::RainbowAnalyzer(const RainbowType rbtype, QWidget *par
   }
 }
 
-void Rainbow::RainbowAnalyzer::transform(Scope &s) { fht_->spectrum(s.data()); }
+void RainbowAnalyzer::transform(Scope &s) { fht_->spectrum(s.data()); }
 
-void Rainbow::RainbowAnalyzer::timerEvent(QTimerEvent *e) {
+void RainbowAnalyzer::timerEvent(QTimerEvent *e) {
 
   if (e->timerId() == timer_id_) {
     frame_ = (frame_ + 1) % kFrameCount[rainbowtype];
   }
   else {
-    Analyzer::Base::timerEvent(e);
+    AnalyzerBase::timerEvent(e);
   }
 
 }
 
-void Rainbow::RainbowAnalyzer::resizeEvent(QResizeEvent *e) {
+void RainbowAnalyzer::resizeEvent(QResizeEvent *e) {
 
   Q_UNUSED(e);
 
@@ -115,7 +118,7 @@ void Rainbow::RainbowAnalyzer::resizeEvent(QResizeEvent *e) {
 
 }
 
-void Rainbow::RainbowAnalyzer::analyze(QPainter &p, const Analyzer::Scope &s, bool new_frame) {
+void RainbowAnalyzer::analyze(QPainter &p, const Scope &s, const bool new_frame) {
 
   // Discard the second half of the transform
   const int scope_size = static_cast<int>(s.size() / 2);
@@ -133,7 +136,7 @@ void Rainbow::RainbowAnalyzer::analyze(QPainter &p, const Analyzer::Scope &s, bo
     // of band pass filters for this, so bands can leak into neighbouring bands,
     // but for now it's a series of separate square filters.
     const int samples_per_band = scope_size / kRainbowBands;
-    int sample = 0;
+    size_t sample = 0;
     for (int band = 0; band < kRainbowBands; ++band) {
       float accumulator = 0.0;
       for (int i = 0; i < samples_per_band; ++i) {
@@ -210,8 +213,8 @@ void Rainbow::RainbowAnalyzer::analyze(QPainter &p, const Analyzer::Scope &s, bo
 
 }
 
-Rainbow::NyanCatAnalyzer::NyanCatAnalyzer(QWidget *parent)
-    : RainbowAnalyzer(Rainbow::RainbowAnalyzer::Nyancat, parent) {}
+NyanCatAnalyzer::NyanCatAnalyzer(QWidget *parent)
+    : RainbowAnalyzer(RainbowAnalyzer::Nyancat, parent) {}
 
-Rainbow::RainbowDashAnalyzer::RainbowDashAnalyzer(QWidget *parent)
-    : RainbowAnalyzer(Rainbow::RainbowAnalyzer::Dash, parent) {}
+RainbowDashAnalyzer::RainbowDashAnalyzer(QWidget *parent)
+    : RainbowAnalyzer(RainbowAnalyzer::Dash, parent) {}

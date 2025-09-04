@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2020-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2020-2023, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,90 +17,78 @@
  *
  */
 
-#include "config.h"
-
-#include <QDialog>
-#include <QDialogButtonBox>
-#include <QString>
-#include <QFont>
-#include <QLabel>
-#include <QPushButton>
-#include <QKeySequence>
-#include <QSettings>
+#include "constants/mainwindowsettings.h"
+#include "core/logging.h"
+#include "core/iconloader.h"
+#include "utilities/screenutils.h"
 
 #include "snapdialog.h"
-#include "ui_snapdialog.h"
+#include "ui_messagedialog.h"
 
-#include "core/mainwindow.h"
+using namespace Qt::Literals::StringLiterals;
 
-SnapDialog::SnapDialog(QWidget *parent) : QDialog(parent), ui_(new Ui_SnapDialog) {
+SnapDialog::SnapDialog(QWidget *parent) : MessageDialog(parent) {
 
-  ui_->setupUi(this);
-  setWindowFlags(windowFlags() | Qt::WindowStaysOnTopHint);
   setWindowTitle(tr("Strawberry is running as a Snap"));
 
+  const QIcon icon = IconLoader::Load(u"dialog-warning"_s);
+  const QPixmap pixmap = icon.pixmap(QSize(64, 64), devicePixelRatioF());
+  ui_->label_logo->setPixmap(pixmap);
+
   QString text;
-  text += QString("<p>");
+  text += "<p>"_L1;
   text += tr("It is detected that Strawberry is running as a Snap");
-  text += QString("</p>");
+  text += "</p>"_L1;
 
-  text += QString("<p>");
+  text += "<p>"_L1;
   text += tr("Strawberry is slower, and has restrictions when running as a Snap. Accessing the root filesystem (/) will not work. There also might be other restrictions such as accessing certain devices or network shares.");
-  text += QString("</p>");
+  text += "</p>"_L1;
 
-  text += QString("<p>");
-  text += QString("Strawberry is available natively in the official package repositories for Fedora, openSUSE, Mageia, Arch, Manjaro, MX Linux and most other popular Linux distributions.");
-  text += QString("</p>");
+  text += "<p>"_L1;
+  text += "Strawberry is available natively in the official package repositories for Fedora, openSUSE, Mageia, Arch, Manjaro, MX Linux and most other popular Linux distributions."_L1;
+  text += "</p>"_L1;
 
-  text += QString("<p>");
-  text += tr("For Ubuntu there is an official PPA repository available at %1.").arg(QString("<a style=\"color:%1;\" href=\"https://launchpad.net/~jonaski/+archive/ubuntu/strawberry\">https://launchpad.net/~jonaski/+archive/ubuntu/strawberry</a>").arg(palette().text().color().name()));
-  text += QString("</p>");
+  text += "<p>"_L1;
+  text += tr("For Ubuntu there is an official PPA repository available at %1.").arg(QStringLiteral("<a style=\"color:%1;\" href=\"https://launchpad.net/~jonaski/+archive/ubuntu/strawberry\">https://launchpad.net/~jonaski/+archive/ubuntu/strawberry</a>").arg(palette().text().color().name()));
+  text += "</p>"_L1;
 
-  text += QString("<p>");
-  text += tr("Official releases are available for Debian and Ubuntu which also work on most of their derivatives. See %1 for more information.").arg(QString("<a style=\"color:%1;\" href=\"https://www.strawberrymusicplayer.org/\">https://www.strawberrymusicplayer.org/</a>").arg(palette().text().color().name()));
-  text += QString("</p>");
+  text += "<p>"_L1;
+  text += tr("Official releases are available for Debian and Ubuntu which also work on most of their derivatives. See %1 for more information.").arg(QStringLiteral("<a style=\"color:%1;\" href=\"https://www.strawberrymusicplayer.org/\">https://www.strawberrymusicplayer.org/</a>").arg(palette().text().color().name()));
+  text += "</p>"_L1;
 
-  text += QString("<p>");
+  text += "<p>"_L1;
   text += tr("For a better experience please consider the other options above.");
-  text += QString("</p>");
+  text += "</p>"_L1;
 
-  text += QString("<p>");
+  text += "<p>"_L1;
   text += tr("Copy your strawberry.conf and strawberry.db from your ~/snap directory to avoid losing configuration before you uninstall the snap:");
-  text += QString("<br />");
-  text += QString("cp ~/snap/strawberry/current/.config/strawberry/strawberry.conf ~/.config/strawberry/strawberry.conf<br />");
-  text += QString("cp ~/snap/strawberry/current/.local/share/strawberry/strawberry/strawberry.db ~/.local/share/strawberry/strawberry/strawberry.db<br />");
-  text += QString("</p>");
-  text += QString("<p>");
+  text += "<br />"_L1;
+  text += "cp ~/snap/strawberry/current/.config/strawberry/strawberry.conf ~/.config/strawberry/strawberry.conf<br />"_L1;
+  text += "cp ~/snap/strawberry/current/.local/share/strawberry/strawberry/strawberry.db ~/.local/share/strawberry/strawberry/strawberry.db<br />"_L1;
+  text += "</p>"_L1;
+  text += "<p>"_L1;
   text += tr("Uninstall the snap with:");
-  text += QString("<br />");
-  text += QString("snap remove strawberry");
-  text += QString("</p>");
-  text += QString("<p>");
+  text += "<br />"_L1;
+  text += "snap remove strawberry"_L1;
+  text += "</p>"_L1;
+  text += "<p>"_L1;
   text += tr("Install strawberry through PPA:");
-  text += QString("<br />");
-  text += QString("sudo add-apt-repository ppa:jonaski/strawberry<br />");
-  text += QString("sudo apt-get update<br />");
-  text += QString("sudo apt install strawberry");
-  text += QString("</p>");
-  text += QString("<p></p>");
+  text += "<br />"_L1;
+  text += "sudo add-apt-repository ppa:jonaski/strawberry<br />"_L1;
+  text += "sudo apt-get update<br />"_L1;
+  text += "sudo apt install strawberry"_L1;
+  text += "</p>"_L1;
+  text += "<p></p>"_L1;
 
   ui_->label_text->setText(text);
   ui_->label_text->adjustSize();
   adjustSize();
 
-  ui_->buttonBox->button(QDialogButtonBox::Ok)->setShortcut(QKeySequence::Close);
+  settings_group_ = QLatin1String(MainWindowSettings::kSettingsGroup);
+  do_not_show_message_again_ = "ignore_snap"_L1;
 
-  QObject::connect(ui_->checkbox_do_not_show_message_again, &QCheckBox::toggled, this, &SnapDialog::DoNotShowMessageAgain);
-
-}
-
-SnapDialog::~SnapDialog() { delete ui_; }
-
-void SnapDialog::DoNotShowMessageAgain() {
-
-  QSettings s;
-  s.beginGroup(MainWindow::kSettingsGroup);
-  s.setValue("ignore_snap", ui_->checkbox_do_not_show_message_again->isChecked());
-  s.endGroup();
+  if (parent) {
+    Utilities::CenterWidgetOnScreen(Utilities::GetScreen(parent), this);
+  }
 
 }

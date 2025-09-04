@@ -27,21 +27,21 @@
 #include <rpc.h>
 
 #include "devicefinder.h"
+#include "enginedevice.h"
 
 class DirectSoundDeviceFinder : public DeviceFinder {
  public:
   explicit DirectSoundDeviceFinder();
 
   virtual bool Initialize() { return true; }
-  virtual QList<Device> ListDevices();
+  virtual EngineDeviceList ListDevices();
 
  private:
   struct State {
-    QList<Device> devices;
+    EngineDeviceList devices;
   };
 
   static BOOL CALLBACK EnumerateCallback(LPGUID guid, LPCSTR description, LPCSTR module, LPVOID state_voidptr);
-
 };
 
 #endif  // DIRECTSOUNDDEVICEFINDER_H

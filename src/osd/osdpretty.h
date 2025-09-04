@@ -52,24 +52,13 @@ class OSDPretty : public QWidget {
   Q_OBJECT
 
  public:
-  enum Mode {
-    Mode_Popup,
-    Mode_Draggable,
+  enum class Mode {
+    Popup,
+    Draggable
   };
 
-  explicit OSDPretty(Mode mode, QWidget *parent = nullptr);
+  explicit OSDPretty(const Mode mode, QWidget *parent = nullptr);
   ~OSDPretty() override;
-
-  static const char *kSettingsGroup;
-
-  static const int kDropShadowSize;
-  static const int kBorderRadius;
-  static const int kMaxIconSize;
-
-  static const int kSnapProximity;
-
-  static const QRgb kPresetBlue;
-  static const QRgb kPresetRed;
 
   bool IsTransparencyAvailable();
 
@@ -106,19 +95,15 @@ class OSDPretty : public QWidget {
   bool toggle_mode() const { return toggle_mode_; }
   void set_toggle_mode(const bool toggle_mode) { toggle_mode_ = toggle_mode; }
 
- signals:
+ Q_SIGNALS:
   void PositionChanged();
 
- public slots:
+ public Q_SLOTS:
   void ReloadSettings();
 
  protected:
   void paintEvent(QPaintEvent *e) override;
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   void enterEvent(QEnterEvent*) override;
-#else
-  void enterEvent(QEvent*) override;
-#endif
   void leaveEvent(QEvent*) override;
   void mousePressEvent(QMouseEvent *e) override;
   void showEvent(QShowEvent *e) override;
@@ -131,7 +116,7 @@ class OSDPretty : public QWidget {
 
   QRect BoxBorder() const;
 
- private slots:
+ private Q_SLOTS:
   void FaderValueChanged(const qreal value);
   void FaderFinished();
   void ScreenAdded(QScreen *screen);
@@ -142,7 +127,7 @@ class OSDPretty : public QWidget {
 
   Mode mode_;
 
-  // Settings loaded from QSettings
+  // Settings loaded from Settings
   QColor foreground_color_;
   QColor background_color_;
   qreal background_opacity_;
@@ -173,7 +158,6 @@ class OSDPretty : public QWidget {
   bool toggle_mode_;
 
   QMap<QString, QScreen*> screens_;
-
 };
 
 #endif  // OSDPRETTY_H

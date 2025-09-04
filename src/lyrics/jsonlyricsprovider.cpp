@@ -19,7 +19,6 @@
 
 #include "config.h"
 
-#include <QObject>
 #include <QByteArray>
 #include <QString>
 #include <QNetworkRequest>
@@ -27,64 +26,65 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
-#include "lyricsprovider.h"
 #include "jsonlyricsprovider.h"
 
-JsonLyricsProvider::JsonLyricsProvider(const QString &name, const bool enabled, const bool authentication_required, NetworkAccessManager *network, QObject *parent) : LyricsProvider(name, enabled, authentication_required, network, parent) {}
+using namespace Qt::Literals::StringLiterals;
 
-QByteArray JsonLyricsProvider::ExtractData(QNetworkReply *reply) {
+JsonLyricsProvider::JsonLyricsProvider(const QString &name, const bool enabled, const bool authentication_required, const SharedPtr<NetworkAccessManager> network, QObject *parent)
+    : LyricsProvider(name, enabled, authentication_required, network, parent) {}
 
-  if (reply->error() != QNetworkReply::NoError) {
-    Error(QString("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
-    if (reply->error() < 200) {
-      return QByteArray();
-    }
-  }
-  else if (reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt() != 200) {
-    Error(QString("Received HTTP code %1").arg(reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt()));
-  }
-
-  return reply->readAll();
-
-}
-
-QJsonObject JsonLyricsProvider::ExtractJsonObj(const QByteArray &data) {
-
-  if (data.isEmpty()) {
-    return QJsonObject();
-  }
+JsonLyricsProvider::JsonObjectResult JsonLyricsProvider::GetJsonObject(const QByteArray &data) {
 
   QJsonParseError json_error;
-  QJsonDocument json_doc = QJsonDocument::fromJson(data, &json_error);
-
+  const QJsonDocument json_document = QJsonDocument::fromJson(data, &json_error);
   if (json_error.error != QJsonParseError::NoError) {
-    Error(QString("Failed to parse json data: %1").arg(json_error.errorString()));
-    return QJsonObject();
+    return JsonObjectResult(ErrorCode::ParseError, json_error.errorString());
   }
 
-  if (json_doc.isEmpty()) {
-    Error("Received empty Json document.", data);
-    return QJsonObject();
+  if (json_document.isEmpty()) {
+    return JsonObjectResult(ErrorCode::ParseError, "Received empty Json document."_L1);
   }
 
-  if (!json_doc.isObject()) {
-    Error("Json document is not an object.", json_doc);
-    return QJsonObject();
+  if (!json_document.isObject()) {
+    return JsonObjectResult(ErrorCode::ParseError, "Json document is not an object."_L1);
   }
 
-  QJsonObject json_obj = json_doc.object();
-  if (json_obj.isEmpty()) {
-    Error("Received empty Json object.", json_doc);
-    return QJsonObject();
+  const QJsonObject json_object = json_document.object();
+  if (json_object.isEmpty()) {
+    return JsonObjectResult(ErrorCode::ParseError, "Received empty Json object."_L1);
   }
 
-  return json_obj;
+  return json_object;
 
 }
 
-QJsonObject JsonLyricsProvider::ExtractJsonObj(QNetworkReply *reply) {
+JsonLyricsProvider::JsonObjectResult JsonLyricsProvider::GetJsonObject(QNetworkReply *reply) {
 
-  return ExtractJsonObj(ExtractData(reply));
+  return GetJsonObject(reply->readAll());
+
+}
+
+QJsonValue JsonLyricsProvider::GetJsonValue(const QJsonObject &json_object, const QString &name) {
+
+  if (!json_object.contains(name)) {
+    Error(QStringLiteral("Json object is missing %1.").arg(name), json_object);
+    return QJsonArray();
+  }
+
+  return json_object[name];
+
+}
+
+QJsonArray JsonLyricsProvider::GetJsonArray(const QJsonObject &json_object, const QString &name) {
+
+  const QJsonValue json_value = GetJsonValue(json_object, name);
+  if (!json_value.isArray()) {
+    Error(QStringLiteral("%1 is not an array.").arg(name), json_object);
+    return QJsonArray();
+  }
+
+  return json_value.toArray();
 
 }

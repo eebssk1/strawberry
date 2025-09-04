@@ -40,51 +40,15 @@ class BehaviourSettingsPage : public SettingsPage {
   explicit BehaviourSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
   ~BehaviourSettingsPage() override;
 
-  static const char *kSettingsGroup;
-
-  // Don't change the values
-  enum StartupBehaviour {
-    Startup_Remember = 1,
-    Startup_Show = 2,
-    Startup_Hide = 3,
-    Startup_ShowMaximized = 4,
-    Startup_ShowMinimized = 5,
-  };
-
-  enum PlayBehaviour {
-    PlayBehaviour_Never = 1,
-    PlayBehaviour_IfStopped = 2,
-    PlayBehaviour_Always = 3,
-  };
-
-  enum PreviousBehaviour {
-    PreviousBehaviour_DontRestart = 1,
-    PreviousBehaviour_Restart = 2
-  };
-
-  enum AddBehaviour {
-    AddBehaviour_Append = 1,
-    AddBehaviour_Enqueue = 2,
-    AddBehaviour_Load = 3,
-    AddBehaviour_OpenInNew = 4
-  };
-
-  enum PlaylistAddBehaviour {
-    PlaylistAddBehaviour_Play = 1,
-    PlaylistAddBehaviour_Enqueue = 2,
-  };
-
   void Load() override;
   void Save() override;
 
- private slots:
-  void ShowTrayIconToggled(bool on);
+ private Q_SLOTS:
+  void ShowTrayIconToggled(const bool on);
 
  private:
   Ui_BehaviourSettingsPage *ui_;
   QMap<QString, QString> language_map_;
-  bool systemtray_available_;
-
 };
 
 #endif  // BEHAVIOURSETTINGSPAGE_H

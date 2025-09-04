@@ -33,6 +33,7 @@ class QAction;
 class QHideEvent;
 class QShowEvent;
 
+class OSDBase;
 class OSDPretty;
 class SettingsDialog;
 class Ui_NotificationsSettingsPage;
@@ -41,17 +42,17 @@ class NotificationsSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit NotificationsSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit NotificationsSettingsPage(SettingsDialog *dialog, OSDBase *osd, QWidget *parent = nullptr);
   ~NotificationsSettingsPage() override;
 
   void Load() override;
   void Save() override;
 
  protected:
-  void hideEvent(QHideEvent*) override;
-  void showEvent(QShowEvent*) override;
+  void hideEvent(QHideEvent *e) override;
+  void showEvent(QShowEvent *e) override;
 
- private slots:
+ private Q_SLOTS:
   void NotificationTypeChanged();
   void NotificationCustomTextChanged(bool enabled);
   void PrepareNotificationPreview();
@@ -69,8 +70,11 @@ class NotificationsSettingsPage : public SettingsPage {
 
   void PrettyOSDChanged();
 
+  void DiscordRPCChanged();
+
  private:
   Ui_NotificationsSettingsPage *ui_;
+  OSDBase *osd_;
   OSDPretty *pretty_popup_;
 };
 

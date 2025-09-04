@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2019-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2019-2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -22,13 +22,12 @@
 
 #include "config.h"
 
-#include <QtGlobal>
-#include <QObject>
 #include <QVariant>
 #include <QString>
-#include <QStringList>
 #include <QUrl>
+#include <QSharedPointer>
 
+#include "includes/shared_ptr.h"
 #include "core/song.h"
 #include "qobuzbaserequest.h"
 
@@ -40,7 +39,7 @@ class QobuzStreamURLRequest : public QobuzBaseRequest {
   Q_OBJECT
 
  public:
-  explicit QobuzStreamURLRequest(QobuzService *service, NetworkAccessManager *network, const QUrl &original_url, const uint id, QObject *parent = nullptr);
+  explicit QobuzStreamURLRequest(QobuzService *service, const SharedPtr<NetworkAccessManager> network, const QUrl &media_url, const uint id, QObject *parent = nullptr);
   ~QobuzStreamURLRequest();
 
   void GetStreamURL();
@@ -48,33 +47,30 @@ class QobuzStreamURLRequest : public QobuzBaseRequest {
   void NeedLogin() { need_login_ = true; }
   void Cancel();
 
-  QUrl original_url() { return original_url_; }
-  int song_id() { return song_id_; }
-  bool need_login() { return need_login_; }
+  QUrl media_url() const { return media_url_; }
+  int song_id() const { return song_id_; }
+  bool need_login() const { return need_login_; }
 
- signals:
+ Q_SIGNALS:
   void TryLogin();
-  void StreamURLFailure(uint id, QUrl original_url, QString error);
-  void StreamURLSuccess(uint id, QUrl original_url, QUrl stream_url, Song::FileType filetype, int samplerate, int bit_depth, qint64 duration);
+  void StreamURLFailure(const uint id, const QUrl &media_url, const QString &error);
+  void StreamURLSuccess(const uint id, const QUrl &media_url, const QUrl &stream_url, const Song::FileType filetype, const int samplerate, const int bit_depth, const qint64 duration);
 
- private slots:
+ private Q_SLOTS:
   void StreamURLReceived();
 
- public slots:
+ public Q_SLOTS:
   void LoginComplete(const bool success, const QString &error = QString());
 
  private:
-  void Error(const QString &error, const QVariant &debug = QVariant());
-
-  QobuzService *service_;
   QNetworkReply *reply_;
-  QUrl original_url_;
+  QUrl media_url_;
   uint id_;
   int song_id_;
   int tries_;
   bool need_login_;
-  QStringList errors_;
-
 };
+
+using QobuzStreamURLRequestPtr = QSharedPointer<QobuzStreamURLRequest>;
 
 #endif  // QOBUZSTREAMURLREQUEST_H

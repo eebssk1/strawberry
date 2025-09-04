@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2023, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@
 #include <QImage>
 
 #include "core/song.h"
-#include "core/tagreaderclient.h"
+#include "tagreader/tagreaderclient.h"
 #include "playlist/playlistitem.h"
 #include "covermanager/albumcoverloaderoptions.h"
 #include "covermanager/albumcoverloaderresult.h"
@@ -51,33 +51,45 @@ class QEvent;
 class QShowEvent;
 class QHideEvent;
 
-class Application;
+class NetworkAccessManager;
+class CollectionBackend;
+class AlbumCoverLoader;
+class CurrentAlbumCoverLoader;
+class CoverProviders;
+class LyricsProviders;
+class StreamingServices;
 class AlbumCoverChoiceController;
 class Ui_EditTagDialog;
 #ifdef HAVE_MUSICBRAINZ
 class TrackSelectionDialog;
 class TagFetcher;
 #endif
+class LyricsFetcher;
 
 class EditTagDialog : public QDialog {
   Q_OBJECT
 
  public:
-  explicit EditTagDialog(Application *app, QWidget *parent = nullptr);
+  explicit EditTagDialog(const SharedPtr<NetworkAccessManager> network,
+                         const SharedPtr<TagReaderClient> tagreader_client,
+                         const SharedPtr<CollectionBackend> collection_backend,
+                         const SharedPtr<AlbumCoverLoader> albumcover_loader,
+                         const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader,
+                         const SharedPtr<CoverProviders> cover_providers,
+                         const SharedPtr<LyricsProviders> lyrics_providers,
+                         const SharedPtr<StreamingServices> streaming_services,
+                         QWidget *parent = nullptr);
+
   ~EditTagDialog() override;
 
-  static const char *kSettingsGroup;
-  static const char *kTagsDifferentHintText;
-  static const char *kArtDifferentHintText;
+  void SetSongs(const SongList &songs, const PlaylistItemPtrList &items = PlaylistItemPtrList());
 
-  void SetSongs(const SongList &songs, const PlaylistItemList &items = PlaylistItemList());
-
-  PlaylistItemList playlist_items() const { return playlist_items_; }
+  PlaylistItemPtrList playlist_items() const { return playlist_items_; }
 
   void accept() override;
 
- signals:
-  void Error(QString message);
+ Q_SIGNALS:
+  void Error(const QString &message);
 
  protected:
   bool eventFilter(QObject *o, QEvent *e) override;
@@ -85,15 +97,15 @@ class EditTagDialog : public QDialog {
   void hideEvent(QHideEvent *e) override;
 
  private:
-  enum UpdateCoverAction {
-    UpdateCoverAction_None = 0,
-    UpdateCoverAction_Clear,
-    UpdateCoverAction_Unset,
-    UpdateCoverAction_Delete,
-    UpdateCoverAction_New,
+  enum class UpdateCoverAction {
+    None = 0,
+    Clear,
+    Unset,
+    Delete,
+    New
   };
   struct Data {
-    explicit Data(const Song &song = Song()) : original_(song), current_(song), cover_action_(UpdateCoverAction_None) {}
+    explicit Data(const Song &song = Song()) : original_(song), current_(song), cover_action_(UpdateCoverAction::None) {}
 
     static QVariant value(const Song &song, const QString &id);
     QVariant original_value(const QString &id) const { return value(original_, id); }
@@ -107,20 +119,22 @@ class EditTagDialog : public QDialog {
     AlbumCoverImageResult cover_result_;
   };
 
- private slots:
+ private Q_SLOTS:
   void SetSongsFinished();
-  void AcceptFinished();
+  void SaveDataFinished();
 
   void SelectionChanged();
   void FieldValueEdited();
   void ResetField();
   void ButtonClicked(QAbstractButton *button);
-  void ResetPlayCounts();
+  void ResetPlayStatistics();
   void SongRated(const float rating);
   void FetchTag();
   void FetchTagSongChosen(const Song &original_song, const Song &new_metadata);
+  void FetchLyrics();
+  void UpdateLyrics(const quint64 id, const QString &provider, const QString &lyrics);
 
-  void AlbumCoverLoaded(const quint64 id, const AlbumCoverLoaderResult &result);
+  void AlbumCoverLoaded(const quint64 id, const AlbumCoverLoaderResult &cover_result);
 
   void LoadCoverFromFile();
   void SaveCoverToFile();
@@ -134,8 +148,7 @@ class EditTagDialog : public QDialog {
   void PreviousSong();
   void NextSong();
 
-  void SongSaveTagsComplete(TagReaderReply *reply, const QString &filename, Song song);
-  void SongSaveArtComplete(TagReaderReply *reply, const QString &filename, Song song, const EditTagDialog::UpdateCoverAction cover_action);
+  void SongSaveTagsComplete(TagReaderReplyPtr reply, const QString &filename, Song song, const UpdateCoverAction cover_action);
 
  private:
   struct FieldData {
@@ -148,7 +161,7 @@ class EditTagDialog : public QDialog {
   };
 
   Song *GetFirstSelected();
-  void UpdateCover(const UpdateCoverAction action, const AlbumCoverImageResult &result = AlbumCoverImageResult());
+  void UpdateCover(const UpdateCoverAction cover_action, const AlbumCoverImageResult &cover_result = AlbumCoverImageResult());
 
   bool DoesValueVary(const QModelIndexList &sel, const QString &id) const;
   bool IsValueModified(const QModelIndexList &sel, const QString &id) const;
@@ -158,10 +171,11 @@ class EditTagDialog : public QDialog {
   void UpdateModifiedField(const FieldData &field, const QModelIndexList &sel);
   void ResetFieldValue(const FieldData &field, const QModelIndexList &sel);
 
-  void UpdateSummaryTab(const Song &song, const UpdateCoverAction cover_action);
+  void UpdateSummaryTab(const Song &song);
   void UpdateStatisticsTab(const Song &song);
 
-  static QString GetArtSummary(const Song &song, const UpdateCoverAction cover_action);
+  QString GetArtSummary(const Song &song, const AlbumCoverLoaderResult::Type cover_type);
+  QString GetArtSummary(const UpdateCoverAction cover_action);
 
   void UpdateUI(const QModelIndexList &indexes);
 
@@ -169,46 +183,57 @@ class EditTagDialog : public QDialog {
   void SetSongListVisibility(bool visible);
 
   // Called by QtConcurrentRun
-  static QList<Data> LoadData(const SongList &songs);
+  QList<Data> LoadData(const SongList &songs) const;
   void SaveData();
 
   static void SetText(QLabel *label, const int value, const QString &suffix, const QString &def = QString());
-  static void SetDate(QLabel *label, const uint time);
+  static void SetDate(QLabel *label, const qint64 time);
 
  private:
+  static const char kTagsDifferentHintText[];
+  static const char kArtDifferentHintText[];
+
   Ui_EditTagDialog *ui_;
 
-  Application *app_;
+  const SharedPtr<TagReaderClient> tagreader_client_;
+  const SharedPtr<CollectionBackend> collection_backend_;
+  const SharedPtr<AlbumCoverLoader> albumcover_loader_;
+  const SharedPtr<CurrentAlbumCoverLoader> current_albumcover_loader_;
+  const SharedPtr<CoverProviders> cover_providers_;
+
   AlbumCoverChoiceController *album_cover_choice_controller_;
 #ifdef HAVE_MUSICBRAINZ
   TagFetcher *tag_fetcher_;
   TrackSelectionDialog *results_dialog_;
 #endif
+  LyricsFetcher *lyrics_fetcher_;
+
+  QMenu *cover_menu_;
 
   const QImage image_no_cover_thumbnail_;
 
   bool loading_;
 
-  PlaylistItemList playlist_items_;
+  PlaylistItemPtrList playlist_items_;
   QList<Data> data_;
   QList<FieldData> fields_;
 
   bool ignore_edits_;
 
-  AlbumCoverLoaderOptions cover_options_;
   quint64 summary_cover_art_id_;
   quint64 tags_cover_art_id_;
   bool cover_art_is_set_;
-
-  QMenu *cover_menu_;
 
   QPushButton *previous_button_;
   QPushButton *next_button_;
 
   int save_tag_pending_;
-  int save_art_pending_;
 
   QMap<int, Song> collection_songs_;
+
+  AlbumCoverLoaderOptions::Types cover_types_;
+
+  qint64 lyrics_id_;
 };
 
 #endif  // EDITTAGDIALOG_H

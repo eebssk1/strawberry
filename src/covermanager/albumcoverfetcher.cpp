@@ -28,6 +28,7 @@
 #include <QTimer>
 #include <QString>
 
+#include "includes/shared_ptr.h"
 #include "core/networkaccessmanager.h"
 #include "core/song.h"
 #include "albumcoverfetcher.h"
@@ -35,12 +36,14 @@
 
 using namespace std::chrono_literals;
 
-const int AlbumCoverFetcher::kMaxConcurrentRequests = 5;
+namespace {
+constexpr int kMaxConcurrentRequests = 5;
+}
 
-AlbumCoverFetcher::AlbumCoverFetcher(CoverProviders *cover_providers, QObject *parent, NetworkAccessManager *network)
+AlbumCoverFetcher::AlbumCoverFetcher(SharedPtr<CoverProviders> cover_providers, SharedPtr<NetworkAccessManager> network, QObject *parent)
     : QObject(parent),
       cover_providers_(cover_providers),
-      network_(network ? network : new NetworkAccessManager(this)),
+      network_(network),
       next_id_(0),
       request_starter_(new QTimer(this)) {
 
@@ -51,7 +54,7 @@ AlbumCoverFetcher::AlbumCoverFetcher(CoverProviders *cover_providers, QObject *p
 
 AlbumCoverFetcher::~AlbumCoverFetcher() {
 
-  QList<AlbumCoverFetcherSearch*> searches = active_requests_.values();
+  const QList<AlbumCoverFetcherSearch*> searches = active_requests_.values();
   for (AlbumCoverFetcherSearch *search : searches) {
     search->disconnect();
     search->deleteLater();
@@ -65,9 +68,7 @@ quint64 AlbumCoverFetcher::FetchAlbumCover(const QString &artist, const QString 
   CoverSearchRequest request;
   request.id = ++next_id_;
   request.artist = artist;
-  request.album = album;
-  request.album = request.album.remove(Song::kAlbumRemoveDisc);
-  request.album = request.album.remove(Song::kAlbumRemoveMisc);
+  request.album = Song::AlbumRemoveDiscMisc(album);
   request.title = title;
   request.search = false;
   request.batch = batch;
@@ -82,9 +83,7 @@ quint64 AlbumCoverFetcher::SearchForCovers(const QString &artist, const QString 
   CoverSearchRequest request;
   request.id = ++next_id_;
   request.artist = artist;
-  request.album = album;
-  request.album = request.album.remove(Song::kAlbumRemoveDisc);
-  request.album = request.album.remove(Song::kAlbumRemoveMisc);
+  request.album = Song::AlbumRemoveDiscMisc(album);
   request.title = title;
   request.search = true;
   request.batch = false;
@@ -108,7 +107,7 @@ void AlbumCoverFetcher::Clear() {
 
   queued_requests_.clear();
 
-  QList<AlbumCoverFetcherSearch*> searches = active_requests_.values();
+  const QList<AlbumCoverFetcherSearch*> searches = active_requests_.values();
   for (AlbumCoverFetcherSearch *search : searches) {
     search->Cancel();
     search->deleteLater();
@@ -146,7 +145,7 @@ void AlbumCoverFetcher::SingleSearchFinished(const quint64 request_id, const Cov
   AlbumCoverFetcherSearch *search = active_requests_.take(request_id);
 
   search->deleteLater();
-  emit SearchFinished(request_id, results, search->statistics());
+  Q_EMIT SearchFinished(request_id, results, search->statistics());
 
 }
 
@@ -156,6 +155,6 @@ void AlbumCoverFetcher::SingleCoverFetched(const quint64 request_id, const Album
   AlbumCoverFetcherSearch *search = active_requests_.take(request_id);
 
   search->deleteLater();
-  emit AlbumCoverFetched(request_id, result, search->statistics());
+  Q_EMIT AlbumCoverFetched(request_id, result, search->statistics());
 
 }

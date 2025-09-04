@@ -47,14 +47,12 @@
 #include <QKeySequence>
 #include <QtEvents>
 
-#include "core/application.h"
 #include "utilities/strutils.h"
-#include "utilities/timeutils.h"
 #include "utilities/mimeutils.h"
 #include "widgets/busyindicator.h"
 #include "widgets/forcescrollperpixel.h"
 #include "widgets/groupediconview.h"
-#include "widgets/qsearchfield.h"
+#include "widgets/searchfield.h"
 #include "albumcoversearcher.h"
 #include "albumcoverfetcher.h"
 #include "albumcoverloader.h"
@@ -62,13 +60,17 @@
 #include "albumcoverimageresult.h"
 #include "ui_albumcoversearcher.h"
 
-const int SizeOverlayDelegate::kMargin = 4;
-const int SizeOverlayDelegate::kPaddingX = 3;
-const int SizeOverlayDelegate::kPaddingY = 1;
-const qreal SizeOverlayDelegate::kBorder = 5.0;
-const qreal SizeOverlayDelegate::kFontPointSize = 7.5;
-const int SizeOverlayDelegate::kBorderAlpha = 200;
-const int SizeOverlayDelegate::kBackgroundAlpha = 175;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr int kMargin = 4;
+constexpr int kPaddingX = 3;
+constexpr int kPaddingY = 1;
+constexpr qreal kBorder = 5.0;
+constexpr qreal kFontPointSize = 7.5;
+constexpr int kBorderAlpha = 200;
+constexpr int kBackgroundAlpha = 175;
+}  // namespace
 
 SizeOverlayDelegate::SizeOverlayDelegate(QObject *parent)
     : QStyledItemDelegate(parent) {}
@@ -90,11 +92,7 @@ void SizeOverlayDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
   const QFontMetrics metrics(font);
 
-#if (QT_VERSION >= QT_VERSION_CHECK(5, 11, 0))
   const int text_width = metrics.horizontalAdvance(text);
-#else
-  const int text_width = metrics.width(text);
-#endif
 
   const QRect icon_rect(option.rect.left(), option.rect.top(), option.rect.width(), option.rect.width());
 
@@ -114,10 +112,10 @@ void SizeOverlayDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
 }
 
-AlbumCoverSearcher::AlbumCoverSearcher(const QIcon &no_cover_icon, Application *app, QWidget *parent)
+AlbumCoverSearcher::AlbumCoverSearcher(const QIcon &no_cover_icon, const SharedPtr<AlbumCoverLoader> albumcover_loader, QWidget *parent)
     : QDialog(parent),
       ui_(new Ui_AlbumCoverSearcher),
-      app_(app),
+      albumcover_loader_(albumcover_loader),
       model_(new QStandardItemModel(this)),
       no_cover_icon_(no_cover_icon),
       fetcher_(nullptr),
@@ -132,15 +130,7 @@ AlbumCoverSearcher::AlbumCoverSearcher(const QIcon &no_cover_icon, Application *
   ui_->covers->setItemDelegate(new SizeOverlayDelegate(this));
   ui_->covers->setModel(model_);
 
-  options_.get_image_data_ = true;
-  options_.get_image_ = true;
-  options_.scale_output_image_ = false;
-  options_.pad_output_image_ = false;
-  options_.create_thumbnail_ = true;
-  options_.pad_thumbnail_image_ = true;
-  options_.thumbnail_size_ = ui_->covers->iconSize();
-
-  QObject::connect(app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &AlbumCoverSearcher::AlbumCoverLoaded);
+  QObject::connect(&*albumcover_loader_, &AlbumCoverLoader::AlbumCoverLoaded, this, &AlbumCoverSearcher::AlbumCoverLoaded);
   QObject::connect(ui_->search, &QPushButton::clicked, this, &AlbumCoverSearcher::Search);
   QObject::connect(ui_->covers, &GroupedIconView::doubleClicked, this, &AlbumCoverSearcher::CoverDoubleClicked);
 
@@ -226,11 +216,13 @@ void AlbumCoverSearcher::SearchFinished(const quint64 id, const CoverProviderSea
 
     if (result.image_url.isEmpty()) continue;
 
-    quint64 new_id = app_->album_cover_loader()->LoadImageAsync(options_, result.image_url, QUrl());
+    AlbumCoverLoaderOptions cover_options(AlbumCoverLoaderOptions::Option::RawImageData | AlbumCoverLoaderOptions::Option::OriginalImage | AlbumCoverLoaderOptions::Option::ScaledImage | AlbumCoverLoaderOptions::Option::PadScaledImage);
+    cover_options.desired_scaled_size = ui_->covers->iconSize(), ui_->covers->iconSize();
+    quint64 new_id = albumcover_loader_->LoadImageAsync(cover_options, false, result.image_url, QUrl(), false);
 
     QStandardItem *item = new QStandardItem;
     item->setIcon(no_cover_icon_);
-    item->setText(result.artist + " - " + result.album);
+    item->setText(result.artist + u" - "_s + result.album);
     item->setData(result.image_url, Role_ImageURL);
     item->setData(new_id, Role_ImageRequestId);
     item->setData(false, Role_ImageFetchFinished);
@@ -253,18 +245,18 @@ void AlbumCoverSearcher::AlbumCoverLoaded(const quint64 id, const AlbumCoverLoad
 
   if (cover_loading_tasks_.isEmpty()) ui_->busy->hide();
 
-  if (!result.success || result.album_cover.image_data.isNull() || result.album_cover.image.isNull() || result.image_thumbnail.isNull()) {
+  if (!result.success || result.album_cover.image_data.isNull() || result.album_cover.image.isNull() || result.image_scaled.isNull()) {
     model_->removeRow(item->row());
     return;
   }
 
-  QPixmap pixmap = QPixmap::fromImage(result.image_thumbnail);
+  const QPixmap pixmap = QPixmap::fromImage(result.image_scaled);
   if (pixmap.isNull()) {
     model_->removeRow(item->row());
     return;
   }
 
-  QIcon icon(pixmap);
+  const QIcon icon(pixmap);
 
   item->setData(true, Role_ImageFetchFinished);
   item->setData(result.album_cover.image_data, Role_ImageData);

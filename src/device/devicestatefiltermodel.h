@@ -37,22 +37,22 @@ class DeviceStateFilterModel : public QSortFilterProxyModel {
   Q_OBJECT
 
  public:
-  explicit DeviceStateFilterModel(QObject *parent, DeviceManager::State state = DeviceManager::State_Remembered);
+  explicit DeviceStateFilterModel(QObject *parent, const DeviceManager::State state = DeviceManager::State::Remembered);
 
   void setSourceModel(QAbstractItemModel *sourceModel) override;
 
- signals:
+ Q_SIGNALS:
   void IsEmptyChanged(const bool is_empty);
 
  protected:
-  bool filterAcceptsRow(int row, const QModelIndex &parent) const override;
+  bool filterAcceptsRow(const int row, const QModelIndex &parent) const override;
 
- private slots:
+ private Q_SLOTS:
   void ProxyReset();
   void ProxyRowCountChanged(const QModelIndex &idx, const int first, const int last);
 
  private:
-  DeviceManager::State state_;
+  const DeviceManager::State state_;
 };
 
 #endif  // DEVICESTATEFILTERMODEL_H

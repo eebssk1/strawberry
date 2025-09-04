@@ -31,12 +31,17 @@
 #include <QTextStream>
 #include <QFile>
 #include <QString>
-#include <QColor>
 #include <QPalette>
+#include <QColor>
 #include <QEvent>
 
-#include "core/logging.h"
+#include "includes/shared_ptr.h"
+#include "logging.h"
 #include "stylesheetloader.h"
+
+using namespace Qt::Literals::StringLiterals;
+
+using std::make_shared;
 
 StyleSheetLoader::StyleSheetLoader(QObject *parent) : QObject(parent) {}
 
@@ -50,14 +55,14 @@ void StyleSheetLoader::SetStyleSheet(QWidget *widget, const QString &filename) {
   }
   QTextStream stream(&file);
   QString stylesheet;
-  forever {
+  Q_FOREVER {
     QString line = stream.readLine();
     stylesheet.append(line);
     if (stream.atEnd()) break;
   }
   file.close();
 
-  std::shared_ptr<StyleSheetData> styledata = std::make_shared<StyleSheetData>();
+  SharedPtr<StyleSheetData> styledata = make_shared<StyleSheetData>();
   styledata->filename_ = filename;
   styledata->stylesheet_template_ = stylesheet;
   styledata->stylesheet_current_ = widget->styleSheet();
@@ -68,51 +73,44 @@ void StyleSheetLoader::SetStyleSheet(QWidget *widget, const QString &filename) {
 
 }
 
-void StyleSheetLoader::UpdateStyleSheet(QWidget *widget, std::shared_ptr<StyleSheetData> styledata) {
+void StyleSheetLoader::UpdateStyleSheet(QWidget *widget, SharedPtr<StyleSheetData> styledata) {
 
   QString stylesheet = styledata->stylesheet_template_;
 
   // Replace %palette-role with actual colours
   QPalette p(widget->palette());
 
-  {
-    QColor alt = p.color(QPalette::AlternateBase);
+  QColor color_altbase = p.color(QPalette::AlternateBase);
 #ifdef Q_OS_MACOS
-    if (alt.lightness() > 180) {
-      alt.setAlpha(130);
-    }
-    else {
-      alt.setAlpha(16);
-    }
+  color_altbase.setAlpha(color_altbase.alpha() >= 180 ? (color_altbase.lightness() > 180 ? 130 : 16) : color_altbase.alpha());
 #else
-    alt.setAlpha(130);
+  color_altbase.setAlpha(color_altbase.alpha() >= 180 ? 116 : color_altbase.alpha());
 #endif
-    stylesheet.replace("%palette-alternate-base", QString("rgba(%1,%2,%3,%4)").arg(alt.red()).arg(alt.green()).arg(alt.blue()).arg(alt.alpha()));
-  }
+  stylesheet.replace("%palette-alternate-base"_L1, QStringLiteral("rgba(%1,%2,%3,%4)").arg(color_altbase.red()).arg(color_altbase.green()).arg(color_altbase.blue()).arg(color_altbase.alpha()));
 
-  ReplaceColor(&stylesheet, "Window", p, QPalette::Window);
-  ReplaceColor(&stylesheet, "Background", p, QPalette::Window);
-  ReplaceColor(&stylesheet, "WindowText", p, QPalette::WindowText);
-  ReplaceColor(&stylesheet, "Base", p, QPalette::Base);
-  ReplaceColor(&stylesheet, "AlternateBase", p, QPalette::AlternateBase);
-  ReplaceColor(&stylesheet, "ToolTipBase", p, QPalette::ToolTipBase);
-  ReplaceColor(&stylesheet, "ToolTipText", p, QPalette::ToolTipText);
-  ReplaceColor(&stylesheet, "Text", p, QPalette::Text);
-  ReplaceColor(&stylesheet, "Button", p, QPalette::Button);
-  ReplaceColor(&stylesheet, "ButtonText", p, QPalette::ButtonText);
-  ReplaceColor(&stylesheet, "BrightText", p, QPalette::BrightText);
-  ReplaceColor(&stylesheet, "Light", p, QPalette::Light);
-  ReplaceColor(&stylesheet, "Midlight", p, QPalette::Midlight);
-  ReplaceColor(&stylesheet, "Dark", p, QPalette::Dark);
-  ReplaceColor(&stylesheet, "Mid", p, QPalette::Mid);
-  ReplaceColor(&stylesheet, "Shadow", p, QPalette::Shadow);
-  ReplaceColor(&stylesheet, "Highlight", p, QPalette::Highlight);
-  ReplaceColor(&stylesheet, "HighlightedText", p, QPalette::HighlightedText);
-  ReplaceColor(&stylesheet, "Link", p, QPalette::Link);
-  ReplaceColor(&stylesheet, "LinkVisited", p, QPalette::LinkVisited);
+  ReplaceColor(&stylesheet, u"Window"_s, p, QPalette::Window);
+  ReplaceColor(&stylesheet, u"Background"_s, p, QPalette::Window);
+  ReplaceColor(&stylesheet, u"WindowText"_s, p, QPalette::WindowText);
+  ReplaceColor(&stylesheet, u"Base"_s, p, QPalette::Base);
+  ReplaceColor(&stylesheet, u"AlternateBase"_s, p, QPalette::AlternateBase);
+  ReplaceColor(&stylesheet, u"ToolTipBase"_s, p, QPalette::ToolTipBase);
+  ReplaceColor(&stylesheet, u"ToolTipText"_s, p, QPalette::ToolTipText);
+  ReplaceColor(&stylesheet, u"Text"_s, p, QPalette::Text);
+  ReplaceColor(&stylesheet, u"Button"_s, p, QPalette::Button);
+  ReplaceColor(&stylesheet, u"ButtonText"_s, p, QPalette::ButtonText);
+  ReplaceColor(&stylesheet, u"BrightText"_s, p, QPalette::BrightText);
+  ReplaceColor(&stylesheet, u"Light"_s, p, QPalette::Light);
+  ReplaceColor(&stylesheet, u"Midlight"_s, p, QPalette::Midlight);
+  ReplaceColor(&stylesheet, u"Dark"_s, p, QPalette::Dark);
+  ReplaceColor(&stylesheet, u"Mid"_s, p, QPalette::Mid);
+  ReplaceColor(&stylesheet, u"Shadow"_s, p, QPalette::Shadow);
+  ReplaceColor(&stylesheet, u"Highlight"_s, p, QPalette::Highlight);
+  ReplaceColor(&stylesheet, u"HighlightedText"_s, p, QPalette::HighlightedText);
+  ReplaceColor(&stylesheet, u"Link"_s, p, QPalette::Link);
+  ReplaceColor(&stylesheet, u"LinkVisited"_s, p, QPalette::LinkVisited);
 
 #ifdef Q_OS_MACOS
-  stylesheet.replace("macos", "*");
+  stylesheet.replace(QLatin1String("macos"), QLatin1String("*"));
 #endif
 
   if (stylesheet != styledata->stylesheet_current_) {
@@ -124,9 +122,9 @@ void StyleSheetLoader::UpdateStyleSheet(QWidget *widget, std::shared_ptr<StyleSh
 
 void StyleSheetLoader::ReplaceColor(QString *css, const QString &name, const QPalette &palette, const QPalette::ColorRole role) {
 
-  css->replace("%palette-" + name + "-lighter", palette.color(role).lighter().name(), Qt::CaseInsensitive);
-  css->replace("%palette-" + name + "-darker", palette.color(role).darker().name(), Qt::CaseInsensitive);
-  css->replace("%palette-" + name, palette.color(role).name(), Qt::CaseInsensitive);
+  css->replace(u"%palette-"_s + name + u"-lighter"_s, palette.color(role).lighter().name(), Qt::CaseInsensitive);
+  css->replace(u"%palette-"_s + name + u"-darker"_s, palette.color(role).darker().name(), Qt::CaseInsensitive);
+  css->replace(u"%palette-"_s + name, palette.color(role).name(), Qt::CaseInsensitive);
 
 }
 

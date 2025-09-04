@@ -20,10 +20,14 @@
 #ifndef SCROBBLERSETTINGSPAGE_H
 #define SCROBBLERSETTINGSPAGE_H
 
+#include <memory>
+
 #include "settingspage.h"
 
 #include <QObject>
 #include <QString>
+
+#include "includes/shared_ptr.h"
 
 class SettingsDialog;
 class Ui_ScrobblerSettingsPage;
@@ -36,15 +40,13 @@ class ScrobblerSettingsPage : public SettingsPage {
   Q_OBJECT
 
  public:
-  explicit ScrobblerSettingsPage(SettingsDialog *dialog, QWidget *parent = nullptr);
+  explicit ScrobblerSettingsPage(SettingsDialog *dialog, const SharedPtr<AudioScrobbler> scrobbler, QWidget *parent = nullptr);
   ~ScrobblerSettingsPage() override;
-
-  static const char *kSettingsGroup;
 
   void Load() override;
   void Save() override;
 
- private slots:
+ private Q_SLOTS:
   void LastFM_Login();
   void LastFM_Logout();
   void LastFM_AuthenticationComplete(const bool success, const QString &error = QString());
@@ -56,11 +58,12 @@ class ScrobblerSettingsPage : public SettingsPage {
   void ListenBrainz_AuthenticationComplete(const bool success, const QString &error = QString());
 
  private:
-  AudioScrobbler *scrobbler_;
-  LastFMScrobbler *lastfmscrobbler_;
-  LibreFMScrobbler *librefmscrobbler_;
-  ListenBrainzScrobbler *listenbrainzscrobbler_;
   Ui_ScrobblerSettingsPage *ui_;
+
+  const SharedPtr<AudioScrobbler> scrobbler_;
+  const SharedPtr<LastFMScrobbler> lastfmscrobbler_;
+  const SharedPtr<LibreFMScrobbler> librefmscrobbler_;
+  const SharedPtr<ListenBrainzScrobbler> listenbrainzscrobbler_;
 
   bool lastfm_waiting_for_auth_;
   bool librefm_waiting_for_auth_;
@@ -69,7 +72,6 @@ class ScrobblerSettingsPage : public SettingsPage {
   void LastFM_RefreshControls(const bool authenticated);
   void LibreFM_RefreshControls(const bool authenticated);
   void ListenBrainz_RefreshControls(const bool authenticated);
-
 };
 
 #endif  // SCROBBLERSETTINGSPAGE_H

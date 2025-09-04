@@ -46,7 +46,10 @@
 #include <QtEvents>
 #include <QSettings>
 
+#include "includes/shared_ptr.h"
 #include "core/iconloader.h"
+#include "core/settings.h"
+#include "filterparser/filterparser.h"
 #include "playlist.h"
 #include "playlisttabbar.h"
 #include "playlistview.h"
@@ -55,12 +58,16 @@
 #include "playlistfilter.h"
 #include "playlistparsers/playlistparser.h"
 #include "ui_playlistcontainer.h"
-#include "widgets/qsearchfield.h"
-#include "settings/appearancesettingspage.h"
+#include "widgets/searchfield.h"
+#include "constants/appearancesettings.h"
 
-const char *PlaylistContainer::kSettingsGroup = "Playlist";
-const int PlaylistContainer::kFilterDelayMs = 100;
-const int PlaylistContainer::kFilterDelayPlaylistSizeThreshold = 5000;
+using namespace Qt::Literals::StringLiterals;
+
+namespace {
+constexpr char kSettingsGroup[] = "Playlist";
+constexpr int kFilterDelayMs = 100;
+constexpr int kFilterDelayPlaylistSizeThreshold = 5000;
+}  // namespace
 
 PlaylistContainer::PlaylistContainer(QWidget *parent)
     : QWidget(parent),
@@ -92,7 +99,7 @@ PlaylistContainer::PlaylistContainer(QWidget *parent)
   no_matches_label_->setPalette(no_matches_palette);
 
   // Remove QFrame border
-  ui_->toolbar->setStyleSheet("QFrame { border: 0px; }");
+  ui_->toolbar->setStyleSheet(u"QFrame { border: 0px; }"_s);
 
   // Make it bold
   QFont no_matches_font = no_matches_label_->font();
@@ -118,9 +125,11 @@ PlaylistContainer::PlaylistContainer(QWidget *parent)
   QObject::connect(filter_timer_, &QTimer::timeout, this, &PlaylistContainer::UpdateFilter);
 
   // Replace playlist search filter with native search box.
-  QObject::connect(ui_->search_field, &QSearchField::textChanged, this, &PlaylistContainer::MaybeUpdateFilter);
+  QObject::connect(ui_->search_field, &SearchField::textChanged, this, &PlaylistContainer::MaybeUpdateFilter);
   QObject::connect(ui_->playlist, &PlaylistView::FocusOnFilterSignal, this, &PlaylistContainer::FocusOnFilter);
   ui_->search_field->installEventFilter(this);
+
+  ui_->search_field->setToolTip(FilterParser::ToolTip());
 
   ReloadSettings();
 
@@ -146,27 +155,27 @@ void PlaylistContainer::SetActions(QAction *new_playlist, QAction *load_playlist
   QObject::connect(next_playlist, &QAction::triggered, this, &PlaylistContainer::GoToNextPlaylistTab);
   QObject::connect(previous_playlist, &QAction::triggered, this, &PlaylistContainer::GoToPreviousPlaylistTab);
   QObject::connect(clear_playlist, &QAction::triggered, this, &PlaylistContainer::ClearPlaylist);
-  QObject::connect(save_all_playlists, &QAction::triggered, manager_, &PlaylistManager::SaveAllPlaylists);
+  QObject::connect(save_all_playlists, &QAction::triggered, &*manager_, &PlaylistManager::SaveAllPlaylists);
 
 }
 
-void PlaylistContainer::SetManager(PlaylistManager *manager) {
+void PlaylistContainer::SetManager(SharedPtr<PlaylistManager> manager) {
 
   manager_ = manager;
   ui_->tab_bar->SetManager(manager);
 
-  QObject::connect(ui_->tab_bar, &PlaylistTabBar::CurrentIdChanged, manager, &PlaylistManager::SetCurrentPlaylist);
-  QObject::connect(ui_->tab_bar, &PlaylistTabBar::Rename, manager, &PlaylistManager::Rename);
-  QObject::connect(ui_->tab_bar, &PlaylistTabBar::Close, manager, &PlaylistManager::Close);
-  QObject::connect(ui_->tab_bar, &PlaylistTabBar::PlaylistFavorited, manager, &PlaylistManager::Favorite);
+  QObject::connect(ui_->tab_bar, &PlaylistTabBar::CurrentIdChanged, &*manager, &PlaylistManager::SetCurrentPlaylist);
+  QObject::connect(ui_->tab_bar, &PlaylistTabBar::Rename, &*manager, &PlaylistManager::Rename);
+  QObject::connect(ui_->tab_bar, &PlaylistTabBar::Close, &*manager, &PlaylistManager::Close);
+  QObject::connect(ui_->tab_bar, &PlaylistTabBar::PlaylistFavorited, &*manager, &PlaylistManager::Favorite);
 
-  QObject::connect(ui_->tab_bar, &PlaylistTabBar::PlaylistOrderChanged, manager, &PlaylistManager::ChangePlaylistOrder);
+  QObject::connect(ui_->tab_bar, &PlaylistTabBar::PlaylistOrderChanged, &*manager, &PlaylistManager::ChangePlaylistOrder);
 
-  QObject::connect(manager, &PlaylistManager::CurrentChanged, this, &PlaylistContainer::SetViewModel);
-  QObject::connect(manager, &PlaylistManager::PlaylistAdded, this, &PlaylistContainer::PlaylistAdded);
-  QObject::connect(manager, &PlaylistManager::PlaylistManagerInitialized, this, &PlaylistContainer::Started);
-  QObject::connect(manager, &PlaylistManager::PlaylistClosed, this, &PlaylistContainer::PlaylistClosed);
-  QObject::connect(manager, &PlaylistManager::PlaylistRenamed, this, &PlaylistContainer::PlaylistRenamed);
+  QObject::connect(&*manager, &PlaylistManager::CurrentChanged, this, &PlaylistContainer::SetViewModel);
+  QObject::connect(&*manager, &PlaylistManager::PlaylistAdded, this, &PlaylistContainer::PlaylistAdded);
+  QObject::connect(&*manager, &PlaylistManager::PlaylistManagerInitialized, this, &PlaylistContainer::Started);
+  QObject::connect(&*manager, &PlaylistManager::PlaylistClosed, this, &PlaylistContainer::PlaylistClosed);
+  QObject::connect(&*manager, &PlaylistManager::PlaylistRenamed, this, &PlaylistContainer::PlaylistRenamed);
 
 }
 
@@ -197,10 +206,10 @@ void PlaylistContainer::SetViewModel(Playlist *playlist, const int scroll_positi
   playlist->IgnoreSorting(false);
 
   QObject::connect(view()->selectionModel(), &QItemSelectionModel::selectionChanged, this, &PlaylistContainer::SelectionChanged);
-  emit ViewSelectionModelChanged();
+  Q_EMIT ViewSelectionModelChanged();
 
   // Update filter
-  ui_->search_field->setText(playlist->filter()->filter_text());
+  ui_->search_field->setText(playlist->filter()->filter_string());
 
   // Update the no matches label
   QObject::connect(playlist_->filter(), &QSortFilterProxyModel::modelReset, this, &PlaylistContainer::UpdateNoMatchesLabel);
@@ -221,23 +230,23 @@ void PlaylistContainer::SetViewModel(Playlist *playlist, const int scroll_positi
   delete redo_;
   undo_ = playlist->undo_stack()->createUndoAction(this, tr("Undo"));
   redo_ = playlist->undo_stack()->createRedoAction(this, tr("Redo"));
-  undo_->setIcon(IconLoader::Load("edit-undo"));
+  undo_->setIcon(IconLoader::Load(u"edit-undo"_s));
   undo_->setShortcut(QKeySequence::Undo);
-  redo_->setIcon(IconLoader::Load("edit-redo"));
+  redo_->setIcon(IconLoader::Load(u"edit-redo"_s));
   redo_->setShortcut(QKeySequence::Redo);
 
   ui_->undo->setDefaultAction(undo_);
   ui_->redo->setDefaultAction(redo_);
 
-  emit UndoRedoActionsChanged(undo_, redo_);
+  Q_EMIT UndoRedoActionsChanged(undo_, redo_);
 
 }
 
 void PlaylistContainer::ReloadSettings() {
 
-  QSettings s;
-  s.beginGroup(AppearanceSettingsPage::kSettingsGroup);
-  int iconsize = s.value(AppearanceSettingsPage::kIconSizePlaylistButtons, 20).toInt();
+  Settings s;
+  s.beginGroup(AppearanceSettings::kSettingsGroup);
+  int iconsize = s.value(AppearanceSettings::kIconSizePlaylistButtons, 20).toInt();
   s.endGroup();
 
   ui_->create_new->setIconSize(QSize(iconsize, iconsize));
@@ -272,11 +281,11 @@ void PlaylistContainer::FocusSearchField() {
 }
 
 void PlaylistContainer::ActivePlaying() {
-  UpdateActiveIcon(QIcon(":/pictures/tiny-play.png"));
+  UpdateActiveIcon(QIcon(u":/pictures/tiny-play.png"_s));
 }
 
 void PlaylistContainer::ActivePaused() {
-  UpdateActiveIcon(QIcon(":/pictures/tiny-pause.png"));
+  UpdateActiveIcon(QIcon(u":/pictures/tiny-pause.png"_s));
 }
 
 void PlaylistContainer::ActiveStopped() { UpdateActiveIcon(QIcon()); }
@@ -339,7 +348,7 @@ void PlaylistContainer::NewPlaylist() { manager_->New(tr("Playlist")); }
 void PlaylistContainer::LoadPlaylist() {
 
   QString filename = settings_.value("last_load_playlist").toString();
-  filename = QFileDialog::getOpenFileName(this, tr("Load playlist"), filename, manager_->parser()->filters(PlaylistParser::Type_Load));
+  filename = QFileDialog::getOpenFileName(this, tr("Load playlist"), filename, manager_->parser()->filters(PlaylistParser::Type::Load));
 
   if (filename.isNull()) return;
 
@@ -418,7 +427,7 @@ void PlaylistContainer::UpdateFilter() {
 
   if (!ui_->toolbar->isVisible()) return;
 
-  manager_->current()->filter()->SetFilterText(ui_->search_field->text());
+  manager_->current()->filter()->SetFilterString(ui_->search_field->text());
   ui_->playlist->JumpToCurrentlyPlayingTrack();
 
   UpdateNoMatchesLabel();

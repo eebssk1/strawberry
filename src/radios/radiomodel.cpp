@@ -28,9 +28,8 @@
 #include <QPixmapCache>
 #include <QRegularExpression>
 
-#include "core/application.h"
+#include "core/song.h"
 #include "core/simpletreemodel.h"
-#include "playlist/playlistmanager.h"
 #include "covermanager/albumcoverloader.h"
 #include "covermanager/albumcoverloaderresult.h"
 #include "radiomodel.h"
@@ -39,22 +38,19 @@
 #include "radiomimedata.h"
 #include "radiochannel.h"
 
-const int RadioModel::kTreeIconSize = 22;
+using namespace Qt::Literals::StringLiterals;
 
-RadioModel::RadioModel(Application *app, QObject *parent)
+namespace {
+constexpr int kTreeIconSize = 22;
+}
+
+RadioModel::RadioModel(const SharedPtr<AlbumCoverLoader> albumcover_loader, const SharedPtr<RadioServices> radio_services, QObject *parent)
     : SimpleTreeModel<RadioItem>(new RadioItem(this), parent),
-      app_(app) {
+      albumcover_loader_(albumcover_loader),
+      radio_services_(radio_services) {
 
-  root_->lazy_loaded = true;
-
-  cover_loader_options_.get_image_data_ = false;
-  cover_loader_options_.get_image_ = true;
-  cover_loader_options_.scale_output_image_ = true;
-  cover_loader_options_.pad_output_image_ = true;
-  cover_loader_options_.desired_height_ = kTreeIconSize;
-
-  if (app_) {
-    QObject::connect(app_->album_cover_loader(), &AlbumCoverLoader::AlbumCoverLoaded, this, &RadioModel::AlbumCoverLoaded);
+  if (albumcover_loader_) {
+    QObject::connect(&*albumcover_loader, &AlbumCoverLoader::AlbumCoverLoaded, this, &RadioModel::AlbumCoverLoaded);
   }
 
 }
@@ -66,11 +62,11 @@ RadioModel::~RadioModel() {
 Qt::ItemFlags RadioModel::flags(const QModelIndex &idx) const {
 
   switch (IndexToItem(idx)->type) {
-    case RadioItem::Type_Service:
-    case RadioItem::Type_Channel:
+    case RadioItem::Type::Service:
+    case RadioItem::Type::Channel:
       return Qt::ItemIsSelectable | Qt::ItemIsEnabled | Qt::ItemIsDragEnabled;
-    case RadioItem::Type_Root:
-    case RadioItem::Type_LoadingIndicator:
+    case RadioItem::Type::Root:
+    case RadioItem::Type::LoadingIndicator:
     default:
       return Qt::ItemIsEnabled;
   }
@@ -84,7 +80,7 @@ QVariant RadioModel::data(const QModelIndex &idx, int role) const {
   const RadioItem *item = IndexToItem(idx);
   if (!item) return QVariant();
 
-  if (role == Qt::DecorationRole && item->type == RadioItem::Type_Channel) {
+  if (role == Qt::DecorationRole && item->type == RadioItem::Type::Channel) {
     return const_cast<RadioModel*>(this)->ChannelIcon(idx);
   }
 
@@ -96,7 +92,7 @@ QVariant RadioModel::data(const RadioItem *item, int role) const {
 
   switch (role) {
     case Qt::DecorationRole:
-      if (item->type == RadioItem::Type_Service) {
+      if (item->type == RadioItem::Type::Service) {
         return Song::IconForSource(item->source);
       }
       break;
@@ -104,21 +100,21 @@ QVariant RadioModel::data(const RadioItem *item, int role) const {
       return item->DisplayText();
       break;
     case Role_Type:
-      return item->type;
+      return QVariant::fromValue(item->type);
       break;
     case Role_SortText:
       return item->SortText();
       break;
     case Role_Source:
-      return item->source;
+      return QVariant::fromValue(item->source);
       break;
     case Role_Homepage:{
-      RadioService *service = app_->radio_services()->ServiceBySource(item->source);
+      RadioService *service = radio_services_->ServiceBySource(item->source);
       if (service) return service->Homepage();
       break;
     }
     case Role_Donate:{
-      RadioService *service = app_->radio_services()->ServiceBySource(item->source);
+      RadioService *service = radio_services_->ServiceBySource(item->source);
       if (service) return service->Donate();
       break;
     }
@@ -131,7 +127,7 @@ QVariant RadioModel::data(const RadioItem *item, int role) const {
 }
 
 QStringList RadioModel::mimeTypes() const {
-  return QStringList() << "text/uri-list";
+  return QStringList() << u"text/uri-list"_s;
 }
 
 QMimeData *RadioModel::mimeData(const QModelIndexList &indexes) const {
@@ -145,7 +141,7 @@ QMimeData *RadioModel::mimeData(const QModelIndexList &indexes) const {
   }
 
   data->setUrls(urls);
-  data->name_for_new_playlist_ = PlaylistManager::GetNameForNewPlaylist(data->songs);
+  data->name_for_new_playlist_ = Song::GetNameForNewPlaylist(data->songs);
 
   return data;
 
@@ -160,7 +156,6 @@ void RadioModel::Reset() {
   pending_cache_keys_.clear();
   delete root_;
   root_ = new RadioItem(this);
-  root_->lazy_loaded = true;
   endResetModel();
 
 }
@@ -170,26 +165,24 @@ void RadioModel::AddChannels(const RadioChannelList &channels) {
   for (const RadioChannel &channel : channels) {
     RadioItem *container = nullptr;
     if (container_nodes_.contains(channel.source)) {
-      container = container_nodes_[channel.source];
+      container = container_nodes_.value(channel.source);
     }
     else {
       beginInsertRows(ItemToIndex(root_), static_cast<int>(root_->children.count()), static_cast<int>(root_->children.count()));
-      RadioItem *item = new RadioItem(RadioItem::Type_Service, root_);
+      RadioItem *item = new RadioItem(RadioItem::Type::Service, root_);
       item->source = channel.source;
       item->display_text = Song::DescriptionForSource(channel.source);
       item->sort_text = SortText(Song::TextForSource(channel.source));
-      item->lazy_loaded = true;
       container_nodes_.insert(channel.source, item);
       endInsertRows();
       container = item;
     }
     beginInsertRows(ItemToIndex(container), static_cast<int>(container->children.count()), static_cast<int>(container->children.count()));
-    RadioItem *item = new RadioItem(RadioItem::Type_Channel, container);
+    RadioItem *item = new RadioItem(RadioItem::Type::Channel, container);
     item->source = channel.source;
     item->display_text = channel.name;
-    item->sort_text = SortText(Song::TextForSource(channel.source) + " - " + channel.name);
+    item->sort_text = SortText(Song::TextForSource(channel.source) + " - "_L1 + channel.name);
     item->channel = channel;
-    item->lazy_loaded = true;
     items_ << item;
     endInsertRows();
   }
@@ -198,7 +191,7 @@ void RadioModel::AddChannels(const RadioChannelList &channels) {
 
 bool RadioModel::IsPlayable(const QModelIndex &idx) const {
 
-  return idx.data(Role_Type) == RadioItem::Type_Channel;
+  return idx.data(Role_Type).value<RadioItem::Type>() == RadioItem::Type::Channel;
 
 }
 
@@ -207,11 +200,7 @@ bool RadioModel::CompareItems(const RadioItem *a, const RadioItem *b) const {
   QVariant left(data(a, RadioModel::Role_SortText));
   QVariant right(data(b, RadioModel::Role_SortText));
 
-#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
   if (left.metaType().id() == QMetaType::Int)
-#else
-  if (left.type() == QVariant::Int)
-#endif
     return left.toInt() < right.toInt();
   else return left.toString() < right.toString();
 
@@ -220,7 +209,7 @@ bool RadioModel::CompareItems(const RadioItem *a, const RadioItem *b) const {
 void RadioModel::GetChildSongs(RadioItem *item, QList<QUrl> *urls, SongList *songs) const {
 
   switch (item->type) {
-    case RadioItem::Type_Service:{
+    case RadioItem::Type::Service:{
       QList<RadioItem*> children = item->children;
       std::sort(children.begin(), children.end(), std::bind(&RadioModel::CompareItems, this, std::placeholders::_1, std::placeholders::_2));
       for (RadioItem *child : children) {
@@ -228,7 +217,7 @@ void RadioModel::GetChildSongs(RadioItem *item, QList<QUrl> *urls, SongList *son
       }
       break;
     }
-    case RadioItem::Type_Channel:
+    case RadioItem::Type::Channel:
       if (!urls->contains(item->channel.url)) {
         urls->append(item->channel.url);
         songs->append(item->channel.ToSong());
@@ -264,7 +253,7 @@ QString RadioModel::ChannelIconPixmapCacheKey(const QModelIndex &idx) const {
     idx_copy = idx_copy.parent();
   }
 
-  return path.join('/');
+  return path.join(u'/');
 
 }
 
@@ -298,7 +287,7 @@ QPixmap RadioModel::ChannelIcon(const QModelIndex &idx) {
   if (!songs.isEmpty()) {
     Song song = songs.first();
     song.set_art_automatic(item->channel.thumbnail_url);
-    const quint64 id = app_->album_cover_loader()->LoadImageAsync(cover_loader_options_, song);
+    const quint64 id = albumcover_loader_->LoadImageAsync(AlbumCoverLoaderOptions(AlbumCoverLoaderOptions::Option::ScaledImage | AlbumCoverLoaderOptions::Option::PadScaledImage, QSize(kTreeIconSize, kTreeIconSize)), song);
     pending_art_[id] = ItemAndCacheKey(item, cache_key);
     pending_cache_keys_.insert(cache_key);
   }
@@ -319,7 +308,7 @@ void RadioModel::AlbumCoverLoaded(const quint64 id, const AlbumCoverLoaderResult
 
   pending_cache_keys_.remove(cache_key);
 
-  if (!result.success || result.image_scaled.isNull() || result.type == AlbumCoverLoaderResult::Type_ManuallyUnset) {
+  if (!result.success || result.image_scaled.isNull() || result.type == AlbumCoverLoaderResult::Type::Unset) {
     QPixmapCache::insert(cache_key, ServiceIcon(item));
   }
   else {
@@ -329,19 +318,20 @@ void RadioModel::AlbumCoverLoaded(const quint64 id, const AlbumCoverLoaderResult
   const QModelIndex idx = ItemToIndex(item);
   if (!idx.isValid()) return;
 
-  emit dataChanged(idx, idx);
+  Q_EMIT dataChanged(idx, idx);
 
 }
 
 QString RadioModel::SortText(QString text) {
 
   if (text.isEmpty()) {
-    text = " unknown";
+    text = " unknown"_L1;
   }
   else {
     text = text.toLower();
   }
-  text = text.remove(QRegularExpression("[^\\w ]", QRegularExpression::UseUnicodePropertiesOption));
+  static const QRegularExpression regex_words_and_whitespaces(u"[^\\w ]"_s, QRegularExpression::UseUnicodePropertiesOption);
+  text = text.remove(regex_words_and_whitespaces);
 
   return text;
 

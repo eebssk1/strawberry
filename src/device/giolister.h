@@ -24,11 +24,6 @@
 
 #include "config.h"
 
-// Work around compile issue with glib >= 2.25
-#ifdef signals
-#  undef signals
-#endif
-
 #include <glib.h>
 #include <glib-object.h>
 #include <gio/gio.h>
@@ -43,7 +38,7 @@
 #include <QStringList>
 #include <QUrl>
 
-#include "core/scopedgobject.h"
+#include "includes/scopedgobject.h"
 #include "devicelister.h"
 
 class GioLister : public DeviceLister {
@@ -67,7 +62,7 @@ class GioLister : public DeviceLister {
   QString MakeFriendlyName(const QString &id) override;
   QList<QUrl> MakeDeviceUrls(const QString &id) override;
 
- public slots:
+ public Q_SLOTS:
   void MountDevice(const QString &id, const int request_id) override;
   void UnmountDevice(const QString &id) override;
   void UpdateDeviceFreeSpace(const QString &id) override;
@@ -121,17 +116,17 @@ class GioLister : public DeviceLister {
   void MountChanged(GMount *mount);
   void MountRemoved(GMount *mount);
 
-  static void VolumeAddedCallback(GVolumeMonitor*, GVolume*, gpointer);
-  static void VolumeRemovedCallback(GVolumeMonitor*, GVolume*, gpointer);
+  static void VolumeAddedCallback(GVolumeMonitor *volume_monitor, GVolume *volume, gpointer instance);
+  static void VolumeRemovedCallback(GVolumeMonitor *volume_monitor, GVolume *volume, gpointer instance);
 
-  static void MountAddedCallback(GVolumeMonitor*, GMount*, gpointer);
-  static void MountChangedCallback(GVolumeMonitor*, GMount*, gpointer);
-  static void MountRemovedCallback(GVolumeMonitor*, GMount*, gpointer);
+  static void MountAddedCallback(GVolumeMonitor *volume_monitor, GMount*, gpointer instance);
+  static void MountChangedCallback(GVolumeMonitor *volume_monitor, GMount*, gpointer instance);
+  static void MountRemovedCallback(GVolumeMonitor *volume_monitor, GMount *mount, gpointer instance);
 
-  static void VolumeMountFinished(GObject *object, GAsyncResult *result, gpointer);
-  static void VolumeEjectFinished(GObject *object, GAsyncResult *result, gpointer);
-  static void MountEjectFinished(GObject *object, GAsyncResult *result, gpointer);
-  static void MountUnmountFinished(GObject *object, GAsyncResult *result, gpointer);
+  static void VolumeMountFinished(GObject *object, GAsyncResult *result, gpointer instance);
+  static void VolumeEjectFinished(GObject *object, GAsyncResult *result, gpointer instance);
+  static void MountEjectFinished(GObject *object, GAsyncResult *result, gpointer instance);
+  static void MountUnmountFinished(GObject *object, GAsyncResult *result, gpointer instance);
 
   // You MUST hold the mutex while calling this function
   QString FindUniqueIdByMount(GMount *mount) const;
@@ -153,7 +148,7 @@ T GioLister::LockAndGetDeviceInfo(const QString &id, T DeviceInfo::*field) {
   QMutexLocker l(&mutex_);
   if (!devices_.contains(id)) return T();
 
-  return devices_[id].*field;
+  return devices_.value(id).*field;
 }
 
 #endif  // GIOLISTER_H

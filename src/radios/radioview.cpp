@@ -17,6 +17,8 @@
  *
  */
 
+#include <utility>
+
 #include <QWidget>
 #include <QMimeData>
 #include <QDesktopServices>
@@ -32,6 +34,8 @@
 #include "radioservice.h"
 #include "radiomimedata.h"
 #include "collection/collectionitemdelegate.h"
+
+using namespace Qt::Literals::StringLiterals;
 
 RadioView::RadioView(QWidget *parent)
     : AutoExpandingTreeView(parent),
@@ -52,10 +56,12 @@ RadioView::RadioView(QWidget *parent)
 
 RadioView::~RadioView() { delete menu_; }
 
-void RadioView::showEvent(QShowEvent*) {
+void RadioView::showEvent(QShowEvent *e) {
+
+  Q_UNUSED(e)
 
   if (!initialized_) {
-    emit GetChannels();
+    Q_EMIT GetChannels();
     initialized_ = true;
   }
 
@@ -66,27 +72,27 @@ void RadioView::contextMenuEvent(QContextMenuEvent *e) {
   if (!menu_) {
     menu_ = new QMenu;
 
-    action_playlist_append_ = new QAction(IconLoader::Load("media-playback-start"), tr("Append to current playlist"), this);
+    action_playlist_append_ = new QAction(IconLoader::Load(u"media-playback-start"_s), tr("Append to current playlist"), this);
     QObject::connect(action_playlist_append_, &QAction::triggered, this, &RadioView::AddToPlaylist);
     menu_->addAction(action_playlist_append_);
 
-    action_playlist_replace_ = new QAction(IconLoader::Load("media-playback-start"), tr("Replace current playlist"), this);
+    action_playlist_replace_ = new QAction(IconLoader::Load(u"media-playback-start"_s), tr("Replace current playlist"), this);
     QObject::connect(action_playlist_replace_, &QAction::triggered, this, &RadioView::ReplacePlaylist);
     menu_->addAction(action_playlist_replace_);
 
-    action_playlist_new_ = new QAction(IconLoader::Load("document-new"), tr("Open in new playlist"), this);
+    action_playlist_new_ = new QAction(IconLoader::Load(u"document-new"_s), tr("Open in new playlist"), this);
     QObject::connect(action_playlist_new_, &QAction::triggered, this, &RadioView::OpenInNewPlaylist);
     menu_->addAction(action_playlist_new_);
 
-    action_homepage_ = new QAction(IconLoader::Load("download"), tr("Open homepage"), this);
+    action_homepage_ = new QAction(IconLoader::Load(u"download"_s), tr("Open homepage"), this);
     QObject::connect(action_homepage_, &QAction::triggered, this, &RadioView::Homepage);
     menu_->addAction(action_homepage_);
 
-    action_donate_ = new QAction(IconLoader::Load("download"), tr("Donate"), this);
+    action_donate_ = new QAction(IconLoader::Load(u"download"_s), tr("Donate"), this);
     QObject::connect(action_donate_, &QAction::triggered, this, &RadioView::Donate);
     menu_->addAction(action_donate_);
 
-    menu_->addAction(IconLoader::Load("view-refresh"), tr("Refresh channels"), this, &RadioView::GetChannels);
+    menu_->addAction(IconLoader::Load(u"view-refresh"_s), tr("Refresh channels"), this, &RadioView::GetChannels);
   }
 
   const bool channels_selected = !selectedIndexes().isEmpty();
@@ -106,7 +112,7 @@ void RadioView::AddToPlaylist() {
   const QModelIndexList selected_indexes = selectedIndexes();
   if (selected_indexes.isEmpty()) return;
 
-  emit AddToPlaylistSignal(model()->mimeData(selected_indexes));
+  Q_EMIT AddToPlaylistSignal(model()->mimeData(selected_indexes));
 
 }
 
@@ -120,7 +126,7 @@ void RadioView::ReplacePlaylist() {
     mimedata->clear_first_ = true;
   }
 
-  emit AddToPlaylistSignal(qmimedata);
+  Q_EMIT AddToPlaylistSignal(qmimedata);
 
 }
 
@@ -137,7 +143,7 @@ void RadioView::OpenInNewPlaylist() {
     }
   }
 
-  emit AddToPlaylistSignal(qmimedata);
+  Q_EMIT AddToPlaylistSignal(qmimedata);
 
 }
 
@@ -154,7 +160,7 @@ void RadioView::Homepage() {
     }
   }
 
-  for (const QUrl &url : urls) {
+  for (const QUrl &url : std::as_const(urls)) {
     QDesktopServices::openUrl(url);
   }
 
@@ -173,7 +179,7 @@ void RadioView::Donate() {
     }
   }
 
-  for (const QUrl &url : urls) {
+  for (const QUrl &url : std::as_const(urls)) {
     QDesktopServices::openUrl(url);
   }
 

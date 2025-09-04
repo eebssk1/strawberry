@@ -22,8 +22,6 @@
 #ifndef PLAYINGWIDGET_H
 #define PLAYINGWIDGET_H
 
-#include <memory>
-
 #include <QtGlobal>
 #include <QObject>
 #include <QWidget>
@@ -34,8 +32,8 @@
 #include <QAction>
 #include <QMovie>
 
+#include "includes/scoped_ptr.h"
 #include "core/song.h"
-#include "covermanager/albumcoverloaderoptions.h"
 
 class QTimeLine;
 class QTextDocument;
@@ -50,7 +48,6 @@ class QPaintEvent;
 class QResizeEvent;
 
 class AlbumCoverChoiceController;
-class Application;
 
 class PlayingWidget : public QWidget {
   Q_OBJECT
@@ -58,7 +55,7 @@ class PlayingWidget : public QWidget {
  public:
   explicit PlayingWidget(QWidget *parent = nullptr);
 
-  void Init(Application *app, AlbumCoverChoiceController *album_cover_choice_controller);
+  void Init(AlbumCoverChoiceController *album_cover_choice_controller);
   bool IsEnabled() { return enabled_; }
   void SetEnabled(const bool enabled);
   void SetEnabled();
@@ -67,10 +64,10 @@ class PlayingWidget : public QWidget {
   QSize sizeHint() const override;
   bool show_above_status_bar() const { return above_statusbar_action_->isChecked(); }
 
- signals:
-  void ShowAboveStatusBarChanged(bool above);
+ Q_SIGNALS:
+  void ShowAboveStatusBarChanged(const bool above);
 
- public slots:
+ public Q_SLOTS:
   void Playing();
   void Stopped();
   void Error();
@@ -86,9 +83,15 @@ class PlayingWidget : public QWidget {
   void dragEnterEvent(QDragEnterEvent *e) override;
   void dropEvent(QDropEvent *e) override;
 
- private slots:
+ private:
+  enum class Mode {
+    SmallSongDetails = 0,
+    LargeSongDetails = 1
+  };
+
+ private Q_SLOTS:
   void Update() { update(); }
-  void SetMode(const int mode);
+  void SetMode(const Mode mode);
   void ShowAboveStatusBar(const bool above);
   void FitCoverWidth(const bool fit);
 
@@ -98,21 +101,6 @@ class PlayingWidget : public QWidget {
   void FadePreviousTrack(const qreal value);
 
  private:
-
-  enum Mode {
-    SmallSongDetails = 0,
-    LargeSongDetails = 1,
-  };
-
-  static const char *kSettingsGroup;
-  static const int kPadding;
-  static const int kGradientHead;
-  static const int kGradientTail;
-  static const int kMaxCoverSize;
-  static const int kBottomOffset;
-  static const int kTopBorder;
-
-  Application *app_;
   AlbumCoverChoiceController *album_cover_choice_controller_;
   Mode mode_;
   QMenu *menu_;
@@ -123,8 +111,8 @@ class PlayingWidget : public QWidget {
   bool playing_;
   bool active_;
   int small_ideal_height_;
-  AlbumCoverLoaderOptions cover_loader_options_;
   int total_height_;
+  int desired_height_;
   bool fit_width_;
   QTimeLine *timeline_show_hide_;
   QTimeLine *timeline_fade_;
@@ -138,7 +126,7 @@ class PlayingWidget : public QWidget {
   QImage image_original_;
   QPixmap pixmap_cover_;
   QPixmap pixmap_previous_track_;
-  std::unique_ptr<QMovie> spinner_animation_;
+  ScopedPtr<QMovie> spinner_animation_;
 
   void SetVisible(const bool visible);
   void CreateModeAction(const Mode mode, const QString &text, QActionGroup *group);

@@ -48,6 +48,7 @@ class LineEditInterface {
   virtual ~LineEditInterface() {}
 
   virtual void set_enabled(const bool enabled) = 0;
+  virtual void set_font(const QFont &font) = 0;
   virtual void set_focus() = 0;
 
   virtual void clear() = 0;
@@ -90,7 +91,7 @@ class ExtendedEditor : public LineEditInterface {
 
  protected:
   void Paint(QPaintDevice *device);
-  void Resize();
+  virtual void Resize();
 
  private:
   void UpdateButtonGeometry();
@@ -121,26 +122,27 @@ class LineEdit : public QLineEdit, public ExtendedEditor {
 
   // ExtendedEditor
   void set_enabled(bool enabled) override { QLineEdit::setEnabled(enabled); }
+  void set_font(const QFont &font) override { QLineEdit::setFont(font); }
 
   QVariant value() const override { return QLineEdit::text(); }
   void set_value(const QVariant &value) override { QLineEdit::setText(value.toString()); }
 
- public slots:
+ public Q_SLOTS:
   void set_focus() override { QLineEdit::setFocus(); }
   void clear() override { QLineEdit::clear(); }
 
  protected:
-  void paintEvent(QPaintEvent*) override;
-  void resizeEvent(QResizeEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
 
  private:
   bool is_rtl() const { return is_rtl_; }
   void set_rtl(bool rtl) { is_rtl_ = rtl; }
 
- private slots:
+ private Q_SLOTS:
   void text_changed(const QString &text);
 
- signals:
+ Q_SIGNALS:
   void Reset();
 };
 
@@ -155,19 +157,20 @@ class TextEdit : public QPlainTextEdit, public ExtendedEditor {
 
   // ExtendedEditor
   void set_enabled(bool enabled) override { QPlainTextEdit::setEnabled(enabled); }
+  void set_font(const QFont &font) override { QPlainTextEdit::setFont(font); }
 
   QVariant value() const override { return QPlainTextEdit::toPlainText(); }
   void set_value(const QVariant &value) override { QPlainTextEdit::setPlainText(value.toString()); }
 
- public slots:
+ public Q_SLOTS:
   void set_focus() override { QPlainTextEdit::setFocus(); }
   void clear() override { QPlainTextEdit::clear(); }
 
  protected:
-  void paintEvent(QPaintEvent*) override;
-  void resizeEvent(QResizeEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
 
- signals:
+ Q_SIGNALS:
   void Reset();
 };
 
@@ -185,20 +188,21 @@ class SpinBox : public QSpinBox, public ExtendedEditor {
 
   // ExtendedEditor
   void set_enabled(bool enabled) override { QSpinBox::setEnabled(enabled); }
+  void set_font(const QFont &font) override { QSpinBox::setFont(font); }
 
   QVariant value() const override { return QSpinBox::value(); }
   void set_value(const QVariant &value) override { QSpinBox::setValue(value.toInt()); }
-  bool is_empty() const override { return text().isEmpty() || text() == "0"; }
+  bool is_empty() const override { return text().isEmpty() || text() == QStringLiteral("0"); }
 
- public slots:
+ public Q_SLOTS:
   void set_focus() override { QSpinBox::setFocus(); }
   void clear() override { QSpinBox::clear(); }
 
  protected:
-  void paintEvent(QPaintEvent*) override;
-  void resizeEvent(QResizeEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
 
- signals:
+ Q_SIGNALS:
   void Reset();
 };
 
@@ -213,21 +217,25 @@ class CheckBox : public QCheckBox, public ExtendedEditor {
 
   // ExtendedEditor
   void set_enabled(bool enabled) override { QCheckBox::setEnabled(enabled); }
+  void set_font(const QFont &font) override { QCheckBox::setFont(font); }
 
-  bool is_empty() const override { return text().isEmpty() || text() == "0"; }
+  bool is_empty() const override { return text().isEmpty() || text() == QStringLiteral("0"); }
   QVariant value() const override { return QCheckBox::isChecked(); }
   void set_value(const QVariant &value) override { QCheckBox::setCheckState(value.toBool() ? Qt::Checked : Qt::Unchecked); }
   void set_partially() override { QCheckBox::setCheckState(Qt::PartiallyChecked); }
 
- public slots:
+ protected:
+  void Resize() override;
+
+ public Q_SLOTS:
   void set_focus() override { QCheckBox::setFocus(); }
   void clear() override { QCheckBox::setChecked(false); }
 
  protected:
-  void paintEvent(QPaintEvent*) override;
-  void resizeEvent(QResizeEvent*) override;
+  void paintEvent(QPaintEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
 
- signals:
+ Q_SIGNALS:
   void Reset();
 };
 
@@ -240,15 +248,26 @@ class RatingBox : public RatingWidget, public ExtendedEditor {
   explicit RatingBox(QWidget *parent = nullptr);
 
   void set_enabled(bool enabled) override { RatingWidget::setEnabled(enabled); }
+  void set_font(const QFont &font) override { RatingWidget::setFont(font); }
 
   QVariant value() const override { return RatingWidget::rating(); }
   void set_value(const QVariant &value) override { RatingWidget::set_rating(value.toFloat()); }
 
   void set_partially() override { RatingWidget::set_rating(0.0F); }
 
- public slots:
+ protected:
+  void Resize() override;
+
+ public Q_SLOTS:
   void set_focus() override { RatingWidget::setFocus(); }
   void clear() override {}
+
+ protected:
+  void paintEvent(QPaintEvent *e) override;
+  void resizeEvent(QResizeEvent *e) override;
+
+ Q_SIGNALS:
+  void Reset();
 
 };
 

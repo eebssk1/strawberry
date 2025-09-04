@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include <algorithm>
+#include <utility>
 
 #include <QtGlobal>
 #include <QWidget>
@@ -35,6 +36,8 @@
 #include "coversearchstatisticsdialog.h"
 #include "ui_coversearchstatisticsdialog.h"
 
+using namespace Qt::Literals::StringLiterals;
+
 CoverSearchStatisticsDialog::CoverSearchStatisticsDialog(QWidget *parent)
     : QDialog(parent), ui_(new Ui_CoverSearchStatisticsDialog) {
 
@@ -43,7 +46,7 @@ CoverSearchStatisticsDialog::CoverSearchStatisticsDialog(QWidget *parent)
   details_layout_->setSpacing(0);
 
   setStyleSheet(
-      "#details {"
+      u"#details {"
       "  background-color: palette(base);"
       "}"
       "#details QLabel[type=\"label\"] {"
@@ -54,7 +57,7 @@ CoverSearchStatisticsDialog::CoverSearchStatisticsDialog(QWidget *parent)
       "#details QLabel[type=\"value\"] {"
       "  font-weight: bold;"
       "  max-width: 100px;"
-      "}");
+      "}"_s);
 }
 
 CoverSearchStatisticsDialog::~CoverSearchStatisticsDialog() { delete ui_; }
@@ -69,7 +72,7 @@ void CoverSearchStatisticsDialog::Show(const CoverSearchStatistics &statistics) 
           .arg(statistics.chosen_images_ + statistics.missing_images_)
           .arg(statistics.missing_images_));
 
-  for (const QString &provider : providers) {
+  for (const QString &provider : std::as_const(providers)) {
     AddLine(tr("Covers from %1").arg(provider), QString::number(statistics.chosen_images_by_provider_[provider]));
   }
 
@@ -79,7 +82,7 @@ void CoverSearchStatisticsDialog::Show(const CoverSearchStatistics &statistics) 
 
   AddLine(tr("Total network requests made"), QString::number(statistics.network_requests_made_));
   AddLine(tr("Average image size"), statistics.AverageDimensions());
-  AddLine(tr("Total bytes transferred"), statistics.bytes_transferred_ > 0 ? Utilities::PrettySize(statistics.bytes_transferred_) : "0 bytes");
+  AddLine(tr("Total bytes transferred"), statistics.bytes_transferred_ > 0 ? Utilities::PrettySize(statistics.bytes_transferred_) : u"0 bytes"_s);
 
   details_layout_->addStretch();
 
@@ -92,8 +95,8 @@ void CoverSearchStatisticsDialog::AddLine(const QString &label, const QString &v
   QLabel *label1 = new QLabel(label);
   QLabel *label2 = new QLabel(value);
 
-  label1->setProperty("type", "label");
-  label2->setProperty("type", "value");
+  label1->setProperty("type", u"label"_s);
+  label2->setProperty("type", u"value"_s);
 
   QHBoxLayout *layout = new QHBoxLayout;
   layout->addWidget(label1);
