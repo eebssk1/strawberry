@@ -55,7 +55,14 @@ void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning
       filename = url.toLocalFile();
     }
     else if (song->is_stream()) {
-      song->set_url(QUrl::fromUserInput(filename_or_url));
+      url = QUrl::fromUserInput(filename_or_url);
+      if (url.host() == "open.spotify.com"_L1 && url.path().startsWith("/track/"_L1)) {
+        song->set_source(Song::Source::Spotify);
+        url.setScheme("spotify"_L1);
+        url.setHost(QString());
+        url.setPath(url.path().remove(0, 1).replace(u'/', u':'));
+      }
+      song->set_url(url);
       song->set_filetype(Song::FileType::Stream);
       song->set_valid(true);
       return;
@@ -105,10 +112,18 @@ void ParserBase::LoadSong(const QString &filename_or_url, const qint64 beginning
     }
   }
 
+  // Check if the file exists before trying to read it
+  if (!QFile::exists(filename)) {
+    qLog(Error) << "File does not exist:" << filename;
+    Q_EMIT Error(tr("File %1 does not exist").arg(filename));
+    return;
+  }
+
   if (tagreader_client_) {
     const TagReaderResult result = tagreader_client_->ReadFileBlocking(filename, song);
     if (!result.success()) {
       qLog(Error) << "Could not read file" << filename << result.error_string();
+      Q_EMIT Error(tr("Could not read file %1: %2").arg(filename, result.error_string()));
     }
   }
 

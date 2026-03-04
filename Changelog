@@ -2,6 +2,89 @@ Strawberry Music Player
 =======================
 ChangeLog
 
+Version 1.2.18 (2026.02.01):
+
+    * Fixed devices no longer detected with newer GIO versions (#1974)
+    * Fixed error message appearing when dragging folders with non-audio files to the playlist from files (#1977)
+    * Fixed clear button for device textfield in Backend settings
+
+Version 1.2.17 (2026.01.18):
+
+    * Avoid re-scan of restored songs unless mtime is changed (#1819)
+    * Skip existing files when organizing if not overwriting (#1484)
+    * Fixed cursor highlight disappearing off-screen when using down cursor (#1489)
+    * Fixed CD playback only working for the first optical drive (#1852)
+    * Fixed possible race-condition when switching tracks (#1863)
+    * Fixed possible file descriptor exhaustion by using shared thread pool (#1687)
+    * Don't automatically sort playlist with the auto sort option before it's fully loaded (#1690)
+    * Fixed network features stop working after computer suspends and resumes (#1521)
+    * Fixed crash on exit after Qobuz login
+    * Added tag editor option to select ID3v2 version (#1861)
+    * Fixed Qobuz authentication and added automatic credential fetching (#1898)
+    * Fixed playback stopping after deleting a song from disk via context menu (#1783)
+    * Added option to restore smart playlists to the defaults (#1848)
+    * Fixed possible race condition in pipeline destructor (#1875)
+    * Fixed buffering issue near track end during gapless playback (#1725)
+    * Fixed duplicate collection entries for the same artist if they have different sort tags (#1899)
+    * Defer playcount and rating tag writes for currently playing Ogg songs to prevent playback shutter (#1816)
+    * Fixed tag editing not working for Opus sort tags (#1929)
+    * Show playlist load errors (#1470)
+    * Fallback to delete if moving to trash fails (#1679)
+    * Prefer filenames with "front" or "cover" in the filename for album cover art for songs outside of the collection (#1745)
+    * Fixed collection enter/return behavior to respect double-click settings (#1691)
+    * Added tree view mode to files tab (#1922)
+    * Include .webp in allowed extensions for album covers (#1941)
+    * Exit gracefully on SIGTERM signal for Unix systems (#1942)
+    * Optimize the collection scanning process by deferring media file validation from the initial directory scan (#1954)
+    * Fixed collection scan not finding new directories in the top level collection directory when the mountpoint is restored (#1914)
+    * Added genre metadata parsing for Tidal, Qobuz and Spotify (#1913)
+    * Allow editing metadata for stream songs (#1913)
+    * Optimized collection/playlist filtering
+    * Added sort tags to collection/playlist filtering (#1966)
+
+Version 1.2.16 (2025.12.16):
+
+    * Make Discord Rich presence use filename if song title is missing
+    * Added better error message when a GStreamer plugin is missing
+    * Preserve track order in album shuffle mode when restarting playback (#1623)
+    * Possible fixes for context word wrap
+    * Added lyrics from lrclib.net
+    * Added option to turn off the use of sort tags for the collection
+    * Fixed Spotify login
+    * Fixed error dialog shown minimized if another Strawberry window than the mainwindow was active
+    * Fixed seeking to the end of the track and back causing seeking to stop working (#1675)
+    * Set current index when automatically selecting track (#1825)
+    * Make icon size for shuffle and repeat buttons adjust to screen resolution (#1838)
+    * Fixed song being removed from playlist when dragging to another application (#1815)
+    * Don't automatically scroll on dynamic playlists (#1427)
+
+Version 1.2.15 (2025.11.25):
+
+    * Fixed system default language not respected
+    * Fixed length filter search
+    * Fixed playlist parser converting Spotify URL's
+    * Removed use of deprecated QStyle::State_Editing
+    * Ignore connection closed errors for ListenBrainz
+    * (Windows) Support building with vcpkg unofficial::getopt-win32::getopt
+
+Version 1.2.14 (2025.10.25):
+
+  Bugfixes:
+    * Fixed showing error dialog minimized when main window is not current active window (#1739)
+    * Fixed Discord timestamp update when seeking (#1813)
+    * Fixed CD metadata lookup to respect MusicBrainz rate limiting
+    * Fixed Tidal Open API cover provider
+    * (Windows) Fixed device selection with WASAPI2
+
+  Enhancements/Other:
+    * Removed libre.fm support
+    * Rewrote MusicBrainzClient to use Json instead of XML
+    * Subsonic will now use cover art from album when available
+    * Added option to remove "Remastered", etc from song titles for Tidal, Qobuz and Spotify
+    * Added webm to supported file extensions
+    * (Windows|MinGW) Added WASAPI2 support
+    * (Windows) Added experimental exclusive mode for WASAPI2
+
 Version 1.2.13 (2025.08.31):
 
   Bugfixes:

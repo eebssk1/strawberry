@@ -58,8 +58,8 @@
 #include "covermanager/albumcoverloaderresult.h"
 
 #ifdef __GNUC__
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Warray-bounds"
+#  pragma GCC diagnostic push
+#  pragma GCC diagnostic ignored "-Warray-bounds"
 #endif
 
 #include "mpris2_player.h"
@@ -68,7 +68,7 @@
 #include "mpris2_tracklist.h"
 
 #ifdef __GNUC__
-#pragma GCC diagnostic pop
+#  pragma GCC diagnostic pop
 #endif
 
 using namespace Qt::Literals::StringLiterals;
@@ -251,7 +251,7 @@ void Mpris2::EmitNotification(const QString &name) {
 
 }
 
-//------------------Root Interface--------------------------//
+// ------------------Root Interface--------------------------//
 
 bool Mpris2::CanQuit() const { return true; }
 
@@ -563,7 +563,7 @@ void Mpris2::Stop() { player_->Stop(); }
 
 void Mpris2::Play() {
 
-  if (CanPlay()) {
+  if (CanPlay() && player_->GetState() != EngineBase::State::Playing) {
     player_->Play();
   }
 

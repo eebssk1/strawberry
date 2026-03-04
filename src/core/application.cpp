@@ -74,10 +74,10 @@
 #include "lyrics/elyricsnetlyricsprovider.h"
 #include "lyrics/letraslyricsprovider.h"
 #include "lyrics/lyricfindlyricsprovider.h"
+#include "lyrics/lrcliblyricsprovider.h"
 
 #include "scrobbler/audioscrobbler.h"
 #include "scrobbler/lastfmscrobbler.h"
-#include "scrobbler/librefmscrobbler.h"
 #include "scrobbler/listenbrainzscrobbler.h"
 #include "scrobbler/lastfmimport.h"
 #ifdef HAVE_SUBSONIC
@@ -118,8 +118,8 @@ using namespace std::chrono_literals;
 
 class ApplicationImpl {
  public:
-  explicit ApplicationImpl(Application *app) :
-       tagreader_client_([app](){
+  explicit ApplicationImpl(Application *app)
+      : tagreader_client_([app]() {
           TagReaderClient *client = new TagReaderClient();
           app->MoveToNewThread(client);
           return client;
@@ -183,6 +183,7 @@ class ApplicationImpl {
           lyrics_providers->AddProvider(new ElyricsNetLyricsProvider(lyrics_providers->network()));
           lyrics_providers->AddProvider(new LetrasLyricsProvider(lyrics_providers->network()));
           lyrics_providers->AddProvider(new LyricFindLyricsProvider(lyrics_providers->network()));
+          lyrics_providers->AddProvider(new LrcLibLyricsProvider(lyrics_providers->network()));
           lyrics_providers->ReloadSettings();
           return lyrics_providers;
         }),
@@ -206,7 +207,6 @@ class ApplicationImpl {
         scrobbler_([app]() {
           AudioScrobbler *scrobbler = new AudioScrobbler(app);
           scrobbler->AddService(make_shared<LastFMScrobbler>(scrobbler->settings(), app->network()));
-          scrobbler->AddService(make_shared<LibreFMScrobbler>(scrobbler->settings(), app->network()));
           scrobbler->AddService(make_shared<ListenBrainzScrobbler>(scrobbler->settings(), app->network()));
 #ifdef HAVE_SUBSONIC
           scrobbler->AddService(make_shared<SubsonicScrobbler>(scrobbler->settings(), app->network(), app->streaming_services()->Service<SubsonicService>(), app));
@@ -266,7 +266,7 @@ Application::Application(QObject *parent)
 
 Application::~Application() {
 
-   qLog(Debug) << "Terminating application";
+  qLog(Debug) << "Terminating application";
 
   for (QThread *thread : std::as_const(threads_)) {
     thread->quit();

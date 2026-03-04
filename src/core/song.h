@@ -234,6 +234,8 @@ class Song {
   std::optional<double> ebur128_integrated_loudness_lufs() const;
   std::optional<double> ebur128_loudness_range_lu() const;
 
+  int id3v2_version() const;
+
   QString *mutable_title();
   QString *mutable_album();
   QString *mutable_artist();
@@ -349,6 +351,8 @@ class Song {
   void set_ebur128_integrated_loudness_lufs(const std::optional<double> v);
   void set_ebur128_loudness_range_lu(const std::optional<double> v);
 
+  void set_id3v2_version(const int v);
+
   void set_init_from_file(const bool v);
 
   void set_stream_url(const QUrl &v);
@@ -403,8 +407,9 @@ class Song {
   bool is_metadata_good() const;
   bool is_local_collection_song() const;
   bool is_linked_collection_song() const;
-  bool is_stream() const;
   bool is_radio() const;
+  bool is_stream_service() const;
+  bool is_stream() const;
   bool is_cdda() const;
   bool is_compilation() const;
   bool stream_url_can_expire() const;
@@ -438,6 +443,8 @@ class Song {
 
   static bool save_embedded_cover_supported(const FileType filetype);
   bool save_embedded_cover_supported() const { return url().isLocalFile() && save_embedded_cover_supported(filetype()) && !has_cue(); };
+
+  bool id3v2_tags_supported() const;
 
   static int ColumnIndex(const QString &field);
   static QString JoinSpec(const QString &table);
@@ -546,6 +553,7 @@ class Song {
   // Two songs that are on the same album will have the same AlbumKey.
   // It is more efficient to use IsOnSameAlbum, but this function can be used when you need to hash the key to do fast lookups.
   QString AlbumKey() const;
+  QString GroupingKey() const;
 
   static bool ContainsRegexList(const QString &str, const RegularExpressionList &regex_list);
   static QString StripRegexList(QString str, const RegularExpressionList &regex_list);

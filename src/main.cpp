@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2026, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -76,6 +76,10 @@
 
 #include <kdsingleapplication.h>
 
+#ifdef Q_OS_UNIX
+  #include "core/unixsignalwatcher.h"
+#endif
+
 #ifdef HAVE_QTSPARKLE
 #  include <qtsparkle-qt6/Updater>
 #endif  // HAVE_QTSPARKLE
@@ -90,7 +94,7 @@
 #endif
 
 #ifdef HAVE_DISCORD_RPC
-#  include "discord/richpresence.h"
+#  include "discord/discordrichpresence.h"
 #endif
 
 #include "core/iconloader.h"
@@ -260,46 +264,78 @@ int main(int argc, char *argv[]) {
   IconLoader::Init();
 
 #ifdef HAVE_TRANSLATIONS
-  QString language = options.language();
-  if (language.isEmpty()) {
-    Settings s;
-    s.beginGroup(BehaviourSettings::kSettingsGroup);
-    language = s.value(BehaviourSettings::kLanguage).toString();
-    s.endGroup();
+
+  QStringList languages;
+
+  // Load language from command line options
+  if (!options.language().isEmpty()) {
+    languages << options.language();
   }
 
-  if (language.isEmpty()) {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
-    const QStringList system_languages = QLocale::system().uiLanguages(QLocale::TagSeparator::Underscore);
-#else
+  // Load language from settings
+  if (languages.isEmpty()) {
+    Settings s;
+    s.beginGroup(BehaviourSettings::kSettingsGroup);
+    const QString language = s.value(BehaviourSettings::kLanguage).toString();
+    s.endGroup();
+    if (!language.isEmpty()) {
+      languages << language;
+    }
+  }
+
+  // Use system UI languages
+  if (languages.isEmpty()) {
+#  if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+    languages = QLocale::system().uiLanguages(QLocale::TagSeparator::Underscore);
+#  else
     const QStringList system_languages = QLocale::system().uiLanguages();
-#endif
-    if (system_languages.isEmpty()) {
-      language = QLocale::system().name();
+    for (const QString &language : system_languages) {
+      QString language_underscore = language;
+      language_underscore = language_underscore.replace(u'-', u'_');
+      languages << language_underscore;
     }
-    else {
-#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
-      language = system_languages.first();
-#else
-      language = system_languages.first();
-      language = language.replace(u'-', u'_');
-#endif
-    }
+#  endif
+  }
+
+  if (languages.isEmpty()) {
+    languages << QLocale::system().name();
   }
 
   ScopedPtr<Translations> translations(new Translations);
 
-  translations->LoadTranslation(u"qt"_s, QLibraryInfo::path(QLibraryInfo::TranslationsPath), language);
-  translations->LoadTranslation(u"strawberry"_s, u":/i18n"_s, language);
-  translations->LoadTranslation(u"strawberry"_s, QStringLiteral(TRANSLATIONS_DIR), language);
-  translations->LoadTranslation(u"strawberry"_s, QCoreApplication::applicationDirPath(), language);
-  translations->LoadTranslation(u"strawberry"_s, QDir::currentPath(), language);
+  for (const QString &language : std::as_const(languages)) {
+    if (translations->LoadTranslation(u"qt"_s, QLibraryInfo::path(QLibraryInfo::TranslationsPath), language)) {
+      break;
+    }
+  }
+
+  static const QStringList language_paths = QStringList() << u":/i18n"_s
+                                                          << QStringLiteral(TRANSLATIONS_DIR)
+                                                          << QCoreApplication::applicationDirPath()
+                                                          << QDir::currentPath();
+
+  for (const QString &language : std::as_const(languages)) {
+    bool language_loaded = false;
+    for (const QString &language_path : language_paths) {
+      if (translations->LoadTranslation(u"strawberry"_s, language_path, language)) {
+        language_loaded = true;
+        break;
+      }
+    }
+    if (language_loaded) {
+      break;
+    }
+  }
 
 #  ifdef HAVE_QTSPARKLE
-  qtsparkle::LoadTranslations(language);
-#  endif
+  for (const QString &language : std::as_const(languages)) {
+    if (qtsparkle::LoadTranslations(language)) {
+      break;
+    }
+  }
+#  endif  // HAVE_QTSPARKLE
 
-#endif
+#endif  // HAVE_TRANSLATIONS
 
   Application app;
 
@@ -321,7 +357,7 @@ int main(int argc, char *argv[]) {
   mpris::Mpris2 mpris2(app.player(), app.playlist_manager(), app.current_albumcover_loader());
 #endif
 #ifdef HAVE_DISCORD_RPC
-  discord::RichPresence discord_rich_presence(app.player(), app.playlist_manager());
+  DiscordRichPresence discord_rich_presence(app.player(), app.playlist_manager());
 #endif
 
   // Window
@@ -332,6 +368,12 @@ int main(int argc, char *argv[]) {
                &discord_rich_presence,
 #endif
                options);
+
+#ifdef Q_OS_UNIX
+  UnixSignalWatcher unix_signal_watcher;
+  unix_signal_watcher.WatchForSignal(SIGTERM);
+  QObject::connect(&unix_signal_watcher, &UnixSignalWatcher::UnixSignal, &w, &MainWindow::Exit);
+#endif
 
 #ifdef Q_OS_MACOS
   mac::EnableFullScreen(w);

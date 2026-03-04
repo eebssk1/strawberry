@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2013-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2013-2026, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -43,9 +43,7 @@
 #include <QString>
 #include <QUrl>
 #include <QImage>
-#include <QPixmap>
 #include <QTimer>
-#include <QSettings>
 #include <QtEvents>
 
 #include "includes/scoped_ptr.h"
@@ -53,7 +51,6 @@
 #include "includes/lazy.h"
 #include "core/platforminterface.h"
 #include "core/song.h"
-#include "core/settings.h"
 #include "core/commandlineoptions.h"
 #include "tagreader/tagreaderclient.h"
 #include "osd/osdbase.h"
@@ -101,9 +98,7 @@ class LastFMImportDialog;
 class RadioViewContainer;
 
 #ifdef HAVE_DISCORD_RPC
-namespace discord {
-class RichPresence;
-}
+class DiscordRichPresence;
 #endif
 
 class MainWindow : public QMainWindow, public PlatformInterface {
@@ -114,7 +109,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
                       SharedPtr<SystemTrayIcon> systemtrayicon,
                       OSDBase *osd,
 #ifdef HAVE_DISCORD_RPC
-                      discord::RichPresence *discord_rich_presence,
+                      DiscordRichPresence *discord_rich_presence,
 #endif
                       const CommandlineOptions &options,
                       QWidget *parent = nullptr);
@@ -124,9 +119,9 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   void CommandlineOptionsReceived(const CommandlineOptions &options);
 
  protected:
-  void showEvent(QShowEvent *e) override;
   void hideEvent(QHideEvent *e) override;
   void closeEvent(QCloseEvent *e) override;
+  void changeEvent(QEvent *e) override;
   void keyPressEvent(QKeyEvent *e) override;
 #ifdef Q_OS_WIN32
   bool nativeEvent(const QByteArray &eventType, void *message, qintptr *result) override;
@@ -236,6 +231,7 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void ShowAboutDialog();
   void ShowErrorDialog(const QString &message);
+  void CheckShowErrorDialog();
   void ShowTranscodeDialog();
   SettingsDialog *CreateSettingsDialog();
   EditTagDialog *CreateEditTagDialog();
@@ -247,7 +243,6 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   void ToggleSearchCoverAuto(const bool checked);
   void SaveGeometry();
 
-  void Exit();
   void DoExit();
 
   void HandleNotificationPreview(const OSDSettings::Type type, const QString &line1, const QString &line2);
@@ -279,21 +274,21 @@ class MainWindow : public QMainWindow, public PlatformInterface {
 
   void DeleteFilesFinished(const SongList &songs_with_errors);
 
+  void FetchStreamingMetadata();
+  void ProcessMetadataQueue();
+
  public Q_SLOTS:
   void CommandlineOptionsReceived(const QByteArray &string_options);
   void Raise();
+  void Exit();
 
  private:
-
   void SaveSettings();
 
   static void ApplyAddBehaviour(const BehaviourSettings::AddBehaviour b, MimeData *mimedata);
   void ApplyPlayBehaviour(const BehaviourSettings::PlayBehaviour b, MimeData *mimedata) const;
 
   void CheckFullRescanRevisions();
-
-  // creates the icon by painting the full one depending on the current position
-  QPixmap CreateOverlayedIcon(const int position, const int scrobble_point);
 
   void GetCoverAutomatically();
 
@@ -313,8 +308,9 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   SharedPtr<SystemTrayIcon> systemtrayicon_;
   OSDBase *osd_;
 #ifdef HAVE_DISCORD_RPC
-  discord::RichPresence *discord_rich_presence_;
+  DiscordRichPresence *discord_rich_presence_;
 #endif
+  Lazy<ErrorDialog> error_dialog_;
   Lazy<About> about_dialog_;
   Lazy<Console> console_;
   Lazy<EditTagDialog> edit_tag_dialog_;
@@ -329,7 +325,6 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   PlaylistListContainer *playlist_list_;
   QueueView *queue_view_;
 
-  Lazy<ErrorDialog> error_dialog_;
   Lazy<SettingsDialog> settings_dialog_;
   Lazy<AlbumCoverManager> cover_manager_;
   SharedPtr<Equalizer> equalizer_;
@@ -385,12 +380,13 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   QList<QAction*> playlistitem_actions_;
   QAction *playlistitem_actions_separator_;
   QAction *playlist_rescan_songs_;
+  QAction *playlist_fetch_metadata_;
 
   QModelIndex playlist_menu_index_;
 
   QTimer *track_position_timer_;
   QTimer *track_slider_timer_;
-  Settings settings_;
+  QTimer *metadata_queue_timer_;
 
   bool keep_running_;
   bool playing_widget_;
@@ -415,6 +411,13 @@ class MainWindow : public QMainWindow, public PlatformInterface {
   bool delete_files_;
   std::optional<CommandlineOptions> options_;
 
+  class MetadataQueueEntry {
+   public:
+    Song::Source source;
+    QString track_id;
+    QPersistentModelIndex persistent_index;
+  };
+  QList<MetadataQueueEntry> metadata_queue_;
 };
 
 #endif  // MAINWINDOW_H

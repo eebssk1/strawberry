@@ -99,6 +99,7 @@ QobuzService::QobuzService(const SharedPtr<TaskManager> task_manager,
       albumssearchlimit_(1),
       songssearchlimit_(1),
       download_album_covers_(true),
+      remove_remastered_(true),
       user_id_(-1),
       credential_id_(-1),
       pending_search_id_(0),
@@ -227,6 +228,7 @@ void QobuzService::ReloadSettings() {
   albumssearchlimit_ = s.value(QobuzSettings::kAlbumsSearchLimit, 10).toInt();
   songssearchlimit_ = s.value(QobuzSettings::kSongsSearchLimit, 10).toInt();
   download_album_covers_ = s.value(QobuzSettings::kDownloadAlbumCovers, true).toBool();
+  remove_remastered_ = s.value(QobuzSettings::kRemoveRemastered, true).toBool();
 
   user_id_ = s.value(QobuzSettings::kUserId).toInt();
   device_id_ = s.value(QobuzSettings::kDeviceId).toString();
@@ -246,7 +248,7 @@ QString QobuzService::DecodeAppSecret(const QString &app_secret_base64) const {
   const QByteArray app_secret_binary = QByteArray::fromBase64(app_secret_base64.toUtf8());
   QString app_secret_decoded;
 
-  for (int x = 0, y = 0; x < app_secret_binary.length(); ++x , ++y) {
+  for (int x = 0, y = 0; x < app_secret_binary.length(); ++x, ++y) {
     if (y == appid.length()) y = 0;
     const uint rc = static_cast<uint>(app_secret_binary[x] ^ appid[y]);
     if (rc > 0xFFFF) {
@@ -294,7 +296,7 @@ void QobuzService::SendLoginWithCredentials(const QString &app_id, const QString
   QObject::connect(reply, &QNetworkReply::sslErrors, this, &QobuzService::HandleLoginSSLErrors);
   QObject::connect(reply, &QNetworkReply::finished, this, [this, reply]() { HandleAuthReply(reply); });
 
-  //qLog(Debug) << "Qobuz: Sending request" << url << query;
+  // qLog(Debug) << "Qobuz: Sending request" << url << query;
 
 }
 
@@ -308,6 +310,10 @@ void QobuzService::HandleLoginSSLErrors(const QList<QSslError> &ssl_errors) {
 
 void QobuzService::HandleAuthReply(QNetworkReply *reply) {
 
+  if (replies_.contains(reply)) {
+     replies_.removeAll(reply);
+  }
+  QObject::disconnect(reply, nullptr, this, nullptr);
   reply->deleteLater();
 
   login_sent_ = false;

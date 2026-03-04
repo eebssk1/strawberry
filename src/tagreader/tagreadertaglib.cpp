@@ -46,6 +46,7 @@
 #include <taglib/apeproperties.h>
 #include <taglib/id3v2tag.h>
 #include <taglib/id3v2frame.h>
+#include <taglib/id3v2header.h>
 #include <taglib/attachedpictureframe.h>
 #include <taglib/textidentificationframe.h>
 #include <taglib/unsynchronizedlyricsframe.h>
@@ -104,6 +105,7 @@
 #include "constants/timeconstants.h"
 
 #include "albumcovertagdata.h"
+#include "tagid3v2version.h"
 
 using std::make_unique;
 using namespace Qt::Literals::StringLiterals;
@@ -186,6 +188,7 @@ constexpr char kVorbisComment_MusicBrainz_ReleaseTrackId[] = "MUSICBRAINZ_RELEAS
 constexpr char kVorbisComment_MusicBrainz_DiscId[] = "MUSICBRAINZ_DISCID";
 constexpr char kVorbisComment_MusicBrainz_ReleaseGroupId[] = "MUSICBRAINZ_RELEASEGROUPID";
 constexpr char kVorbisComment_MusicBrainz_WorkId[] = "MUSICBRAINZ_WORKID";
+constexpr char kVorbisComment_R128_Track_Gain[] = "R128_TRACK_GAIN";
 
 constexpr char kMP4_AlbumArtist[] = "aART";
 constexpr char kMP4_Composer[] = "\251wrt";
@@ -604,7 +607,13 @@ TagReaderResult TagReaderTagLib::ReadStream(const QUrl &url,
 
 void TagReaderTagLib::ParseID3v2Tags(TagLib::ID3v2::Tag *tag, QString *disc, QString *compilation, Song *song) const {
 
+  if (!tag) return;
+
   TagLib::ID3v2::FrameListMap map = tag->frameListMap();
+
+  if (tag->header()) {
+    song->set_id3v2_version(tag->header()->majorVersion());
+  }
 
   if (map.contains(kID3v2_Disc)) *disc = TagLibStringToQString(map[kID3v2_Disc].front()->toString()).trimmed();
   if (map.contains(kID3v2_Composer)) song->set_composer(map[kID3v2_Composer].front()->toString());
@@ -782,6 +791,8 @@ void TagReaderTagLib::ParseVorbisComments(const TagLib::Ogg::FieldListMap &map, 
   if (map.contains(kVorbisComment_MusicBrainz_DiscId)) song->set_musicbrainz_disc_id(map[kVorbisComment_MusicBrainz_DiscId].front());
   if (map.contains(kVorbisComment_MusicBrainz_ReleaseGroupId)) song->set_musicbrainz_release_group_id(map[kVorbisComment_MusicBrainz_ReleaseGroupId].front());
   if (map.contains(kVorbisComment_MusicBrainz_WorkId)) song->set_musicbrainz_work_id(map[kVorbisComment_MusicBrainz_WorkId].front());
+
+  if (map.contains(kVorbisComment_R128_Track_Gain)) song ->set_ebur128_integrated_loudness_lufs(-23.0 - (TagLibStringToQString(map[kVorbisComment_R128_Track_Gain].front()).toDouble() / 256.0));
 
 }
 
@@ -1042,7 +1053,7 @@ void TagReaderTagLib::ParseASFAttribute(const TagLib::ASF::AttributeListMap &att
 
 }
 
-TagReaderResult TagReaderTagLib::WriteFile(const QString &filename, const Song &song, const SaveTagsOptions save_tags_options, const SaveTagCoverData &save_tag_cover_data) const {
+TagReaderResult TagReaderTagLib::WriteFile(const QString &filename, const Song &song, const SaveTagsOptions save_tags_options, const SaveTagCoverData &save_tag_cover_data, const TagID3v2Version tag_id3v2_version) const {
 
   if (filename.isEmpty()) {
     return TagReaderResult::ErrorCode::FilenameMissing;
@@ -1265,7 +1276,34 @@ TagReaderResult TagReaderTagLib::WriteFile(const QString &filename, const Song &
     }
   }
 
-  const bool success = fileref->save();
+  // Determine ID3v2 version to use and convert to TagLib type
+  TagLib::ID3v2::Version taglib_id3v2_version = TagLib::ID3v2::v4;
+  if (tag_id3v2_version == TagID3v2Version::V3) {
+    taglib_id3v2_version = TagLib::ID3v2::v3;
+  }
+  else if (tag_id3v2_version == TagID3v2Version::V4) {
+    taglib_id3v2_version = TagLib::ID3v2::v4;
+  }
+
+  bool success = false;
+
+  // For MPEG files, use save with ID3v2 version parameter
+  if (TagLib::MPEG::File *file_mpeg = dynamic_cast<TagLib::MPEG::File*>(fileref->file())) {
+    success = file_mpeg->save(TagLib::MPEG::File::AllTags, TagLib::File::StripOthers, taglib_id3v2_version);
+  }
+  // For WAV files with ID3v2 tags
+  else if (TagLib::RIFF::WAV::File *file_wav = dynamic_cast<TagLib::RIFF::WAV::File*>(fileref->file())) {
+    success = file_wav->save(TagLib::RIFF::WAV::File::AllTags, TagLib::File::StripOthers, taglib_id3v2_version);
+  }
+  // For AIFF files with ID3v2 tags
+  else if (TagLib::RIFF::AIFF::File *file_aiff = dynamic_cast<TagLib::RIFF::AIFF::File*>(fileref->file())) {
+    success = file_aiff->save(taglib_id3v2_version);
+  }
+  // For all other file types, use default save
+  else {
+    success = fileref->save();
+  }
+
 #ifdef Q_OS_LINUX
   if (success) {
     // Linux: inotify doesn't seem to notice the change to the file unless we change the timestamps as well. (this is what touch does)
@@ -2077,7 +2115,7 @@ TagReaderResult TagReaderTagLib::SaveSongRating(const QString &filename, const f
 TagLib::String TagReaderTagLib::TagLibStringListToSlashSeparatedString(const TagLib::StringList &taglib_string_list, const uint begin_index) {
 
   TagLib::String result_string;
-  for (uint i = begin_index ; i < taglib_string_list.size(); ++i) {
+  for (uint i = begin_index; i < taglib_string_list.size(); ++i) {
     const TagLib::String &taglib_string = taglib_string_list[i];
     if (!result_string.isEmpty()) {
       result_string += '/';

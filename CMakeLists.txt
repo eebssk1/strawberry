@@ -84,8 +84,6 @@ if(MSVC)
   list(APPEND COMPILE_OPTIONS -MP -W4 -wd4702)
 else()
   list(APPEND COMPILE_OPTIONS
-    $<$<COMPILE_LANGUAGE:C>:-std=c11>
-    $<$<COMPILE_LANGUAGE:CXX>:-std=c++17>
     -Wall
     -Wextra
     -Wpedantic
@@ -212,8 +210,6 @@ find_package(GTest)
 
 pkg_check_modules(LIBSPARSEHASH IMPORTED_TARGET libsparsehash)
 
-find_package(RapidJSON)
-
 set(QT_VERSION_MAJOR 6)
 set(QT_MIN_VERSION 6.4.0)
 set(QT_DEFAULT_MAJOR_VERSION ${QT_VERSION_MAJOR})
@@ -255,7 +251,6 @@ find_package(KDSingleApplication-qt${QT_VERSION_MAJOR} 1.1.0 REQUIRED)
 
 if(APPLE)
   find_library(SPARKLE Sparkle)
-  #find_package(SPMediaKeyTap REQUIRED)
 endif()
 
 if(WIN32)
@@ -266,6 +261,8 @@ if(WIN32)
     set(GETOPT_LIBRARIES getopt-win::getopt)
   elseif(TARGET getopt::getopt_shared)
     set(GETOPT_LIBRARIES getopt::getopt_shared)
+  elseif(TARGET unofficial::getopt-win32::getopt)
+    set(GETOPT_LIBRARIES unofficial::getopt-win32::getopt)
   else()
     message(FATAL_ERROR "Missing getopt")
   endif()
@@ -375,9 +372,7 @@ optional_component(STREAMTAGREADER ON "Stream tagreader"
   DEPENDS "sparsehash" LIBSPARSEHASH_FOUND
 )
 
-optional_component(DISCORD_RPC ON "Discord Rich Presence"
-  DEPENDS "RapidJSON" RapidJSON_FOUND
-)
+optional_component(DISCORD_RPC ON "Discord Rich Presence")
 
 if(HAVE_SONGFINGERPRINTING OR HAVE_MUSICBRAINZ)
   set(HAVE_CHROMAPRINT ON)
@@ -699,6 +694,7 @@ set(SOURCES
   src/lyrics/elyricsnetlyricsprovider.cpp
   src/lyrics/letraslyricsprovider.cpp
   src/lyrics/lyricfindlyricsprovider.cpp
+  src/lyrics/lrcliblyricsprovider.cpp
 
   src/settings/settingsdialog.cpp
   src/settings/settingspage.cpp
@@ -792,9 +788,7 @@ set(SOURCES
   src/scrobbler/scrobblercache.cpp
   src/scrobbler/scrobblercacheitem.cpp
   src/scrobbler/scrobblemetadata.cpp
-  src/scrobbler/scrobblingapi20.cpp
   src/scrobbler/lastfmscrobbler.cpp
-  src/scrobbler/librefmscrobbler.cpp
   src/scrobbler/listenbrainzscrobbler.cpp
   src/scrobbler/lastfmimport.cpp
 
@@ -822,6 +816,8 @@ set(SOURCES
 
   src/fileview/fileview.cpp
   src/fileview/fileviewlist.cpp
+  src/fileview/fileviewtree.cpp
+  src/fileview/fileviewtreemodel.cpp
 
   src/device/devicemanager.cpp
   src/device/devicelister.cpp
@@ -997,6 +993,7 @@ set(HEADERS
   src/lyrics/elyricsnetlyricsprovider.h
   src/lyrics/letraslyricsprovider.h
   src/lyrics/lyricfindlyricsprovider.h
+  src/lyrics/lrcliblyricsprovider.h
 
   src/settings/settingsdialog.h
   src/settings/settingspage.h
@@ -1085,9 +1082,7 @@ set(HEADERS
   src/scrobbler/scrobblersettingsservice.h
   src/scrobbler/scrobblerservice.h
   src/scrobbler/scrobblercache.h
-  src/scrobbler/scrobblingapi20.h
   src/scrobbler/lastfmscrobbler.h
-  src/scrobbler/librefmscrobbler.h
   src/scrobbler/listenbrainzscrobbler.h
   src/scrobbler/lastfmimport.h
 
@@ -1112,6 +1107,8 @@ set(HEADERS
 
   src/fileview/fileview.h
   src/fileview/fileviewlist.h
+  src/fileview/fileviewtree.h
+  src/fileview/fileviewtreemodel.h
 
   src/device/devicemanager.h
   src/device/devicelister.h
@@ -1214,6 +1211,10 @@ set(UI
   src/device/deviceviewcontainer.ui
 )
 
+if(UNIX)
+  optional_source(UNIX SOURCES src/core/unixsignalwatcher.cpp HEADERS src/core/unixsignalwatcher.h)
+endif()
+
 if(APPLE)
   optional_source(APPLE
     SOURCES
@@ -1253,8 +1254,8 @@ optional_source(HAVE_STREAMTAGREADER
 )
 
 optional_source(HAVE_DISCORD_RPC
-  SOURCES src/discord/richpresence.cpp
-  HEADERS src/discord/richpresence.h
+  SOURCES src/discord/discordrpc.cpp src/discord/discordrichpresence.cpp src/discord/discordpresence.cpp
+  HEADERS src/discord/discordrpc.h src/discord/discordrichpresence.h
 )
 
 if(HAVE_GLOBALSHORTCUTS)
@@ -1442,6 +1443,7 @@ optional_source(HAVE_SPOTIFY
     src/spotify/spotifybaserequest.cpp
     src/spotify/spotifyrequest.cpp
     src/spotify/spotifyfavoriterequest.cpp
+    src/spotify/spotifymetadatarequest.cpp
     src/settings/spotifysettingspage.cpp
     src/covermanager/spotifycoverprovider.cpp
   HEADERS
@@ -1449,6 +1451,7 @@ optional_source(HAVE_SPOTIFY
     src/spotify/spotifybaserequest.h
     src/spotify/spotifyrequest.h
     src/spotify/spotifyfavoriterequest.h
+    src/spotify/spotifymetadatarequest.h
     src/settings/spotifysettingspage.h
     src/covermanager/spotifycoverprovider.h
   UI
@@ -1463,6 +1466,8 @@ optional_source(HAVE_QOBUZ
     src/qobuz/qobuzrequest.cpp
     src/qobuz/qobuzstreamurlrequest.cpp
     src/qobuz/qobuzfavoriterequest.cpp
+    src/qobuz/qobuzmetadatarequest.cpp
+    src/qobuz/qobuzcredentialfetcher.cpp
     src/settings/qobuzsettingspage.cpp
     src/covermanager/qobuzcoverprovider.cpp
   HEADERS
@@ -1472,6 +1477,8 @@ optional_source(HAVE_QOBUZ
     src/qobuz/qobuzrequest.h
     src/qobuz/qobuzstreamurlrequest.h
     src/qobuz/qobuzfavoriterequest.h
+    src/qobuz/qobuzmetadatarequest.h
+    src/qobuz/qobuzcredentialfetcher.h
     src/settings/qobuzsettingspage.h
     src/covermanager/qobuzcoverprovider.h
   UI
@@ -1499,11 +1506,6 @@ endif()
 
 if(LINUX AND LSB_RELEASE_EXEC AND DPKG_BUILDPACKAGE)
   add_subdirectory(debian)
-endif()
-
-if(HAVE_DISCORD_RPC)
-  add_subdirectory(3rdparty/discord-rpc)
-  target_include_directories(strawberry_lib PUBLIC 3rdparty/discord-rpc)
 endif()
 
 if(HAVE_TRANSLATIONS)
@@ -1566,7 +1568,6 @@ target_link_libraries(strawberry_lib PUBLIC
   $<$<BOOL:${WIN32}>:dsound dwmapi ${GETOPT_LIBRARIES}>
   $<$<BOOL:${MSVC}>:WindowsApp>
   KDAB::kdsingleapplication
-  $<$<BOOL:${HAVE_DISCORD_RPC}>:discord-rpc>
 )
 
 if(APPLE)

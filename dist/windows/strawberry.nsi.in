@@ -313,17 +313,18 @@ Section "Strawberry" Strawberry
   File "libgsturidownloader-1.0-0.dll"
   File "libgstvideo-1.0-0.dll"
   File "libharfbuzz-0.dll"
-  File "libhogweed-6.dll"
+  File "libhogweed-7.dll"
   File "libiconv-2.dll"
   File "libidn2-0.dll"
   File "libintl-8.dll"
-  File "libjpeg-9.dll"
+  File "libjasper.dll"
+  File "libjpeg-10.dll"
   File "libkdsingleapplication-qt6.dll"
   File "liblzma-5.dll"
   File "libmp3lame-0.dll"
   File "libmpcdec.dll"
   File "libmpg123-0.dll"
-  File "libnettle-8.dll"
+  File "libnettle-9.dll"
   File "libnghttp2.dll"
   File "libogg-0.dll"
   File "libopenmpt-0.dll"
@@ -345,6 +346,9 @@ Section "Strawberry" Strawberry
   File "libvorbisenc-2.dll"
   File "libvorbisfile-3.dll"
   File "libwavpack-1.dll"
+  File "libwebp.dll"
+  File "libwebpdemux.dll"
+  File "libwebpmux.dll"
   File "libwinpthread-1.dll"
   File "libzstd.dll"
   File "zlib1.dll"
@@ -395,9 +399,6 @@ Section "Strawberry" Strawberry
   File "glib-2.0-0.dll"
   File "gme.dll"
   File "gmodule-2.0-0.dll"
-!ifndef arch_arm64
-  File "gnutls.dll"
-!endif
   File "gobject-2.0-0.dll"
   File "gstadaptivedemux-1.0-0.dll"
   File "gstapp-1.0-0.dll"
@@ -418,20 +419,19 @@ Section "Strawberry" Strawberry
   File "gsttag-1.0-0.dll"
   File "gsturidownloader-1.0-0.dll"
   File "gstvideo-1.0-0.dll"
-!ifdef arch_arm64
-  File "gstwinrt-1.0-0.dll"
-!endif
   File "harfbuzz.dll"
   File "intl-8.dll"
+  File "jasper.dll"
   File "jpeg62.dll"
   File "kdsingleapplication-qt6.dll"
   File "libbs2b.dll"
-!ifndef arch_arm64
-  File "libfaac_dll.dll"
-!endif
   File "liblzma.dll"
   File "libmp3lame.dll"
   File "libopenmpt.dll"
+  File "libsharpyuv.dll"
+  File "libwebp.dll"
+  File "libwebpdemux.dll"
+  File "libwebpmux.dll"
   File "mpcdec.dll"
   File "mpg123.dll"
   File "nghttp2.dll"
@@ -447,29 +447,34 @@ Section "Strawberry" Strawberry
   File "vorbisfile.dll"
   File "wavpackdll.dll"
 
+!ifndef arch_arm64
+  File "gnutls.dll"
+  File "libfaac_dll.dll"
+!endif
+
 !ifdef release
   File "freetype.dll"
-  File "libiconv.dll"
   File "libpng16.dll"
   File "libspeex.dll"
   File "pcre2-8.dll"
   File "pcre2-16.dll"
+  File "z.dll"
+  File "tiff.dll"
 !ifndef arch_arm64
   File "twolame.dll"
 !endif
-  File "zlib1.dll"
 !endif
 !ifdef debug
   File "freetyped.dll"
-  File "libiconvd.dll"
   File "libpng16d.dll"
   File "libspeexd.dll"
   File "pcre2-8d.dll"
   File "pcre2-16d.dll"
+  File "zd.dll"
+  File "tiffd.dll"
 !ifndef arch_arm64
   File "twolamed.dll"
 !endif
-  File "zlibd1.dll"
 !endif
 
   ; Used by libfftw3-3.dll because fftw is compiled with MinGW.
@@ -482,15 +487,15 @@ Section "Strawberry" Strawberry
 
   ; Common files
 
-  File "icudt77.dll"
+  File "icudt78.dll"
 !ifdef msvc && arch_arm64
   File "fftw3.dll"
 !else
   File "libfftw3-3.dll"
 !endif
 !ifdef msvc && debug
-  File "icuin77d.dll"
-  File "icuuc77d.dll"
+  File "icuin78d.dll"
+  File "icuuc78d.dll"
   File "libxml2d.dll"
   File "Qt6Concurrentd.dll"
   File "Qt6Cored.dll"
@@ -499,8 +504,8 @@ Section "Strawberry" Strawberry
   File "Qt6Sqld.dll"
   File "Qt6Widgetsd.dll"
 !else
-  File "icuin77.dll"
-  File "icuuc77.dll"
+  File "icuin78.dll"
+  File "icuuc78.dll"
   File "libxml2.dll"
   File "Qt6Concurrent.dll"
   File "Qt6Core.dll"
@@ -510,6 +515,7 @@ Section "Strawberry" Strawberry
   File "Qt6Widgets.dll"
 !endif
 
+!ifdef msvc && arch_x86
   File "avcodec-61.dll"
   File "avfilter-10.dll"
   File "avformat-61.dll"
@@ -517,6 +523,14 @@ Section "Strawberry" Strawberry
   File "postproc-58.dll"
   File "swresample-5.dll"
   File "swscale-8.dll"
+!else
+  File "avcodec-62.dll"
+  File "avfilter-11.dll"
+  File "avformat-62.dll"
+  File "avutil-60.dll"
+  File "swresample-6.dll"
+  File "swscale-9.dll"
+!endif
 
   ; Register Strawberry with Default Programs
   Var /GLOBAL AppIcon
@@ -608,10 +622,16 @@ Section "Qt imageformats" imageformats
   File "/oname=qgifd.dll" "imageformats\qgifd.dll"
   File "/oname=qicod.dll" "imageformats\qicod.dll"
   File "/oname=qjpegd.dll" "imageformats\qjpegd.dll"
+  File "/oname=qtiffd.dll" "imageformats\qtiffd.dll"
+  File "/oname=qjp2d.dll" "imageformats\qjp2d.dll"
+  File "/oname=qwebpd.dll" "imageformats\qwebpd.dll"
 !else
   File "/oname=qgif.dll" "imageformats\qgif.dll"
   File "/oname=qico.dll" "imageformats\qico.dll"
   File "/oname=qjpeg.dll" "imageformats\qjpeg.dll"
+  File "/oname=qtiff.dll" "imageformats\qtiff.dll"
+  File "/oname=qjp2.dll" "imageformats\qjp2.dll"
+  File "/oname=qwebp.dll" "imageformats\qwebp.dll"
 !endif
 SectionEnd
 
@@ -677,6 +697,7 @@ Section "Gstreamer plugins" gstreamer-plugins
   File "/oname=libgstvolume.dll" "gstreamer-plugins\libgstvolume.dll"
   File "/oname=libgstvorbis.dll" "gstreamer-plugins\libgstvorbis.dll"
   File "/oname=libgstwasapi.dll" "gstreamer-plugins\libgstwasapi.dll"
+  File "/oname=libgstwasapi2.dll" "gstreamer-plugins\libgstwasapi2.dll"
   File "/oname=libgstwaveform.dll" "gstreamer-plugins\libgstwaveform.dll"
   File "/oname=libgstwavenc.dll" "gstreamer-plugins\libgstwavenc.dll"
   File "/oname=libgstwavpack.dll" "gstreamer-plugins\libgstwavpack.dll"
@@ -860,17 +881,18 @@ Section "Uninstall"
   Delete "$INSTDIR\libgsturidownloader-1.0-0.dll"
   Delete "$INSTDIR\libgstvideo-1.0-0.dll"
   Delete "$INSTDIR\libharfbuzz-0.dll"
-  Delete "$INSTDIR\libhogweed-6.dll"
+  Delete "$INSTDIR\libhogweed-7.dll"
   Delete "$INSTDIR\libiconv-2.dll"
   Delete "$INSTDIR\libidn2-0.dll"
   Delete "$INSTDIR\libintl-8.dll"
-  Delete "$INSTDIR\libjpeg-9.dll"
+  Delete "$INSTDIR\libjasper.dll"
+  Delete "$INSTDIR\libjpeg-10.dll"
   Delete "$INSTDIR\libkdsingleapplication-qt6.dll"
   Delete "$INSTDIR\liblzma-5.dll"
   Delete "$INSTDIR\libmp3lame-0.dll"
   Delete "$INSTDIR\libmpcdec.dll"
   Delete "$INSTDIR\libmpg123-0.dll"
-  Delete "$INSTDIR\libnettle-8.dll"
+  Delete "$INSTDIR\libnettle-9.dll"
   Delete "$INSTDIR\libnghttp2.dll"
   Delete "$INSTDIR\libogg-0.dll"
   Delete "$INSTDIR\libopenmpt-0.dll"
@@ -892,6 +914,9 @@ Section "Uninstall"
   Delete "$INSTDIR\libvorbisenc-2.dll"
   Delete "$INSTDIR\libvorbisfile-3.dll"
   Delete "$INSTDIR\libwavpack-1.dll"
+  Delete "$INSTDIR\libwebp.dll"
+  Delete "$INSTDIR\libwebpdemux.dll"
+  Delete "$INSTDIR\libwebpmux.dll"
   Delete "$INSTDIR\libwinpthread-1.dll"
   Delete "$INSTDIR\libzstd.dll"
   Delete "$INSTDIR\zlib1.dll"
@@ -942,9 +967,6 @@ Section "Uninstall"
   Delete "$INSTDIR\glib-2.0-0.dll"
   Delete "$INSTDIR\gme.dll"
   Delete "$INSTDIR\gmodule-2.0-0.dll"
-!ifndef arch_arm64
-  Delete "$INSTDIR\gnutls.dll"
-!endif
   Delete "$INSTDIR\gobject-2.0-0.dll"
   Delete "$INSTDIR\gstadaptivedemux-1.0-0.dll"
   Delete "$INSTDIR\gstapp-1.0-0.dll"
@@ -965,20 +987,19 @@ Section "Uninstall"
   Delete "$INSTDIR\gsttag-1.0-0.dll"
   Delete "$INSTDIR\gsturidownloader-1.0-0.dll"
   Delete "$INSTDIR\gstvideo-1.0-0.dll"
-!ifdef arch_arm64
-  Delete "$INSTDIR\gstwinrt-1.0-0.dll"
-!endif
   Delete "$INSTDIR\harfbuzz.dll"
   Delete "$INSTDIR\intl-8.dll"
+  Delete "$INSTDIR\jasper.dll"
   Delete "$INSTDIR\jpeg62.dll"
   Delete "$INSTDIR\kdsingleapplication-qt6.dll"
   Delete "$INSTDIR\libbs2b.dll"
-!ifndef arch_arm64
-  Delete "$INSTDIR\libfaac_dll.dll"
-!endif
   Delete "$INSTDIR\liblzma.dll"
   Delete "$INSTDIR\libmp3lame.dll"
   Delete "$INSTDIR\libopenmpt.dll"
+  Delete "$INSTDIR\libsharpyuv.dll"
+  Delete "$INSTDIR\libwebp.dll"
+  Delete "$INSTDIR\libwebpdemux.dll"
+  Delete "$INSTDIR\libwebpmux.dll"
   Delete "$INSTDIR\mpcdec.dll"
   Delete "$INSTDIR\mpg123.dll"
   Delete "$INSTDIR\nghttp2.dll"
@@ -994,29 +1015,34 @@ Section "Uninstall"
   Delete "$INSTDIR\vorbisfile.dll"
   Delete "$INSTDIR\wavpackdll.dll"
 
+!ifndef arch_arm64
+  Delete "$INSTDIR\gnutls.dll"
+  Delete "$INSTDIR\libfaac_dll.dll"
+!endif
+
 !ifdef release
   Delete "$INSTDIR\freetype.dll"
-  Delete "$INSTDIR\libiconv.dll"
   Delete "$INSTDIR\libpng16.dll"
   Delete "$INSTDIR\libspeex.dll"
   Delete "$INSTDIR\pcre2-8.dll"
   Delete "$INSTDIR\pcre2-16.dll"
+  Delete "$INSTDIR\z.dll"
+  Delete "$INSTDIR\tiff.dll"
 !ifndef arch_arm64
   Delete "$INSTDIR\twolame.dll"
 !endif
-  Delete "$INSTDIR\zlib1.dll"
 !endif
 !ifdef debug
   Delete "$INSTDIR\freetyped.dll"
-  Delete "$INSTDIR\libiconvd.dll"
   Delete "$INSTDIR\libpng16d.dll"
   Delete "$INSTDIR\libspeexd.dll"
   Delete "$INSTDIR\pcre2-8d.dll"
   Delete "$INSTDIR\pcre2-16d.dll"
+  Delete "$INSTDIR\zd.dll"
+  Delete "$INSTDIR\tiffd.dll"
 !ifndef arch_arm64
   Delete "$INSTDIR\twolamed.dll"
 !endif
-  Delete "$INSTDIR\zlibd1.dll"
 !endif
 
 !ifdef arch_x86
@@ -1028,15 +1054,15 @@ Section "Uninstall"
 
   ; Common files
 
-  Delete "$INSTDIR\icudt77.dll"
+  Delete "$INSTDIR\icudt78.dll"
 !ifdef msvc && arch_arm64
   Delete "$INSTDIR\fftw3.dll"
 !else
   Delete "$INSTDIR\libfftw3-3.dll"
 !endif
 !ifdef msvc && debug
-  Delete "$INSTDIR\icuin77d.dll"
-  Delete "$INSTDIR\icuuc77d.dll"
+  Delete "$INSTDIR\icuin78d.dll"
+  Delete "$INSTDIR\icuuc78d.dll"
   Delete "$INSTDIR\libxml2d.dll"
   Delete "$INSTDIR\Qt6Concurrentd.dll"
   Delete "$INSTDIR\Qt6Cored.dll"
@@ -1045,8 +1071,8 @@ Section "Uninstall"
   Delete "$INSTDIR\Qt6Sqld.dll"
   Delete "$INSTDIR\Qt6Widgetsd.dll"
 !else
-  Delete "$INSTDIR\icuin77.dll"
-  Delete "$INSTDIR\icuuc77.dll"
+  Delete "$INSTDIR\icuin78.dll"
+  Delete "$INSTDIR\icuuc78.dll"
   Delete "$INSTDIR\libxml2.dll"
   Delete "$INSTDIR\Qt6Concurrent.dll"
   Delete "$INSTDIR\Qt6Core.dll"
@@ -1056,6 +1082,7 @@ Section "Uninstall"
   Delete "$INSTDIR\Qt6Widgets.dll"
 !endif
 
+!ifdef msvc && arch_x86
   Delete "$INSTDIR\avcodec-61.dll"
   Delete "$INSTDIR\avfilter-10.dll"
   Delete "$INSTDIR\avformat-61.dll"
@@ -1063,6 +1090,14 @@ Section "Uninstall"
   Delete "$INSTDIR\postproc-58.dll"
   Delete "$INSTDIR\swresample-5.dll"
   Delete "$INSTDIR\swscale-8.dll"
+!else
+  Delete "$INSTDIR\avcodec-62.dll"
+  Delete "$INSTDIR\avfilter-11.dll"
+  Delete "$INSTDIR\avformat-62.dll"
+  Delete "$INSTDIR\avutil-60.dll"
+  Delete "$INSTDIR\swresample-6.dll"
+  Delete "$INSTDIR\swscale-9.dll"
+!endif
 
 !ifdef mingw
   Delete "$INSTDIR\gio-modules\libgiognutls.dll"
@@ -1084,6 +1119,9 @@ Section "Uninstall"
   Delete "$INSTDIR\imageformats\qgifd.dll"
   Delete "$INSTDIR\imageformats\qicod.dll"
   Delete "$INSTDIR\imageformats\qjpegd.dll"
+  Delete "$INSTDIR\imageformats\qtiffd.dll"
+  Delete "$INSTDIR\imageformats\qjp2d.dll"
+  Delete "$INSTDIR\imageformats\qwebpd.dll"
 !else
   Delete "$INSTDIR\platforms\qwindows.dll"
   Delete "$INSTDIR\styles\qmodernwindowsstyle.dll"
@@ -1093,6 +1131,9 @@ Section "Uninstall"
   Delete "$INSTDIR\imageformats\qgif.dll"
   Delete "$INSTDIR\imageformats\qico.dll"
   Delete "$INSTDIR\imageformats\qjpeg.dll"
+  Delete "$INSTDIR\imageformats\qtiff.dll"
+  Delete "$INSTDIR\imageformats\qjp2.dll"
+  Delete "$INSTDIR\imageformats\qwebp.dll"
 !endif
 
   ; MinGW GStreamer plugins
@@ -1156,6 +1197,7 @@ Section "Uninstall"
   Delete "$INSTDIR\gstreamer-plugins\libgstvolume.dll"
   Delete "$INSTDIR\gstreamer-plugins\libgstvorbis.dll"
   Delete "$INSTDIR\gstreamer-plugins\libgstwasapi.dll"
+  Delete "$INSTDIR\gstreamer-plugins\libgstwasapi2.dll"
   Delete "$INSTDIR\gstreamer-plugins\libgstwaveform.dll"
   Delete "$INSTDIR\gstreamer-plugins\libgstwavenc.dll"
   Delete "$INSTDIR\gstreamer-plugins\libgstwavpack.dll"

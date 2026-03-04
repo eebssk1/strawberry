@@ -1,6 +1,6 @@
 /*
  * Strawberry Music Player
- * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2025, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -17,30 +17,13 @@
  *
  */
 
-#ifndef LIBREFMSCROBBLER_H
-#define LIBREFMSCROBBLER_H
+#ifndef TAGID3V2VERSION_H
+#define TAGID3V2VERSION_H
 
-#include "config.h"
-
-#include "includes/shared_ptr.h"
-#include "scrobblingapi20.h"
-
-class ScrobblerSettingsService;
-class NetworkAccessManager;
-
-class LibreFMScrobbler : public ScrobblingAPI20 {
-  Q_OBJECT
-
- public:
-  explicit LibreFMScrobbler(const SharedPtr<ScrobblerSettingsService> settings, const SharedPtr<NetworkAccessManager> network, QObject *parent = nullptr);
-
-  static const char *kName;
-  static const char *kSettingsGroup;
-
- private:
-  static const char *kAuthUrl;
-  static const char *kApiUrl;
-  static const char *kCacheFile;
+enum class TagID3v2Version {
+  Default = 0,  // Use existing version or library default
+  V3 = 3,
+  V4 = 4
 };
 
-#endif  // LIBREFMSCROBBLER_H
+#endif  // TAGID3V2VERSION_H

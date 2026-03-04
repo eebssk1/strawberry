@@ -1,6 +1,7 @@
 /build
 /bin
 /CMakeLists.txt.user
+/.qtcreator
 /.kdev4
 /strawberry.kdev4
 /.vscode
@@ -12,3 +13,4 @@
 /CMakeSettings.json
 /dist/scripts/maketarball.sh
 /debian/changelog
+_codeql_detected_source_root

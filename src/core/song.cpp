@@ -243,6 +243,7 @@ const QStringList Song::kAcceptedExtensions = QStringList() << u"wav"_s
                                                             << u"tta"_s
                                                             << u"dsf"_s
                                                             << u"dsd"_s
+                                                            << u"webm"_s
                                                             << u"ac3"_s
                                                             << u"dts"_s
                                                             << u"spc"_s
@@ -352,6 +353,8 @@ struct Song::Private : public QSharedData {
   std::optional<double> ebur128_integrated_loudness_lufs_;
   std::optional<double> ebur128_loudness_range_lu_;
 
+  int id3v2_version_;  // ID3v2 tag version (3 or 4), 0 if not applicable or unknown
+
   bool init_from_file_;         // Whether this song was loaded from a file using taglib.
   bool suspicious_tags_;        // Whether our encoding guesser thinks these tags might be incorrectly encoded.
 
@@ -398,6 +401,8 @@ Song::Private::Private(const Source source)
 
       rating_(-1),
       bpm_(-1),
+
+      id3v2_version_(0),
 
       init_from_file_(false),
       suspicious_tags_(false)
@@ -508,6 +513,8 @@ const QString &Song::musicbrainz_work_id() const { return d->musicbrainz_work_id
 
 std::optional<double> Song::ebur128_integrated_loudness_lufs() const { return d->ebur128_integrated_loudness_lufs_; }
 std::optional<double> Song::ebur128_loudness_range_lu() const { return d->ebur128_loudness_range_lu_; }
+
+int Song::id3v2_version() const { return d->id3v2_version_; }
 
 QString *Song::mutable_title() { return &d->title_; }
 QString *Song::mutable_album() { return &d->album_; }
@@ -623,6 +630,8 @@ void Song::set_musicbrainz_work_id(const QString &v) { d->musicbrainz_work_id_ =
 void Song::set_ebur128_integrated_loudness_lufs(const std::optional<double> v) { d->ebur128_integrated_loudness_lufs_ = v; }
 void Song::set_ebur128_loudness_range_lu(const std::optional<double> v) { d->ebur128_loudness_range_lu_ = v; }
 
+void Song::set_id3v2_version(const int v) { d->id3v2_version_ = v; }
+
 void Song::set_init_from_file(const bool v) { d->init_from_file_ = v; }
 
 void Song::set_stream_url(const QUrl &v) { d->stream_url_ = v; }
@@ -677,11 +686,12 @@ const QString &Song::playlist_effective_albumartistsort() const { return is_comp
 bool Song::is_metadata_good() const { return !d->url_.isEmpty() && !d->artist_.isEmpty() && !d->title_.isEmpty(); }
 bool Song::is_local_collection_song() const { return d->source_ == Source::Collection; }
 bool Song::is_linked_collection_song() const { return IsLinkedCollectionSource(d->source_); }
-bool Song::is_stream() const { return is_radio() || d->source_ == Source::Tidal || d->source_ == Source::Subsonic || d->source_ == Source::Qobuz || d->source_ == Source::Spotify; }
 bool Song::is_radio() const { return d->source_ == Source::Stream || d->source_ == Source::SomaFM || d->source_ == Source::RadioParadise; }
+bool Song::is_stream_service() const { return d->source_ == Source::Subsonic || d->source_ == Source::Tidal || d->source_ == Source::Qobuz || d->source_ == Source::Spotify; }
+bool Song::is_stream() const { return is_radio() || is_stream_service(); }
 bool Song::is_cdda() const { return d->source_ == Source::CDDA; }
 bool Song::is_compilation() const { return (d->compilation_ || d->compilation_detected_ || d->compilation_on_) && !d->compilation_off_; }
-bool Song::stream_url_can_expire() const { return d->source_ == Source::Tidal || d->source_ == Source::Qobuz || d->source_ == Source::Spotify; }
+bool Song::stream_url_can_expire() const { return d->source_ == Source::Tidal || d->source_ == Source::Qobuz; }
 bool Song::is_module_music() const { return d->filetype_ == FileType::MOD || d->filetype_ == FileType::S3M || d->filetype_ == FileType::XM || d->filetype_ == FileType::IT; }
 bool Song::has_cue() const { return !d->cue_path_.isEmpty(); }
 
@@ -719,17 +729,17 @@ bool Song::write_tags_supported() const {
 bool Song::additional_tags_supported() const {
 
   return d->filetype_ == FileType::FLAC ||
-    d->filetype_ == FileType::WavPack ||
-    d->filetype_ == FileType::OggFlac ||
-    d->filetype_ == FileType::OggVorbis ||
-    d->filetype_ == FileType::OggOpus ||
-    d->filetype_ == FileType::OggSpeex ||
-    d->filetype_ == FileType::MPEG ||
-    d->filetype_ == FileType::MP4 ||
-    d->filetype_ == FileType::MPC ||
-    d->filetype_ == FileType::APE ||
-    d->filetype_ == FileType::WAV ||
-    d->filetype_ == FileType::AIFF;
+         d->filetype_ == FileType::WavPack ||
+         d->filetype_ == FileType::OggFlac ||
+         d->filetype_ == FileType::OggVorbis ||
+         d->filetype_ == FileType::OggOpus ||
+         d->filetype_ == FileType::OggSpeex ||
+         d->filetype_ == FileType::MPEG ||
+         d->filetype_ == FileType::MP4 ||
+         d->filetype_ == FileType::MPC ||
+         d->filetype_ == FileType::APE ||
+         d->filetype_ == FileType::WAV ||
+         d->filetype_ == FileType::AIFF;
 
 }
 
@@ -744,16 +754,16 @@ bool Song::composer_supported() const {
 bool Song::performer_supported() const {
 
   return d->filetype_ == FileType::FLAC ||
-    d->filetype_ == FileType::WavPack ||
-    d->filetype_ == FileType::OggFlac ||
-    d->filetype_ == FileType::OggVorbis ||
-    d->filetype_ == FileType::OggOpus ||
-    d->filetype_ == FileType::OggSpeex ||
-    d->filetype_ == FileType::MPEG ||
-    d->filetype_ == FileType::MPC ||
-    d->filetype_ == FileType::APE ||
-    d->filetype_ == FileType::WAV ||
-    d->filetype_ == FileType::AIFF;
+         d->filetype_ == FileType::WavPack ||
+         d->filetype_ == FileType::OggFlac ||
+         d->filetype_ == FileType::OggVorbis ||
+         d->filetype_ == FileType::OggOpus ||
+         d->filetype_ == FileType::OggSpeex ||
+         d->filetype_ == FileType::MPEG ||
+         d->filetype_ == FileType::MPC ||
+         d->filetype_ == FileType::APE ||
+         d->filetype_ == FileType::WAV ||
+         d->filetype_ == FileType::AIFF;
 
 }
 
@@ -772,18 +782,18 @@ bool Song::compilation_supported() const {
 bool Song::rating_supported() const {
 
   return d->filetype_ == FileType::FLAC ||
-    d->filetype_ == FileType::WavPack ||
-    d->filetype_ == FileType::OggFlac ||
-    d->filetype_ == FileType::OggVorbis ||
-    d->filetype_ == FileType::OggOpus ||
-    d->filetype_ == FileType::OggSpeex ||
-    d->filetype_ == FileType::MPEG ||
-    d->filetype_ == FileType::MP4 ||
-    d->filetype_ == FileType::ASF ||
-    d->filetype_ == FileType::MPC ||
-    d->filetype_ == FileType::APE ||
-    d->filetype_ == FileType::WAV ||
-    d->filetype_ == FileType::AIFF;
+         d->filetype_ == FileType::WavPack ||
+         d->filetype_ == FileType::OggFlac ||
+         d->filetype_ == FileType::OggVorbis ||
+         d->filetype_ == FileType::OggOpus ||
+         d->filetype_ == FileType::OggSpeex ||
+         d->filetype_ == FileType::MPEG ||
+         d->filetype_ == FileType::MP4 ||
+         d->filetype_ == FileType::ASF ||
+         d->filetype_ == FileType::MPC ||
+         d->filetype_ == FileType::APE ||
+         d->filetype_ == FileType::WAV ||
+         d->filetype_ == FileType::AIFF;
 
 }
 
@@ -796,19 +806,19 @@ bool Song::lyrics_supported() const {
 }
 
 bool Song::albumartistsort_supported() const {
-  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::MPEG;
+  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::OggOpus || d->filetype_ == FileType::MPEG;
 }
 
 bool Song::albumsort_supported() const {
-  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::MPEG;
+  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::OggOpus || d->filetype_ == FileType::MPEG;
 }
 
 bool Song::artistsort_supported() const {
-  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::MPEG;
+  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::OggOpus || d->filetype_ == FileType::MPEG;
 }
 
 bool Song::composersort_supported() const {
-  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::MPEG;
+  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::OggOpus || d->filetype_ == FileType::MPEG;
 }
 
 bool Song::performersort_supported() const {
@@ -817,19 +827,23 @@ bool Song::performersort_supported() const {
 }
 
 bool Song::titlesort_supported() const {
-  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::MPEG;
+  return d->filetype_ == FileType::FLAC || d->filetype_ == FileType::OggFlac || d->filetype_ == FileType::OggVorbis || d->filetype_ == FileType::OggOpus || d->filetype_ == FileType::MPEG;
 }
 
 bool Song::save_embedded_cover_supported(const FileType filetype) {
 
   return filetype == FileType::FLAC ||
-    filetype == FileType::OggVorbis ||
-    filetype == FileType::OggOpus ||
-    filetype == FileType::MPEG ||
-    filetype == FileType::MP4 ||
-    filetype == FileType::WAV ||
-    filetype == FileType::AIFF;
+         filetype == FileType::OggVorbis ||
+         filetype == FileType::OggOpus ||
+         filetype == FileType::MPEG ||
+         filetype == FileType::MP4 ||
+         filetype == FileType::WAV ||
+         filetype == FileType::AIFF;
 
+}
+
+bool Song::id3v2_tags_supported() const {
+  return d->filetype_ == FileType::MPEG || d->filetype_ == FileType::WAV || d->filetype_ == FileType::AIFF;
 }
 
 int Song::ColumnIndex(const QString &field) {
@@ -943,7 +957,7 @@ QString Song::PrettyRating() const {
 }
 
 bool Song::IsEditable() const {
-  return d->valid_ && d->url_.isValid() && ((d->url_.isLocalFile() && write_tags_supported() && !has_cue()) || d->source_ == Source::Stream);
+  return d->valid_ && d->url_.isValid() && ((d->url_.isLocalFile() && write_tags_supported() && !has_cue()) || is_stream());
 }
 
 bool Song::IsFileInfoEqual(const Song &other) const {
@@ -1443,7 +1457,7 @@ Song::FileType Song::FiletypeByExtension(const QString &ext) {
   if (ext.compare("ape"_L1, Qt::CaseInsensitive) == 0) return FileType::APE;
   if (ext.compare("mod"_L1, Qt::CaseInsensitive) == 0 ||
       ext.compare("module"_L1, Qt::CaseInsensitive) == 0 ||
-      ext.compare("nst"_L1, Qt::CaseInsensitive) == 0||
+      ext.compare("nst"_L1, Qt::CaseInsensitive) == 0 ||
       ext.compare("wow"_L1, Qt::CaseInsensitive) == 0) return FileType::MOD;
   if (ext.compare("s3m"_L1, Qt::CaseInsensitive) == 0) return FileType::S3M;
   if (ext.compare("xm"_L1, Qt::CaseInsensitive) == 0) return FileType::XM;
@@ -1655,12 +1669,24 @@ void Song::InitArtManual() {
 void Song::InitArtAutomatic() {
 
   if (d->art_automatic_.isEmpty() && d->source_ == Source::LocalFile && d->url_.isLocalFile()) {
-    // Pick the first image file in the album directory.
-    QFileInfo file(d->url_.toLocalFile());
-    QDir dir(file.path());
-    QStringList files = dir.entryList(QStringList() << u"*.jpg"_s << u"*.png"_s << u"*.gif"_s << u"*.jpeg"_s, QDir::Files|QDir::Readable, QDir::Name);
-    if (files.count() > 0) {
-      d->art_automatic_ = QUrl::fromLocalFile(file.path() + QDir::separator() + files.first());
+    const QFileInfo fileinfo(d->url_.toLocalFile());
+    const QDir dir(fileinfo.path());
+    const QStringList cover_files = dir.entryList(QStringList() << u"*.jpg"_s << u"*.png"_s << u"*.gif"_s << u"*.jpeg"_s, QDir::Files|QDir::Readable, QDir::Name);
+    QString best_cover_file;
+    for (const QString &cover_file : cover_files) {
+      if (cover_file.contains("back"_L1, Qt::CaseInsensitive)) {
+        continue;
+      }
+      if (cover_file.contains("front"_L1, Qt::CaseInsensitive) || cover_file.startsWith("cover"_L1, Qt::CaseInsensitive)) {
+        best_cover_file = cover_file;
+        break;
+      }
+      if (best_cover_file.isEmpty()) {
+        best_cover_file = cover_file;
+      }
+    }
+    if (!best_cover_file.isEmpty()) {
+      d->art_automatic_ = QUrl::fromLocalFile(fileinfo.path() + QDir::separator() + best_cover_file);
     }
   }
 
@@ -1688,7 +1714,7 @@ void Song::InitFromItdb(Itdb_Track *track, const QString &prefix) {
 
   d->bitrate_ = track->bitrate;
   d->samplerate_ = track->samplerate;
-  d->bitdepth_ = -1; //track->bitdepth;
+  d->bitdepth_ = -1; // track->bitdepth;
 
   d->source_ = Source::Device;
   QString filename = QString::fromLocal8Bit(track->ipod_path);
@@ -2051,6 +2077,20 @@ QString Song::AlbumKey() const {
   return QStringLiteral("%1|%2|%3").arg(is_compilation() ? u"_compilation"_s : effective_albumartist(), has_cue() ? cue_path() : ""_L1, effective_album());
 }
 
+QString Song::GroupingKey() const {
+  if (d->grouping_.isEmpty()) {
+    // We don't have grouping data, when we want to shuffle individual tracks
+    // The goal with grouping shuffle is to keep the introduction and the song (that may be on two distinct tracks)
+    // as if they were on the same track, and play the shuffle on individual track
+    return QStringLiteral("%1|%2|%3").arg(d->album_.isEmpty() ? d->artist_ : d->album_, d->title_, QString::number(d->id_));
+  }
+  // We have some grouping data, we want to regroup this track with the tracks that belongs :
+  // to the same album (as defined by AlbumKey, including compilation/album-artist and cue identity)
+  // to the same grouping value
+  // to the same file type
+  return QStringLiteral("%1|%2|%3").arg(AlbumKey(), d->grouping_, QString::number(static_cast<int>(d->filetype_)));
+}
+
 size_t qHash(const Song &song) {
   // Should compare the same fields as operator==
   return qHash(song.url().toString()) ^ qHash(song.beginning_nanosec());
@@ -2149,4 +2189,3 @@ QString Song::GetNameForNewPlaylist(const SongList &songs) {
   return result;
 
 }
-

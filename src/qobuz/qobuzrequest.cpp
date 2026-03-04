@@ -424,7 +424,7 @@ void QobuzRequest::ArtistsReplyReceived(QNetworkReply *reply, const int limit_re
     Error(u"Json artists object is missing values."_s, json_object);
     return;
   }
-  //int limit = obj_artists["limit"].toInt();
+  // int limit = obj_artists["limit"].toInt();
   offset = object_artists["offset"_L1].toInt();
   int artists_total = object_artists["total"_L1].toInt();
 
@@ -648,7 +648,7 @@ void QobuzRequest::AlbumsReceived(QNetworkReply *reply, const Artist &artist_req
     return;
   }
 
-  //int limit = obj_albums["limit"].toInt();
+  // int limit = obj_albums["limit"].toInt();
   offset = object_albums["offset"_L1].toInt();
   albums_total = object_albums["total"_L1].toInt();
 
@@ -694,6 +694,16 @@ void QobuzRequest::AlbumsReceived(QNetworkReply *reply, const Artist &artist_req
       album.album_id = QString::number(obj_item["id"_L1].toInt());
     }
     album.album = obj_item["title"_L1].toString();
+
+    if (obj_item.contains("genre"_L1)) {
+      QJsonValue value_genre = obj_item["genre"_L1];
+      if (value_genre.isObject()) {
+        QJsonObject obj_genre = value_genre.toObject();
+        if (obj_genre.contains("name"_L1)) {
+          album.genre = obj_genre["name"_L1].toString();
+        }
+      }
+    }
 
     if (album_songs_requests_pending_.contains(album.album_id)) continue;
 
@@ -921,6 +931,17 @@ void QobuzRequest::SongsReceived(QNetworkReply *reply, const Artist &artist_requ
     }
   }
 
+  // Extract genre from album/get response if not already set
+  if (album.genre.isEmpty() && json_object.contains("genre"_L1)) {
+    QJsonValue value_genre = json_object["genre"_L1];
+    if (value_genre.isObject()) {
+      QJsonObject obj_genre = value_genre.toObject();
+      if (obj_genre.contains("name"_L1)) {
+        album.genre = obj_genre["name"_L1].toString();
+      }
+    }
+  }
+
   QJsonValue value_tracks = json_object["tracks"_L1];
   if (!value_tracks.isObject()) {
     Error(u"Json tracks is not an object."_s, json_object);
@@ -936,7 +957,7 @@ void QobuzRequest::SongsReceived(QNetworkReply *reply, const Artist &artist_requ
     return;
   }
 
-  //int limit = obj_tracks["limit"].toInt();
+  // int limit = obj_tracks["limit"].toInt();
   const int offset = obj_tracks["offset"_L1].toInt();
   songs_total = obj_tracks["total"_L1].toInt();
 
@@ -1050,9 +1071,10 @@ void QobuzRequest::ParseSong(Song &song, const QJsonObject &json_obj, const Arti
   int disc = 0;
   QString copyright = json_obj["copyright"_L1].toString();
   qint64 duration = json_obj["duration"_L1].toInt() * kNsecPerSec;
-  //bool streamable = json_obj["streamable"].toBool();
+  // bool streamable = json_obj["streamable"].toBool();
   QString composer;
   QString performer;
+  QString genre;
 
   if (json_obj.contains("media_number"_L1)) {
     disc = json_obj["media_number"_L1].toInt();
@@ -1118,6 +1140,21 @@ void QobuzRequest::ParseSong(Song &song, const QJsonObject &json_obj, const Arti
         song_album.cover_url.setUrl(album_image);
       }
     }
+
+    if (obj_album.contains("genre"_L1)) {
+      QJsonValue value_genre = obj_album["genre"_L1];
+      if (value_genre.isObject()) {
+        QJsonObject obj_genre = value_genre.toObject();
+        if (obj_genre.contains("name"_L1)) {
+          genre = obj_genre["name"_L1].toString();
+        }
+      }
+    }
+  }
+
+  // Fall back to genre from the Album struct if not found in the track's album object
+  if (genre.isEmpty() && !album.genre.isEmpty()) {
+    genre = album.genre;
   }
 
   if (json_obj.contains("composer"_L1)) {
@@ -1148,17 +1185,19 @@ void QobuzRequest::ParseSong(Song &song, const QJsonObject &json_obj, const Arti
     performer = obj_performer["name"_L1].toString();
   }
 
-  //if (!streamable) {
-  //Warn(QString("Song %1 %2 %3 is not streamable").arg(album_artist).arg(album).arg(title));
-  //}
+  // if (!streamable) {
+  // Warn(QString("Song %1 %2 %3 is not streamable").arg(album_artist).arg(album).arg(title));
+  // }
 
   QUrl url;
   url.setScheme(url_handler_->scheme());
   url.setPath(song_id);
 
-  title = Song::TitleRemoveMisc(title);
+  if (service_->remove_remastered()) {
+    title = Song::TitleRemoveMisc(title);
+  }
 
-  //qLog(Debug) << "id" << song_id << "track" << track << "title" << title << "album" << album << "album artist" << album_artist << cover_url << streamable << url;
+  // qLog(Debug) << "id" << song_id << "track" << track << "title" << title << "album" << album << "album artist" << album_artist << cover_url << streamable << url;
 
   song.set_source(Song::Source::Qobuz);
   song.set_song_id(song_id);
@@ -1178,6 +1217,7 @@ void QobuzRequest::ParseSong(Song &song, const QJsonObject &json_obj, const Arti
   song.set_performer(performer);
   song.set_composer(composer);
   song.set_comment(copyright);
+  song.set_genre(genre);
   song.set_directory_id(0);
   song.set_filetype(Song::FileType::Stream);
   song.set_filesize(0);

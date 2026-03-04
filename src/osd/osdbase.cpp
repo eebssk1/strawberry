@@ -346,7 +346,7 @@ void OSDBase::ShowMessage(const QString &summary, const QString &message, const 
       case OSDSettings::Type::Disabled:
         if (!force_show_next_) break;
         force_show_next_ = false;
-      [[fallthrough]];
+        [[fallthrough]];
       case OSDSettings::Type::Pretty:
         pretty_popup_->ShowMessage(summary, message, image);
         break;
@@ -367,6 +367,7 @@ void OSDBase::ShuffleModeChanged(const PlaylistSequence::ShuffleMode mode) {
       case PlaylistSequence::ShuffleMode::All:         current_mode = tr("Shuffle all");     break;
       case PlaylistSequence::ShuffleMode::InsideAlbum: current_mode = tr("Shuffle tracks in this album"); break;
       case PlaylistSequence::ShuffleMode::Albums:      current_mode = tr("Shuffle albums");  break;
+      case PlaylistSequence::ShuffleMode::Grouping:    current_mode = tr("Shuffle grouping"); break;
     }
     ShowMessage(QCoreApplication::applicationName(), current_mode);
   }

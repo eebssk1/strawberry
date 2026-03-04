@@ -243,7 +243,7 @@ QJsonObject ListenBrainzScrobbler::JsonTrackMetadata(const ScrobbleMetadata &met
   }
 
   if (!metadata.share_url.isEmpty()) {
-    object_additional_info.insert("origin_url"_L1,  metadata.share_url);
+    object_additional_info.insert("origin_url"_L1, metadata.share_url);
   }
 
   if (!metadata.spotify_id.isEmpty()) {
@@ -345,6 +345,12 @@ void ListenBrainzScrobbler::UpdateNowPlayingRequestFinished(QNetworkReply *reply
   replies_.removeAll(reply);
   QObject::disconnect(reply, nullptr, this, nullptr);
   reply->deleteLater();
+
+  // ListenBrainz frequently close the connection, ignore any connection closed errors to avoid error popups
+  if (reply->error() == QNetworkReply::NetworkError::RemoteHostClosedError) {
+    JsonBaseRequest::Error(QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+    return;
+  }
 
   const JsonObjectResult json_object_result = ParseJsonObject(reply);
   if (!json_object_result.success()) {
@@ -450,6 +456,14 @@ void ListenBrainzScrobbler::ScrobbleRequestFinished(QNetworkReply *reply, Scrobb
   reply->deleteLater();
 
   submitted_ = false;
+
+  // ListenBrainz frequently close the connection, ignore any connection closed errors to avoid error popups
+  if (reply->error() == QNetworkReply::NetworkError::RemoteHostClosedError) {
+    JsonBaseRequest::Error(QStringLiteral("%1 (%2)").arg(reply->errorString()).arg(reply->error()));
+    cache_->ClearSent(cache_items);
+    submit_error_ = true;
+    return;
+  }
 
   const JsonObjectResult json_object_result = ParseJsonObject(reply);
   if (json_object_result.success()) {

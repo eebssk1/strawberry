@@ -1,24 +1,24 @@
 /***************************************************************************
- *   Copyright (C) 2003-2005 by Mark Kretschmann <markey@web.de>           *
- *   Copyright (C) 2005 by Jakub Stachowski <qbast@go2.pl>                 *
- *   Copyright (C) 2006 Paul Cifarelli <paul@cifarelli.net>                *
- *   Copyright (C) 2017-2024 Jonas Kvinge <jonas@jkvinge.net>              *
- *                                                                         *
- *   This program is free software; you can redistribute it and/or modify  *
- *   it under the terms of the GNU General Public License as published by  *
- *   the Free Software Foundation; either version 2 of the License, or     *
- *   (at your option) any later version.                                   *
- *                                                                         *
- *   This program is distributed in the hope that it will be useful,       *
- *   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
- *   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
- *   GNU General Public License for more details.                          *
- *                                                                         *
- *   You should have received a copy of the GNU General Public License     *
- *   along with this program; if not, write to the                         *
- *   Free Software Foundation, Inc.,                                       *
- *   51 Franklin Steet, Fifth Floor, Boston, MA  02111-1307, USA.          *
- ***************************************************************************/
+*   Copyright (C) 2003-2005 by Mark Kretschmann <markey@web.de>           *
+*   Copyright (C) 2005 by Jakub Stachowski <qbast@go2.pl>                 *
+*   Copyright (C) 2006 Paul Cifarelli <paul@cifarelli.net>                *
+*   Copyright (C) 2017-2024 Jonas Kvinge <jonas@jkvinge.net>              *
+*                                                                         *
+*   This program is free software; you can redistribute it and/or modify  *
+*   it under the terms of the GNU General Public License as published by  *
+*   the Free Software Foundation; either version 2 of the License, or     *
+*   (at your option) any later version.                                   *
+*                                                                         *
+*   This program is distributed in the hope that it will be useful,       *
+*   but WITHOUT ANY WARRANTY; without even the implied warranty of        *
+*   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
+*   GNU General Public License for more details.                          *
+*                                                                         *
+*   You should have received a copy of the GNU General Public License     *
+*   along with this program; if not, write to the                         *
+*   Free Software Foundation, Inc.,                                       *
+*   51 Franklin Steet, Fifth Floor, Boston, MA  02111-1307, USA.          *
+***************************************************************************/
 
 #include "config.h"
 
@@ -57,6 +57,7 @@
 #include "core/enginemetadata.h"
 #include "constants/timeconstants.h"
 #include "enginebase.h"
+#include "gsturl.h"
 #include "gstengine.h"
 #include "gstenginepipeline.h"
 #include "gstbufferconsumer.h"
@@ -83,6 +84,7 @@ constexpr char InterAudiosink[] = "interaudiosink";
 constexpr char kDirectSoundSink[] = "directsoundsink";
 constexpr char kOSXAudioSink[] = "osxaudiosink";
 constexpr char kWASAPISink[] = "wasapisink";
+constexpr char kWASAPI2Sink[] = "wasapi2sink";
 constexpr int kDiscoveryTimeoutS = 10;
 constexpr qint64 kTimerIntervalNanosec = 1000 * kNsecPerMsec;  // 1s
 constexpr qint64 kPreloadGapNanosec = 8000 * kNsecPerMsec;     // 8s
@@ -178,15 +180,18 @@ EngineBase::State GstEngine::state() const {
 
 void GstEngine::StartPreloading(const QUrl &media_url, const QUrl &stream_url, const bool force_stop_at_end, const qint64 beginning_offset_nanosec, const qint64 end_offset_nanosec) {
 
-  const QByteArray gst_url = FixupUrl(stream_url);
+  const GstUrl gst_url = FixupUrl(stream_url);
 
   // No crossfading, so we can just queue the new URL in the existing pipeline and get gapless playback (hopefully)
   if (current_pipeline_) {
-    current_pipeline_->PrepareNextUrl(media_url, stream_url, gst_url, beginning_offset_nanosec, force_stop_at_end ? end_offset_nanosec : 0);
+    if (!gst_url.source_device.isEmpty()) {
+      current_pipeline_->SetSourceDevice(gst_url.source_device);
+    }
+    current_pipeline_->PrepareNextUrl(media_url, stream_url, gst_url.url, beginning_offset_nanosec, force_stop_at_end ? end_offset_nanosec : 0);
     // Add request to discover the stream
     if (discoverer_ && media_url.scheme() != u"spotify"_s) {
-      if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.constData())) {
-        qLog(Error) << "Failed to start stream discovery for" << gst_url;
+      if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.url.constData())) {
+        qLog(Error) << "Failed to start stream discovery for" << gst_url.url;
       }
     }
   }
@@ -197,7 +202,7 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
 
   EngineBase::Load(media_url, stream_url, change, force_stop_at_end, beginning_offset_nanosec, end_offset_nanosec, ebur128_integrated_loudness_lufs);
 
-  const QByteArray gst_url = FixupUrl(stream_url);
+  const GstUrl gst_url = FixupUrl(stream_url);
 
   bool crossfade = current_pipeline_ && ((crossfade_enabled_ && change & EngineBase::TrackChangeType::Manual) || (autocrossfade_enabled_ && change & EngineBase::TrackChangeType::Auto) || ((crossfade_enabled_ || autocrossfade_enabled_) && change & EngineBase::TrackChangeType::Intro));
 
@@ -214,8 +219,13 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
     }
   }
 
-  GstEnginePipelinePtr pipeline = CreatePipeline(media_url, stream_url, gst_url, static_cast<qint64>(beginning_offset_nanosec), force_stop_at_end ? end_offset_nanosec : 0, ebur128_loudness_normalizing_gain_db_);
+  GstEnginePipelinePtr pipeline = CreatePipeline(media_url, stream_url, gst_url.url, static_cast<qint64>(beginning_offset_nanosec), force_stop_at_end ? end_offset_nanosec : 0, ebur128_loudness_normalizing_gain_db_);
   if (!pipeline) return false;
+
+  // Set the source device if one was extracted from the URL
+  if (!gst_url.source_device.isEmpty()) {
+    pipeline->SetSourceDevice(gst_url.source_device);
+  }
 
   GstEnginePipelinePtr old_pipeline = current_pipeline_;
   current_pipeline_ = pipeline;
@@ -252,8 +262,8 @@ bool GstEngine::Load(const QUrl &media_url, const QUrl &stream_url, const Engine
 
   // Add request to discover the stream
   if (discoverer_ && media_url.scheme() != u"spotify"_s) {
-    if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.constData())) {
-      qLog(Error) << "Failed to start stream discovery for" << gst_url;
+    if (!gst_discoverer_discover_uri_async(discoverer_, gst_url.url.constData())) {
+      qLog(Error) << "Failed to start stream discovery for" << gst_url.url;
     }
   }
 
@@ -471,7 +481,7 @@ EngineBase::OutputDetailsList GstEngine::GetOutputsList() const {
     const QStringList classes = metadata.split(u'/');
     if (classes.contains("Audio"_L1, Qt::CaseInsensitive) && (classes.contains("Sink"_L1, Qt::CaseInsensitive) || (classes.contains("Source"_L1, Qt::CaseInsensitive) && name.contains("sink"_L1)))) {
       QString description = QString::fromUtf8(gst_element_factory_get_metadata(factory, GST_ELEMENT_METADATA_DESCRIPTION));
-      if (name == "wasapi2sink"_L1 && description == "Stream audio to an audio capture device through WASAPI"_L1) {
+      if (name == QLatin1String(kWASAPI2Sink) && description == "Stream audio to an audio capture device through WASAPI"_L1) {
         description.append(u'2');
       }
       else if (name == "pipewiresink"_L1 && description == "Send video to PipeWire"_L1) {
@@ -512,7 +522,7 @@ bool GstEngine::ALSADeviceSupport(const QString &output) const {
 }
 
 bool GstEngine::ExclusiveModeSupport(const QString &output) const {
-  return output == QLatin1String(kWASAPISink);
+  return output == QLatin1String(kWASAPISink) || output == QLatin1String(kWASAPI2Sink);
 }
 
 void GstEngine::ReloadSettings() {
@@ -631,7 +641,10 @@ void GstEngine::HandlePipelineError(const int pipeline_id, const int domain, con
   qLog(Error) << "GStreamer error:" << domain << error_code << message;
 
   Q_EMIT Error(message);
-  Q_EMIT Error(debugstr);
+
+  if (!debugstr.isEmpty()) {
+    Q_EMIT Error(debugstr);
+  }
 
   if (fadeout_pause_pipeline_ && pipeline_id == fadeout_pause_pipeline_->id()) {
     StopFadeoutPause();
@@ -670,7 +683,7 @@ void GstEngine::HandlePipelineError(const int pipeline_id, const int domain, con
 
 void GstEngine::NewMetaData(const int pipeline_id, const EngineMetadata &engine_metadata) {
 
-  if (!current_pipeline_|| current_pipeline_->id() != pipeline_id) return;
+  if (!current_pipeline_ || current_pipeline_->id() != pipeline_id) return;
   Q_EMIT MetaData(engine_metadata);
 
 }
@@ -810,16 +823,16 @@ void GstEngine::BufferingFinished() {
 
 }
 
-QByteArray GstEngine::FixupUrl(const QUrl &url) {
+GstUrl GstEngine::FixupUrl(const QUrl &url) {
 
-  QByteArray uri;
+  GstUrl gst_url;
 
   // It's a file:// url with a hostname set.
   // QUrl::fromLocalFile does this when given a \\host\share\file path on Windows.
   // Munge it back into a path that gstreamer will recognise.
   if (url.isLocalFile() && !url.host().isEmpty()) {
     QString str = "file:////"_L1 + url.host() + url.path();
-    uri = str.toUtf8();
+    gst_url.url = str.toUtf8();
   }
   else if (url.scheme() == "cdda"_L1) {
     QString str;
@@ -833,16 +846,15 @@ QByteArray GstEngine::FixupUrl(const QUrl &url) {
       // We keep the device in mind, and we will set it later using SourceSetupCallback
       QStringList path = url.path().split(u'/');
       str = QStringLiteral("cdda://%1").arg(path.takeLast());
-      QString device = path.join(u'/');
-      if (current_pipeline_) current_pipeline_->SetSourceDevice(device);
+      gst_url.source_device = path.join(u'/');
     }
-    uri = str.toUtf8();
+    gst_url.url = str.toUtf8();
   }
   else {
-    uri = url.toEncoded();
+    gst_url.url = url.toEncoded();
   }
 
-  return uri;
+  return gst_url;
 
 }
 
@@ -1060,8 +1072,7 @@ void GstEngine::UpdateScope(const int chunk_length) {
       buffer_format_.startsWith("S24LE"_L1) ||
       buffer_format_.startsWith("S24_32LE"_L1) ||
       buffer_format_.startsWith("S32LE"_L1) ||
-      buffer_format_.startsWith("F32LE"_L1)
-  ) {
+      buffer_format_.startsWith("F32LE"_L1)) {
     memcpy(dest, source, bytes);
   }
   else {

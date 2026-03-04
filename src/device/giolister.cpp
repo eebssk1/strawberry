@@ -160,7 +160,10 @@ QVariantList GioLister::DeviceIcons(const QString &id) {
 
 }
 
-QString GioLister::DeviceManufacturer(const QString &id) { Q_UNUSED(id); return QString(); }
+QString GioLister::DeviceManufacturer(const QString &id) {
+  Q_UNUSED(id);
+  return QString();
+}
 
 QString GioLister::DeviceModel(const QString &id) {
 
@@ -339,6 +342,7 @@ void GioLister::VolumeRemoved(GVolume *volume) {
   }
 
   Q_EMIT DeviceRemoved(id);
+
 }
 
 void GioLister::MountAdded(GMount *mount) {
@@ -484,21 +488,21 @@ void GioLister::DeviceInfo::ReadMountInfo(GMount *mount) {
   }
 
 #ifdef HAVE_GIO_UNIX
-#ifdef GLIB_VERSION_2_84
+#  ifdef GLIB_VERSION_2_84
   GUnixMountEntry *unix_mount = g_unix_mount_entry_for(g_file_get_path(root), nullptr);
-#else
+#  else
   GUnixMountEntry *unix_mount = g_unix_mount_for(g_file_get_path(root), nullptr);
-#endif
+#  endif
   if (unix_mount) {
     // The GIO's definition of system internal mounts include filesystems like autofs, tmpfs, sysfs, etc,
     // and various system directories, including the root, /boot, /var, /home, etc.
-#ifdef GLIB_VERSION_2_84
+#  ifdef GLIB_VERSION_2_84
     is_system_internal = g_unix_mount_entry_is_system_internal(unix_mount);
     g_unix_mount_entry_free(unix_mount);
-#else
+#  else
     is_system_internal = g_unix_mount_is_system_internal(unix_mount);
     g_unix_mount_free(unix_mount);
-#endif
+#  endif
     // Although checking most of the internal mounts is safe, we really don't want to touch autofs filesystems, as that would trigger automounting.
     if (is_system_internal) return;
   }
@@ -532,6 +536,7 @@ void GioLister::DeviceInfo::ReadMountInfo(GMount *mount) {
       g_object_unref(info);
     }
   }
+
 }
 
 void GioLister::DeviceInfo::ReadVolumeInfo(GVolume *volume) {
@@ -557,7 +562,8 @@ void GioLister::DeviceInfo::ReadDriveInfo(GDrive *drive) {
   if (!drive) return;
 
   drive_name = ConvertAndFree(g_drive_get_name(drive));
-  drive_removable = g_drive_is_media_removable(drive);
+  drive_removable = g_drive_is_media_removable(drive) || g_drive_is_removable(drive);
+
 }
 
 QString GioLister::FindUniqueIdByMount(GMount *mount) const {

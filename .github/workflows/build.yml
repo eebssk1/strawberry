@@ -64,7 +64,6 @@ jobs:
             qt6-tools-dev
             qt6-tools-dev-tools
             qt6-l10n-tools
-            rapidjson-dev
       - name: Install KDSingleApplication
         if: matrix.debian_version != 'bookworm'
         run: apt install -y libkdsingleapplication-qt6-dev
@@ -77,7 +76,7 @@ jobs:
           cmake --build build --config Release --parallel 4
           cmake --install build
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -94,7 +93,7 @@ jobs:
       - name: Copy deb
         run: cp ../*.deb .
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: debian-${{matrix.debian_version}}
           path: |
@@ -118,7 +117,7 @@ jobs:
         run: echo "cmake_buildtype=$(echo ${{matrix.buildtype}} | sed 's/.*/\u&/')" >> $GITHUB_ENV
 
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
           submodules: recursive
@@ -183,7 +182,7 @@ jobs:
 
       - name: Copy Qt imageformats
         working-directory: build
-        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6/plugins/imageformats/{qgif.dll,qico.dll,qjpeg.dll} ${GITHUB_WORKSPACE}/build/imageformats/
+        run: cp /strawberry-mxe/usr/${{matrix.arch}}-w64-mingw32.shared/qt6/plugins/imageformats/{qgif.dll,qico.dll,qjpeg.dll,qtiff.dll,qjp2.dll,qwebp.dll} ${GITHUB_WORKSPACE}/build/imageformats/
 
       - name: Copy gstreamer plugins
         working-directory: build

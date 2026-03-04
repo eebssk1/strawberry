@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2013-2021, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2013-2026, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -58,7 +58,6 @@
 #include <QShortcut>
 #include <QMessageBox>
 #include <QErrorMessage>
-#include <QSettings>
 #include <QColor>
 #include <QFrame>
 #include <QItemSelectionModel>
@@ -174,9 +173,12 @@
 #endif
 #ifdef HAVE_SPOTIFY
 #  include "spotify/spotifyservice.h"
+#  include "spotify/spotifymetadatarequest.h"
 #  include "constants/spotifysettings.h"
 #endif
 #ifdef HAVE_QOBUZ
+#  include "qobuz/qobuzservice.h"
+#  include "qobuz/qobuzmetadatarequest.h"
 #  include "constants/qobuzsettings.h"
 #endif
 
@@ -220,7 +222,7 @@
 #endif
 
 #ifdef HAVE_SPARKLE
-  #include "core/sparkleupdater.h"
+#  include "core/sparkleupdater.h"
 #endif
 
 #ifdef HAVE_QTSPARKLE
@@ -228,7 +230,7 @@
 #endif  // HAVE_QTSPARKLE
 
 #ifdef HAVE_DISCORD_RPC
-  #include "discord/richpresence.h"
+#  include "discord/discordrichpresence.h"
 #endif
 
 using std::make_unique;
@@ -272,8 +274,8 @@ constexpr char QTSPARKLE_URL[] = "https://www.strawberrymusicplayer.org/sparkle-
 #    endif
 
 #  else
-#  error "Unsupported OS for QtSparkle"
-#  endif // OS
+#    error "Unsupported OS for QtSparkle"
+#  endif  // OS
 
 }  // namespace
 #endif  // HAVE_QTSPARKLE
@@ -281,7 +283,7 @@ constexpr char QTSPARKLE_URL[] = "https://www.strawberrymusicplayer.org/sparkle-
 MainWindow::MainWindow(Application *app,
                        SharedPtr<SystemTrayIcon> systemtrayicon, OSDBase *osd,
 #ifdef HAVE_DISCORD_RPC
-                       discord::RichPresence *discord_rich_presence,
+                       DiscordRichPresence *discord_rich_presence,
 #endif
                        const CommandlineOptions &options,
                        QWidget *parent)
@@ -380,8 +382,10 @@ MainWindow::MainWindow(Application *app,
       playlist_add_to_another_(nullptr),
       playlistitem_actions_separator_(nullptr),
       playlist_rescan_songs_(nullptr),
+      playlist_fetch_metadata_(nullptr),
       track_position_timer_(new QTimer(this)),
       track_slider_timer_(new QTimer(this)),
+      metadata_queue_timer_(new QTimer(this)),
       keep_running_(false),
       playing_widget_(true),
 #ifdef HAVE_DBUS
@@ -452,6 +456,10 @@ MainWindow::MainWindow(Application *app,
   QObject::connect(track_position_timer_, &QTimer::timeout, this, &MainWindow::UpdateTrackPosition);
   track_slider_timer_->setInterval(kTrackSliderUpdateTimeMs);
   QObject::connect(track_slider_timer_, &QTimer::timeout, this, &MainWindow::UpdateTrackSliderPosition);
+
+  metadata_queue_timer_->setInterval(200ms);  // 200ms between requests to avoid rate limiting
+  metadata_queue_timer_->setSingleShot(true);
+  QObject::connect(metadata_queue_timer_, &QTimer::timeout, this, &MainWindow::ProcessMetadataQueue);
 
   // Start initializing the player
   qLog(Debug) << "Initializing player";
@@ -697,6 +705,9 @@ MainWindow::MainWindow(Application *app,
   QObject::connect(&*app_->task_manager(), &TaskManager::PauseCollectionWatchers, &*app_->collection(), &CollectionLibrary::PauseWatcher);
   QObject::connect(&*app_->task_manager(), &TaskManager::ResumeCollectionWatchers, &*app_->collection(), &CollectionLibrary::ResumeWatcher);
 
+  QObject::connect(&*app_->playlist_manager(), &PlaylistManager::CurrentSongChanged, &*app_->collection(), &CollectionLibrary::CurrentSongChanged);
+  QObject::connect(&*app_->player(), &Player::Stopped, &*app_->collection(), &CollectionLibrary::Stopped);
+
   QObject::connect(&*app_->playlist_manager(), &PlaylistManager::CurrentSongChanged, &*app_->current_albumcover_loader(), &CurrentAlbumCoverLoader::LoadAlbumCover);
   QObject::connect(&*app_->current_albumcover_loader(), &CurrentAlbumCoverLoader::AlbumCoverLoaded, this, &MainWindow::AlbumCoverLoaded);
   QObject::connect(album_cover_choice_controller_, &AlbumCoverChoiceController::Error, this, &MainWindow::ShowErrorDialog);
@@ -810,6 +821,8 @@ MainWindow::MainWindow(Application *app,
 #endif
   playlist_rescan_songs_ = playlist_menu_->addAction(IconLoader::Load(u"view-refresh"_s), tr("Rescan song(s)..."), this, &MainWindow::RescanSongs);
   playlist_menu_->addAction(playlist_rescan_songs_);
+  playlist_fetch_metadata_ = playlist_menu_->addAction(IconLoader::Load(u"download"_s), tr("Fetch metadata from service"), this, &MainWindow::FetchStreamingMetadata);
+  playlist_menu_->addAction(playlist_fetch_metadata_);
   playlist_menu_->addAction(ui_->action_add_files_to_transcoder);
   playlist_menu_->addSeparator();
   playlist_copy_url_ = playlist_menu_->addAction(IconLoader::Load(u"edit-copy"_s), tr("Copy URL(s)..."), this, &MainWindow::PlaylistCopyUrl);
@@ -977,27 +990,28 @@ MainWindow::MainWindow(Application *app,
 
   // Load settings
   qLog(Debug) << "Loading settings";
-  settings_.beginGroup(MainWindowSettings::kSettingsGroup);
+  Settings settings;
+  settings.beginGroup(MainWindowSettings::kSettingsGroup);
 
   // Set last used geometry to position window on the correct monitor
   // Set window state only if the window was last maximized
-  if (settings_.contains("geometry")) {
-    restoreGeometry(settings_.value("geometry").toByteArray());
+  if (settings.contains("geometry")) {
+    restoreGeometry(settings.value("geometry").toByteArray());
   }
 
-  if (!settings_.contains(MainWindowSettings::kSplitterState) || !ui_->splitter->restoreState(settings_.value(MainWindowSettings::kSplitterState).toByteArray())) {
+  if (!settings.contains(MainWindowSettings::kSplitterState) || !ui_->splitter->restoreState(settings.value(MainWindowSettings::kSplitterState).toByteArray())) {
     ui_->splitter->setSizes(QList<int>() << 20 << (width() - 20));
   }
 
-  ui_->tabs->setCurrentIndex(settings_.value("current_tab", 1).toInt());
+  ui_->tabs->setCurrentIndex(settings.value("current_tab", 1).toInt());
   FancyTabWidget::Mode default_mode = FancyTabWidget::Mode::LargeSidebar;
-  FancyTabWidget::Mode tab_mode = static_cast<FancyTabWidget::Mode>(settings_.value("tab_mode", static_cast<int>(default_mode)).toInt());
+  FancyTabWidget::Mode tab_mode = static_cast<FancyTabWidget::Mode>(settings.value("tab_mode", static_cast<int>(default_mode)).toInt());
   if (tab_mode == FancyTabWidget::Mode::None) tab_mode = default_mode;
   ui_->tabs->SetMode(tab_mode);
 
   TabSwitched();
 
-  file_view_->SetPath(settings_.value("file_path", QDir::homePath()).toString());
+  file_view_->SetPath(settings.value("file_path", QDir::homePath()).toString());
 
   // Users often collapse one side of the splitter by mistake and don't know how to restore it. This must be set after the state is restored above.
   ui_->splitter->setChildrenCollapsible(false);
@@ -1040,13 +1054,13 @@ MainWindow::MainWindow(Application *app,
     case BehaviourSettings::StartupBehaviour::Remember:
     default:{
 
-      was_maximized_ = settings_.value(MainWindowSettings::kMaximized, true).toBool();
+      was_maximized_ = settings.value(MainWindowSettings::kMaximized, true).toBool();
       if (was_maximized_) setWindowState(windowState() | Qt::WindowMaximized);
 
-      was_minimized_ = settings_.value(MainWindowSettings::kMinimized, false).toBool();
+      was_minimized_ = settings.value(MainWindowSettings::kMinimized, false).toBool();
       if (was_minimized_) setWindowState(windowState() | Qt::WindowMinimized);
 
-      if (!systemtrayicon_->IsSystemTrayAvailable() || !systemtrayicon_->isVisible() || !settings_.value(MainWindowSettings::kHidden, false).toBool()) {
+      if (!systemtrayicon_->IsSystemTrayAvailable() || !systemtrayicon_->isVisible() || !settings.value(MainWindowSettings::kHidden, false).toBool()) {
         show();
       }
       break;
@@ -1054,7 +1068,7 @@ MainWindow::MainWindow(Application *app,
   }
 #endif
 
-  bool show_sidebar = settings_.value(MainWindowSettings::kShowSidebar, true).toBool();
+  bool show_sidebar = settings.value(MainWindowSettings::kShowSidebar, true).toBool();
   ui_->sidebar_layout->setVisible(show_sidebar);
   ui_->action_toggle_show_sidebar->setChecked(show_sidebar);
 
@@ -1225,7 +1239,9 @@ void MainWindow::ReloadSettings() {
 
   osd_->ReloadSettings();
 
-  album_cover_choice_controller_->search_cover_auto_action()->setChecked(settings_.value(MainWindowSettings::kSearchForCoverAuto, true).toBool());
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  album_cover_choice_controller_->search_cover_auto_action()->setChecked(s.value(MainWindowSettings::kSearchForCoverAuto, true).toBool());
+  s.endGroup();
 
 #ifdef HAVE_SUBSONIC
   s.beginGroup(SubsonicSettings::kSettingsGroup);
@@ -1342,8 +1358,11 @@ void MainWindow::SaveSettings() {
   ui_->playlist->view()->SaveSettings();
   app_->scrobbler()->WriteCache();
 
-  settings_.setValue(MainWindowSettings::kShowSidebar, ui_->action_toggle_show_sidebar->isChecked());
-  settings_.setValue(MainWindowSettings::kSearchForCoverAuto, album_cover_choice_controller_->search_cover_auto_action()->isChecked());
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue(MainWindowSettings::kShowSidebar, ui_->action_toggle_show_sidebar->isChecked());
+  s.setValue(MainWindowSettings::kSearchForCoverAuto, album_cover_choice_controller_->search_cover_auto_action()->isChecked());
+  s.endGroup();
 
 }
 
@@ -1584,23 +1603,35 @@ void MainWindow::ToggleSidebar(const bool checked) {
 
   ui_->sidebar_layout->setVisible(checked);
   TabSwitched();
-  settings_.setValue(MainWindowSettings::kShowSidebar, checked);
+
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue(MainWindowSettings::kShowSidebar, checked);
+  s.endGroup();
 
 }
 
 void MainWindow::ToggleSearchCoverAuto(const bool checked) {
-  settings_.setValue(MainWindowSettings::kSearchForCoverAuto, checked);
+
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue(MainWindowSettings::kSearchForCoverAuto, checked);
+  s.endGroup();
+
 }
 
 void MainWindow::SaveGeometry() {
 
   if (!initialized_) return;
 
-  settings_.setValue(MainWindowSettings::kMaximized, isMaximized());
-  settings_.setValue(MainWindowSettings::kMinimized, isMinimized());
-  settings_.setValue(MainWindowSettings::kHidden, isHidden());
-  settings_.setValue(MainWindowSettings::kGeometry, saveGeometry());
-  settings_.setValue(MainWindowSettings::kSplitterState, ui_->splitter->saveState());
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue(MainWindowSettings::kMaximized, isMaximized());
+  s.setValue(MainWindowSettings::kMinimized, isMinimized());
+  s.setValue(MainWindowSettings::kHidden, isHidden());
+  s.setValue(MainWindowSettings::kGeometry, saveGeometry());
+  s.setValue(MainWindowSettings::kSplitterState, ui_->splitter->saveState());
+  s.endGroup();
 
 }
 
@@ -1684,17 +1715,6 @@ void MainWindow::StopAfterCurrent() {
   Q_EMIT StopAfterToggled(app_->playlist_manager()->active()->stop_after_current());
 }
 
-void MainWindow::showEvent(QShowEvent *e) {
-
-  if (error_dialog_ && error_dialog_->isVisible() && error_dialog_->isMinimized()) {
-    error_dialog_->raise();
-    error_dialog_->activateWindow();
-  }
-
-  QMainWindow::showEvent(e);
-
-}
-
 void MainWindow::hideEvent(QHideEvent *e) {
 
   // Some window managers don't remember maximized state between
@@ -1714,6 +1734,16 @@ void MainWindow::closeEvent(QCloseEvent *e) {
   }
 
   QMainWindow::closeEvent(e);
+
+}
+
+void MainWindow::changeEvent(QEvent *e) {
+
+  if (e->type() == QEvent::Show || e->type() == QEvent::WindowStateChange || e->type() == QEvent::WindowActivate) {
+    CheckShowErrorDialog();
+  }
+
+  QMainWindow::changeEvent(e);
 
 }
 
@@ -1737,12 +1767,18 @@ void MainWindow::SetHiddenInTray(const bool hidden) {
     else {
       show();
     }
+    CheckShowErrorDialog();
   }
 
 }
 
 void MainWindow::FilePathChanged(const QString &path) {
-  settings_.setValue("file_path", path);
+
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  s.setValue("file_path", path);
+  s.endGroup();
+
 }
 
 void MainWindow::Seeked(const qint64 microseconds) {
@@ -1970,6 +2006,7 @@ void MainWindow::PlaylistRightClick(const QPoint global_pos, const QModelIndex &
   int in_skipped = 0;
   int not_in_skipped = 0;
   int local_songs = 0;
+  int streaming_songs = 0;
 
   for (const QModelIndex &idx : selection) {
 
@@ -1979,7 +2016,13 @@ void MainWindow::PlaylistRightClick(const QPoint global_pos, const QModelIndex &
     PlaylistItemPtr item = app_->playlist_manager()->current()->item_at(src_idx.row());
     if (!item) continue;
 
-    if (item->EffectiveMetadata().url().isLocalFile()) ++local_songs;
+    if (item->EffectiveMetadata().url().isLocalFile()) {
+      ++local_songs;
+    }
+
+    if (item->EffectiveMetadata().is_stream_service()) {
+      ++streaming_songs;
+    }
 
     if (item->EffectiveMetadata().has_cue()) {
       cue_selected = true;
@@ -2006,6 +2049,9 @@ void MainWindow::PlaylistRightClick(const QPoint global_pos, const QModelIndex &
 
   playlist_rescan_songs_->setEnabled(local_songs > 0 && editable > 0);
   playlist_rescan_songs_->setVisible(local_songs > 0 && editable > 0);
+
+  playlist_fetch_metadata_->setEnabled(streaming_songs > 0);
+  playlist_fetch_metadata_->setVisible(streaming_songs > 0);
 
   ui_->action_add_files_to_transcoder->setEnabled(local_songs > 0 && editable > 0);
   ui_->action_add_files_to_transcoder->setVisible(local_songs > 0 && editable > 0);
@@ -2218,8 +2264,22 @@ void MainWindow::EditTracks() {
 void MainWindow::EditTagDialogAccepted() {
 
   const PlaylistItemPtrList items = edit_tag_dialog_->playlist_items();
-  for (PlaylistItemPtr item : items) {
-    item->Reload();
+  const SongList songs = edit_tag_dialog_->songs();
+
+  if (items.count() != songs.count()) {
+    return;
+  }
+
+  for (int i = 0; i < items.count(); ++i) {
+    PlaylistItemPtr item = items[i];
+    const Song &updated_song = songs[i];
+    // For stream tracks, apply the metadata directly since there's no file to reload from
+    if (updated_song.is_stream_service()) {
+      item->SetOriginalMetadata(updated_song);
+    }
+    else {
+      item->Reload();
+    }
   }
 
   // FIXME: This is really lame but we don't know what rows have changed.
@@ -2294,8 +2354,8 @@ void MainWindow::SelectionSetValue() {
         QObject::disconnect(*connection);
       }, Qt::QueuedConnection);
     }
-    else if (song.source() == Song::Source::Stream) {
-      app_->playlist_manager()->current()->setData(source_index, column_value, 0);
+    else if (song.is_stream()) {
+      app_->playlist_manager()->current()->setData(source_index.sibling(source_index.row(), static_cast<int>(column)), column_value, 0);
     }
   }
 
@@ -2324,7 +2384,9 @@ void MainWindow::EditValue() {
 void MainWindow::AddFile() {
 
   // Last used directory
-  QString directory = settings_.value("add_media_path", QDir::currentPath()).toString();
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  QString directory = s.value("add_media_path", QDir::currentPath()).toString();
 
   PlaylistParser parser(app_->tagreader_client(), app_->collection_backend());
 
@@ -2334,7 +2396,7 @@ void MainWindow::AddFile() {
   if (filenames.isEmpty()) return;
 
   // Save last used directory
-  settings_.setValue("add_media_path", filenames[0]);
+  s.setValue("add_media_path", filenames[0]);
 
   // Convert to URLs
   QList<QUrl> urls;
@@ -2352,14 +2414,16 @@ void MainWindow::AddFile() {
 void MainWindow::AddFolder() {
 
   // Last used directory
-  QString directory = settings_.value("add_folder_path", QDir::currentPath()).toString();
+  Settings s;
+  s.beginGroup(MainWindowSettings::kSettingsGroup);
+  QString directory = s.value("add_folder_path", QDir::currentPath()).toString();
 
   // Show dialog
   directory = QFileDialog::getExistingDirectory(this, tr("Add folder"), directory);
   if (directory.isEmpty()) return;
 
   // Save last used directory
-  settings_.setValue("add_folder_path", directory);
+  s.setValue("add_folder_path", directory);
 
   // Add media
   MimeData *mimedata = new MimeData;
@@ -2990,6 +3054,14 @@ void MainWindow::ShowErrorDialog(const QString &message) {
   error_dialog_->ShowMessage(message);
 }
 
+void MainWindow::CheckShowErrorDialog() {
+
+  if (isVisible() && !isMinimized() && error_dialog_ && error_dialog_->isVisible() && !error_dialog_->isActiveWindow()) {
+    error_dialog_->ShowDialog();
+  }
+
+}
+
 void MainWindow::CheckFullRescanRevisions() {
 
   int from = app_->database()->startup_schema_version();
@@ -3310,7 +3382,7 @@ void MainWindow::PlaylistDelete() {
 
   if (DeleteConfirmationDialog::warning(files) != QDialogButtonBox::Yes) return;
 
-  if (app_->player()->GetState() == EngineBase::State::Playing && app_->playlist_manager()->current()->rowCount() == selected_songs.count()) {
+  if (app_->player()->GetState() == EngineBase::State::Playing && app_->playlist_manager()->current() == app_->playlist_manager()->active() && app_->playlist_manager()->current()->rowCount() == selected_songs.count()) {
     app_->player()->Stop();
   }
 
@@ -3364,6 +3436,175 @@ void MainWindow::FocusSearchField() {
 #endif
   else if (!ui_->playlist->SearchFieldHasFocus()) {
     ui_->playlist->FocusSearchField();
+  }
+
+}
+
+void MainWindow::FetchStreamingMetadata() {
+
+  const QModelIndexList proxy_indexes = ui_->playlist->view()->selectionModel()->selectedRows();
+  for (const QModelIndex &proxy_index : proxy_indexes) {
+    const QModelIndex source_index = app_->playlist_manager()->current()->filter()->mapToSource(proxy_index);
+    if (!source_index.isValid()) continue;
+    PlaylistItemPtr item(app_->playlist_manager()->current()->item_at(source_index.row()));
+    if (!item) continue;
+
+    const Song &song = item->EffectiveMetadata();
+    const QPersistentModelIndex persistent_index = QPersistentModelIndex(source_index);
+    QString track_id;
+
+#ifdef HAVE_QOBUZ
+    if (song.source() == Song::Source::Qobuz) {
+      track_id = song.song_id();
+      // song_id() may be empty if not persisted, fall back to URL path
+      if (track_id.isEmpty()) {
+        track_id = song.url().path();
+      }
+      if (track_id.isEmpty()) {
+        qLog(Error) << "Failed to fetch Qobuz metadata: No track ID";
+        continue;
+      }
+    }
+#endif
+
+#ifdef HAVE_SPOTIFY
+    if (song.source() == Song::Source::Spotify) {
+      track_id = song.song_id();
+      // song_id() may be empty if not persisted, fall back to parsing URL
+      if (track_id.isEmpty() && song.url().scheme() == "spotify"_L1 && song.url().path().startsWith(u"track:"_s)) {
+        track_id = song.url().path().mid(6);
+      }
+      if (track_id.isEmpty()) {
+        qLog(Error) << "Failed to fetch Spotify metadata: No track ID";
+        continue;
+      }
+    }
+#endif
+
+    if (!track_id.isEmpty()) {
+      metadata_queue_.append({song.source(), track_id, persistent_index});
+    }
+
+  }
+
+  // Start processing the queue if it's not already running
+  if (!metadata_queue_.isEmpty() && !metadata_queue_timer_->isActive()) {
+    ProcessMetadataQueue();
+  }
+
+}
+
+void MainWindow::ProcessMetadataQueue() {
+
+  if (metadata_queue_.isEmpty()) {
+    return;
+  }
+
+  const MetadataQueueEntry metadata_queue_entry = metadata_queue_.takeFirst();
+
+#ifdef HAVE_QOBUZ
+  if (metadata_queue_entry.source == Song::Source::Qobuz) {
+    if (QobuzServicePtr qobuz_service = app_->streaming_services()->Service<QobuzService>()) {
+      QobuzMetadataRequest *request = new QobuzMetadataRequest(&*qobuz_service, qobuz_service->network());
+      QObject::connect(request, &QobuzMetadataRequest::MetadataReceived, this, [this, metadata_queue_entry, request](const QString &received_track_id, const Song &fetched_song) {
+        Q_UNUSED(received_track_id);
+        if (metadata_queue_entry.persistent_index.isValid() && fetched_song.is_valid()) {
+          PlaylistItemPtr playlist_item = app_->playlist_manager()->current()->item_at(metadata_queue_entry.persistent_index.row());
+          if (playlist_item) {
+            const Song old_song = playlist_item->OriginalMetadata();
+            Song updated_song = old_song;
+            // Update all metadata fields from the fetched song
+            if (!fetched_song.title().isEmpty()) updated_song.set_title(fetched_song.title());
+            if (!fetched_song.artist().isEmpty()) updated_song.set_artist(fetched_song.artist());
+            if (!fetched_song.album().isEmpty()) updated_song.set_album(fetched_song.album());
+            if (!fetched_song.albumartist().isEmpty()) updated_song.set_albumartist(fetched_song.albumartist());
+            if (!fetched_song.genre().isEmpty()) updated_song.set_genre(fetched_song.genre());
+            if (!fetched_song.composer().isEmpty()) updated_song.set_composer(fetched_song.composer());
+            if (!fetched_song.performer().isEmpty()) updated_song.set_performer(fetched_song.performer());
+            if (!fetched_song.comment().isEmpty()) updated_song.set_comment(fetched_song.comment());
+            if (fetched_song.track() > 0) updated_song.set_track(fetched_song.track());
+            if (fetched_song.disc() > 0) updated_song.set_disc(fetched_song.disc());
+            if (fetched_song.year() > 0) updated_song.set_year(fetched_song.year());
+            if (fetched_song.length_nanosec() > 0) updated_song.set_length_nanosec(fetched_song.length_nanosec());
+            if (fetched_song.art_automatic().isValid()) updated_song.set_art_automatic(fetched_song.art_automatic());
+            playlist_item->SetOriginalMetadata(updated_song);
+            app_->playlist_manager()->current()->ItemReload(metadata_queue_entry.persistent_index, old_song, false);
+          }
+        }
+        request->deleteLater();
+        // Process next item in queue
+        if (!metadata_queue_.isEmpty()) {
+          metadata_queue_timer_->start();
+        }
+      });
+      QObject::connect(request, &QobuzMetadataRequest::MetadataFailure, this, [this, request](const QString &failed_track_id, const QString &error) {
+        Q_UNUSED(failed_track_id);
+        qLog(Error) << "Failed to fetch Qobuz metadata:" << error;
+        request->deleteLater();
+        // Process next item in queue
+        if (!metadata_queue_.isEmpty()) {
+          metadata_queue_timer_->start();
+        }
+      });
+      request->FetchTrackMetadata(metadata_queue_entry.track_id);
+      return;
+    }
+  }
+#endif
+
+#ifdef HAVE_SPOTIFY
+  if (metadata_queue_entry.source == Song::Source::Spotify) {
+    if (SpotifyServicePtr spotify_service = app_->streaming_services()->Service<SpotifyService>()) {
+      SpotifyMetadataRequest *request = new SpotifyMetadataRequest(&*spotify_service, app_->network());
+      QObject::connect(request, &SpotifyMetadataRequest::MetadataReceived, this, [this, metadata_queue_entry, request](const QString &received_track_id, const Song &fetched_song) {
+        Q_UNUSED(received_track_id);
+        if (metadata_queue_entry.persistent_index.isValid() && fetched_song.is_valid()) {
+          PlaylistItemPtr playlist_item = app_->playlist_manager()->current()->item_at(metadata_queue_entry.persistent_index.row());
+          if (playlist_item) {
+            const Song old_song = playlist_item->OriginalMetadata();
+            Song updated_song = old_song;
+            // Update all metadata fields from the fetched song
+            if (!fetched_song.title().isEmpty()) updated_song.set_title(fetched_song.title());
+            if (!fetched_song.artist().isEmpty()) updated_song.set_artist(fetched_song.artist());
+            if (!fetched_song.album().isEmpty()) updated_song.set_album(fetched_song.album());
+            if (!fetched_song.albumartist().isEmpty()) updated_song.set_albumartist(fetched_song.albumartist());
+            if (!fetched_song.genre().isEmpty()) updated_song.set_genre(fetched_song.genre());
+            if (!fetched_song.composer().isEmpty()) updated_song.set_composer(fetched_song.composer());
+            if (!fetched_song.performer().isEmpty()) updated_song.set_performer(fetched_song.performer());
+            if (!fetched_song.comment().isEmpty()) updated_song.set_comment(fetched_song.comment());
+            if (fetched_song.track() > 0) updated_song.set_track(fetched_song.track());
+            if (fetched_song.disc() > 0) updated_song.set_disc(fetched_song.disc());
+            if (fetched_song.year() > 0) updated_song.set_year(fetched_song.year());
+            if (fetched_song.length_nanosec() > 0) updated_song.set_length_nanosec(fetched_song.length_nanosec());
+            if (fetched_song.art_automatic().isValid()) updated_song.set_art_automatic(fetched_song.art_automatic());
+            playlist_item->SetOriginalMetadata(updated_song);
+            app_->playlist_manager()->current()->ItemReload(metadata_queue_entry.persistent_index, old_song, false);
+          }
+        }
+        request->deleteLater();
+        // Process next item in queue
+        if (!metadata_queue_.isEmpty()) {
+          metadata_queue_timer_->start();
+        }
+      });
+      QObject::connect(request, &SpotifyMetadataRequest::MetadataFailure, this, [this, request](const QString &failed_track_id, const QString &error) {
+        Q_UNUSED(failed_track_id);
+        qLog(Error) << "Failed to fetch Spotify metadata:" << error;
+        request->deleteLater();
+        // Process next item in queue
+        if (!metadata_queue_.isEmpty()) {
+          metadata_queue_timer_->start();
+        }
+      });
+      request->FetchTrackMetadata(metadata_queue_entry.track_id);
+      return;
+    }
+  }
+#endif
+
+  // If we get here, the source wasn't handled - try the next item
+  if (!metadata_queue_.isEmpty()) {
+    metadata_queue_timer_->start();
   }
 
 }

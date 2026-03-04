@@ -24,8 +24,8 @@
 #include "filtertreecolumnterm.h"
 #include "filterparsersearchtermcomparator.h"
 
-FilterTreeColumnTerm::FilterTreeColumnTerm(const QString &column, FilterParserSearchTermComparator *comparator) : column_(column), cmp_(comparator) {}
+FilterTreeColumnTerm::FilterTreeColumnTerm(const FilterColumn filter_column, FilterParserSearchTermComparator *comparator) : filter_column_(filter_column), cmp_(comparator) {}
 
 bool FilterTreeColumnTerm::accept(const Song &song) const {
-  return cmp_->Matches(DataFromColumn(column_, song));
+  return cmp_->Matches(DataFromColumn(filter_column_, song));
 }

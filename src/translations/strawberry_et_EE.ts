@@ -9,7 +9,7 @@
     </message>
     <message>
       <source>About Strawberry</source>
-      <translation>Strawberry teave</translation>
+      <translation>Rakenduse teave: Strawberry</translation>
     </message>
     <message>
       <source>Version %1</source>
@@ -45,7 +45,7 @@
     </message>
     <message>
       <source>Contributors</source>
-      <translation>Toetajad</translation>
+      <translation>Kaasautorid</translation>
     </message>
     <message>
       <source>Clementine authors</source>
@@ -53,7 +53,7 @@
     </message>
     <message>
       <source>Clementine contributors</source>
-      <translation>Clementine'i toetajad</translation>
+      <translation>Clementine'i kaasautorid</translation>
     </message>
     <message>
       <source>Thanks to</source>
@@ -107,7 +107,7 @@
     </message>
     <message>
       <source>Show fullsize...</source>
-      <translation>Kuva täissuuruses...</translation>
+      <translation>Näita täissuuruses...</translation>
     </message>
     <message>
       <source>Search automatically</source>
@@ -233,7 +233,7 @@
     </message>
     <message>
       <source>Really cancel?</source>
-      <translation>Kas tühistada?</translation>
+      <translation>Kas tõesti katkestame?</translation>
     </message>
     <message>
       <source>Closing this window will stop searching for album covers.</source>
@@ -3472,7 +3472,7 @@ Kui vasteid pole, kasutab ta kaustas asuvat suurimat pilti.</translation>
     </message>
     <message>
       <source>Strawberry is free and open source software. If you like Strawberry, please consider sponsoring the project. For more information about sponsorship see our website %1</source>
-      <translation>Strawberry on tasuta ja avatud lähtekoodiga tarkvara. Kui sulle meeldib Strawberry, kaalu projekti toetamist. Lisateavet sponsorluse kohta leiad meie veebisaidist %1</translation>
+      <translation>Strawberry on tasuta ja avatud lähtekoodiga tarkvara. Kui sulle meeldib Strawberry, kaalu projekti toetamist. Lisateavet sponsorluse kohta leiad meie veebisaidilt %1</translation>
     </message>
     <message>
       <source>Pause</source>
@@ -3981,6 +3981,10 @@ Kui vasteid pole, kasutab ta kaustas asuvat suurimat pilti.</translation>
     <message>
       <source>Shuffle albums</source>
       <translation>Albumite juhuesitus</translation>
+    </message>
+    <message>
+      <source>Shuffle grouping</source>
+      <translation type="unfinished">Rühmitamine juhuesitus</translation>
     </message>
     <message>
       <source>Don&apos;t repeat</source>
@@ -4635,6 +4639,10 @@ Kui vasteid pole, kasutab ta kaustas asuvat suurimat pilti.</translation>
     <message>
       <source>Shuffle albums</source>
       <translation>Albumite juhuesitus</translation>
+    </message>
+    <message>
+      <source>Shuffle grouping</source>
+      <translation type="unfinished">Rühmitamine juhuesitus</translation>
     </message>
   </context>
   <context>

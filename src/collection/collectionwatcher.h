@@ -2,7 +2,7 @@
  * Strawberry Music Player
  * This file was part of Clementine.
  * Copyright 2010, David Sansome <me@davidsansome.com>
- * Copyright 2018-2025, Jonas Kvinge <jonas@jkvinge.net>
+ * Copyright 2018-2026, Jonas Kvinge <jonas@jkvinge.net>
  *
  * Strawberry is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -85,6 +85,7 @@ class CollectionWatcher : public QObject {
   void SongsReadded(const SongList &songs, const bool unavailable = false);
   void SubdirsDiscovered(const CollectionSubdirectoryList &subdirs);
   void SubdirsMTimeUpdated(const CollectionSubdirectoryList &subdirs);
+  void SubdirsDeleted(const CollectionSubdirectoryList &subdirs);
   void CompilationsNeedUpdating();
   void UpdateLastSeen(const int directory_id, const int expire_unavailable_songs_days);
   void ExitFinished();
@@ -122,7 +123,7 @@ class CollectionWatcher : public QObject {
     // Emits the signals for new & deleted songs etc and clears the lists. This causes the new stuff to be updated on UI.
     void CommitNewOrUpdatedSongs();
 
-    int dir() const { return dir_; }
+    int dir_id() const { return dir_id_; }
     bool is_incremental() const { return incremental_; }
     bool ignores_mtime() const { return ignores_mtime_; }
 
@@ -137,13 +138,13 @@ class CollectionWatcher : public QObject {
     QStringList files_changed_path_;
 
    private:
-    ScanTransaction &operator=(const ScanTransaction&) { return *this; }
+    ScanTransaction &operator=(const ScanTransaction &transaction) { Q_UNUSED(transaction); return *this; }
 
     int task_id_;
     quint64 progress_;
     quint64 progress_max_;
 
-    int dir_;
+    int dir_id_;
     // Incremental scan enters a directory only if it has changed since the last scan.
     bool incremental_;
     // This type of scan updates every file in a folder that's being scanned.
@@ -179,7 +180,7 @@ class CollectionWatcher : public QObject {
   void IncrementalScanNow();
   void FullScanNow();
   void RescanPathsNow();
-  void ScanSubdirectory(const QString &path, const CollectionSubdirectory &subdir, const quint64 files_count, CollectionWatcher::ScanTransaction *t, const bool force_noincremental = false);
+  void ScanSubdirectory(const CollectionDirectory &dir, const QString &path, const CollectionSubdirectory &subdir, const quint64 files_count, CollectionWatcher::ScanTransaction *t, const bool force_noincremental = false);
   void RescanSongs(const SongList &songs);
 
  private:
@@ -202,7 +203,7 @@ class CollectionWatcher : public QObject {
   // Updates the sections of a cue associated and altered (according to mtime) media file during a scan.
   void UpdateCueAssociatedSongs(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, const QUrl &art_automatic, const SongList &old_cue_songs, ScanTransaction *t) const;
   // Updates a single non-cue associated and altered (according to mtime) song during a scan.
-  void UpdateNonCueAssociatedSong(const QString &file, const QString &fingerprint, const SongList &matching_songs, const QUrl &art_automatic, const bool cue_deleted, ScanTransaction *t);
+  bool UpdateNonCueAssociatedSong(const QString &file, const QString &fingerprint, const SongList &matching_songs, const QUrl &art_automatic, const bool cue_deleted, ScanTransaction *t);
   // Scans a single media file that's present on the disk but not yet in the collection.
   // It may result in a multiple files added to the collection when the media file has many sections (like a CUE related media file).
   SongList ScanNewFile(const QString &file, const QString &path, const QString &fingerprint, const QString &matching_cue, QSet<QString> *cues_processed) const;
@@ -261,7 +262,6 @@ class CollectionWatcher : public QObject {
   static QStringList sValidImages;
 
   qint64 last_scan_time_;
-
 };
 
 inline QString CollectionWatcher::NoExtensionPart(const QString &fileName) {

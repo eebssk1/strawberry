@@ -88,7 +88,6 @@ class SubsonicRequest : public SubsonicBaseRequest {
   void AlbumCoverReceived(QNetworkReply *reply, const SubsonicRequest::AlbumCoverRequest &request);
 
  private:
-
   void AddAlbumsRequest(const int offset = 0, const int size = 500);
   void FlushAlbumsRequests();
 
@@ -98,7 +97,7 @@ class SubsonicRequest : public SubsonicBaseRequest {
   void AddAlbumSongsRequest(const QString &artist_id, const QString &album_id, const QString &album_artist, const int offset = 0);
   void FlushAlbumSongsRequests();
 
-  QString ParseSong(Song &song, const QJsonObject &json_object, const QString &artist_id_requested = QString(), const QString &album_id_requested = QString(), const QString &album_artist = QString(), const qint64 album_created = 0);
+  QString ParseSong(Song &song, const QJsonObject &json_object, const QString &artist_id_requested = QString(), const QString &album_id_requested = QString(), const QString &album_artist = QString(), const QString &album_cover_id = QString(), const qint64 album_created = 0);
 
   void GetAlbumCovers();
   void AddAlbumCoverRequest(const Song &song);

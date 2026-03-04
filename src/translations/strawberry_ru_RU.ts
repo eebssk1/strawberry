@@ -9,7 +9,7 @@
     </message>
     <message>
       <source>About Strawberry</source>
-      <translation>О Strawberry</translation>
+      <translation>О программе Strawberry</translation>
     </message>
     <message>
       <source>Version %1</source>
@@ -21,7 +21,7 @@
     </message>
     <message>
       <source>It is a fork of Clementine released in 2018 aimed at music collectors and audiophiles.</source>
-      <translation>Это форк Clementine, выпущенный в 2018 году, специально для коллекционеров музыки и меломанов.</translation>
+      <translation>Это ответвление плеера Clementine, созданное в 2018 году специально для коллекционеров музыки и ценителей качественного звука.</translation>
     </message>
     <message>
       <source>Strawberry is free software released under GPL. The source code is available on %1</source>
@@ -95,7 +95,7 @@
     </message>
     <message>
       <source>Unset cover</source>
-      <translation>Удалить обложку</translation>
+      <translation>Сбросить обложку</translation>
     </message>
     <message>
       <source>Delete cover</source>
@@ -581,7 +581,7 @@
     </message>
     <message>
       <source>Enable HTTP/2 for streaming</source>
-      <translation>Включить HTTP/2 для потокового вещания</translation>
+      <translation>Включить HTTP/2 для проигрывания потоков</translation>
     </message>
     <message>
       <source>Use strict SSL mode</source>
@@ -621,11 +621,11 @@
     </message>
     <message>
       <source>Replay Gain</source>
-      <translation>Нормализация громкости</translation>
+      <translation>Нормализация громкости (Replay Gain)</translation>
     </message>
     <message>
       <source>Use Replay Gain metadata if it is available</source>
-      <translation>Использовать метаданные нормализации по возможности</translation>
+      <translation>Использовать метаданные нормализации (Replay Gain) по возможности</translation>
     </message>
     <message>
       <source>Replay Gain mode</source>
@@ -657,7 +657,7 @@
     </message>
     <message>
       <source>Perform track loudness normalization</source>
-      <translation>Выполнять нормализацию громкости дорожки</translation>
+      <translation>Нормализовать громкость дорожки</translation>
     </message>
     <message>
       <source>Target Level</source>
@@ -776,7 +776,7 @@
     </message>
     <message>
       <source>Pressing &quot;Previous&quot; in player will...</source>
-      <translation>Нажатие кнопки «Предыдущий» осуществит…</translation>
+      <translation>Нажатие кнопки «Предыдущий» выполнит…</translation>
     </message>
     <message>
       <source>Jump to previous song right away</source>
@@ -3697,7 +3697,7 @@ If there are no matches then it will use the largest image in the directory.</so
     </message>
     <message>
       <source>Use proxy settings for streaming</source>
-      <translation>Использовать настройки прокси для потокового прослушивания</translation>
+      <translation>Использовать настройки прокси для проигрывания потоков</translation>
     </message>
   </context>
   <context>
@@ -3981,6 +3981,10 @@ If there are no matches then it will use the largest image in the directory.</so
     <message>
       <source>Shuffle albums</source>
       <translation>Перемешать альбомы</translation>
+    </message>
+    <message>
+      <source>Shuffle grouping</source>
+      <translation type="unfinished">Перемешать группировка</translation>
     </message>
     <message>
       <source>Don&apos;t repeat</source>
@@ -4637,6 +4641,10 @@ If there are no matches then it will use the largest image in the directory.</so
     <message>
       <source>Shuffle albums</source>
       <translation>Перемешать альбомы</translation>
+    </message>
+    <message>
+      <source>Shuffle grouping</source>
+      <translation type="unfinished">Перемешать группировка</translation>
     </message>
   </context>
   <context>
@@ -5526,7 +5534,7 @@ Are you sure you want to continue?</source>
     <name>RadioParadiseService</name>
     <message>
       <source>Getting %1 channels</source>
-      <translation>Получение %1 каналов</translation>
+      <translation>Получение каналов %1</translation>
     </message>
   </context>
   <context>
@@ -6078,7 +6086,7 @@ Are you sure you want to continue?</source>
     </message>
     <message>
       <source>Ever played</source>
-      <translation>Любые прослушанные</translation>
+      <translation>Когда-либо прослушивались</translation>
     </message>
     <message>
       <source>Never played</source>
@@ -6191,7 +6199,7 @@ Are you sure you want to continue?</source>
     <name>SomaFMService</name>
     <message>
       <source>Getting %1 channels</source>
-      <translation>Получение %1 каналов</translation>
+      <translation>Получение каналов %1</translation>
     </message>
   </context>
   <context>

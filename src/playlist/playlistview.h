@@ -136,7 +136,7 @@ class PlaylistView : public QTreeView {
   void timerEvent(QTimerEvent *event) override;
   void mouseMoveEvent(QMouseEvent *event) override;
   void mousePressEvent(QMouseEvent *event) override;
-  void leaveEvent(QEvent*) override;
+  void leaveEvent(QEvent *e) override;
   void paintEvent(QPaintEvent *event) override;
   void dragMoveEvent(QDragMoveEvent *event) override;
   void dragEnterEvent(QDragEnterEvent *event) override;
@@ -156,6 +156,7 @@ class PlaylistView : public QTreeView {
   // QAbstractItemView
   void rowsInserted(const QModelIndex &parent, const int start, const int end) override;
   void closeEditor(QWidget *editor, const QAbstractItemDelegate::EndEditHint hint) override;
+  void startDrag(const Qt::DropActions drop_actions) override;
 
  private Q_SLOTS:
   void Update() { update(); }

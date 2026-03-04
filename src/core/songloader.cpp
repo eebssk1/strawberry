@@ -98,12 +98,19 @@ SongLoader::SongLoader(const SharedPtr<UrlHandlers> url_handlers,
 
   QObject::connect(timeout_timer_, &QTimer::timeout, this, &SongLoader::Timeout);
 
+  QObject::connect(playlist_parser_, &PlaylistParser::Error, this, &SongLoader::ParserError);
+  QObject::connect(cue_parser_, &CueParser::Error, this, &SongLoader::ParserError);
+
 }
 
 SongLoader::~SongLoader() {
 
   CleanupPipeline();
 
+}
+
+void SongLoader::ParserError(const QString &error) {
+  errors_ << error;
 }
 
 SongLoader::Result SongLoader::Load(const QUrl &url) {
@@ -170,7 +177,6 @@ SongLoader::Result SongLoader::LoadLocalPartial(const QString &filename) {
     }
   }
 
-  errors_ << QObject::tr("File %1 is not recognized as a valid audio file.").arg(filename);
   return Result::Error;
 
 }
@@ -287,6 +293,7 @@ SongLoader::Result SongLoader::LoadLocalAsync(const QString &filename) {
   }
 
   if (parser) {  // It's a playlist!
+    QObject::connect(parser, &ParserBase::Error, this, &SongLoader::ParserError, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::UniqueConnection));
     qLog(Debug) << "Parsing using" << parser->name();
     LoadPlaylist(parser, filename);
     return Result::Success;
@@ -323,7 +330,6 @@ SongLoader::Result SongLoader::LoadLocalAsync(const QString &filename) {
     }
   }
 
-  errors_ << QObject::tr("File %1 is not recognized as a valid audio file.").arg(filename);
   return Result::Error;
 
 }
@@ -667,9 +673,9 @@ void SongLoader::EndOfStreamReached() {
       // Do the magic on the data we have already
       MagicReady();
       if (state_ == State::Finished) break;
-    // It looks like a playlist, so parse it
+      // It looks like a playlist, so parse it
 
-    [[fallthrough]];
+      [[fallthrough]];
     case State::WaitingForData:
       // It's a playlist and we've got all the data - finish and parse it
       StopTypefindAsync(true);
@@ -704,6 +710,10 @@ void SongLoader::MagicReady() {
     parser_ = nullptr;
     url_.setScheme(u"mms"_s);
     StopTypefindAsync(true);
+  }
+
+  if (parser_) {
+    QObject::connect(parser_, &ParserBase::Error, this, &SongLoader::ParserError, static_cast<Qt::ConnectionType>(Qt::QueuedConnection | Qt::UniqueConnection));
   }
 
   state_ = State::WaitingForData;
@@ -784,4 +794,3 @@ void SongLoader::CleanupPipeline() {
   state_ = State::Finished;
 
 }
-
